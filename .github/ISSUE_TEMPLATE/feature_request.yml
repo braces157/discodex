@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a provider, integration, or product improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What would you like Discodex to handle better?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Provider/app, if applicable
+      placeholder: Provider name and version
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Do not include private prompts, session contents, tokens, or credentials.
+
