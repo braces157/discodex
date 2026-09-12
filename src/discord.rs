@@ -2,6 +2,7 @@ use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
 
 use crate::{provider::Provider, state::Phase};
 
+#[cfg(test)]
 const CODEX_IMAGE_URL: &str =
     "https://raw.githubusercontent.com/braces157/discodex/main/assets/codex-bundle-blue.png";
 
@@ -15,6 +16,8 @@ pub struct PresenceSnapshot {
     pub activity: String,
     pub phase: Phase,
     pub started_at_ms: i64,
+    pub agent: Option<String>,
+    pub reasoning: Option<String>,
 }
 
 pub struct DiscordPublisher {
@@ -100,30 +103,77 @@ fn build_activity(snapshot: &PresenceSnapshot) -> activity::Activity<'_> {
         .as_deref()
         .or(snapshot.project_stack.as_deref());
     let provider = snapshot.provider.display_name();
-    let details = match (snapshot.project == provider, context) {
-        (true, _) => format!("Using {provider}"),
-        (false, Some(context)) => format!("{provider} • {} • {context}", snapshot.project),
-        (false, None) => format!("{provider} • {}", snapshot.project),
+
+    let mut details = match (snapshot.project == provider, &snapshot.agent, context) {
+        (true, Some(agent), Some(ctx)) => format!("{provider} • {agent} • {ctx}"),
+        (true, Some(agent), None) => format!("{provider} • {agent}"),
+        (true, None, Some(ctx)) => format!("Using {provider} • {ctx}"),
+        (true, None, None) => format!("Using {provider}"),
+        (false, Some(agent), Some(ctx)) => {
+            format!("{provider} • {agent} • {} • {ctx}", snapshot.project)
+        }
+        (false, Some(agent), None) => {
+            format!("{provider} • {agent} • {}", snapshot.project)
+        }
+        (false, None, Some(ctx)) => {
+            format!("{provider} • {} • {ctx}", snapshot.project)
+        }
+        (false, None, None) => {
+            format!("{provider} • {}", snapshot.project)
+        }
     };
-    let state = match snapshot.current_file.as_deref() {
-        Some(file) => format!("{file} • {}", snapshot.activity),
-        None => snapshot.activity.clone(),
+    truncate_in_place(&mut details, 128);
+
+    let mut state = if snapshot.phase == Phase::Thinking {
+        let reasoning_label = match &snapshot.reasoning {
+            Some(r) if !r.trim().is_empty() => format!("Reasoning: {r}"),
+            _ => snapshot.activity.clone(),
+        };
+        match snapshot.current_file.as_deref() {
+            Some(file) => format!("{file} • {reasoning_label}"),
+            None => reasoning_label,
+        }
+    } else {
+        let tool_state = match snapshot.current_file.as_deref() {
+            Some(file) => format!("{file} • {}", snapshot.activity),
+            None => snapshot.activity.clone(),
+        };
+        match &snapshot.reasoning {
+            Some(r) if !r.trim().is_empty() => format!("{tool_state} • Reasoning: {r}"),
+            _ => tool_state,
+        }
     };
+    truncate_in_place(&mut state, 128);
+
     let mut activity = activity::Activity::new()
         .name(provider)
         .details(details)
         .state(state)
         .timestamps(activity::Timestamps::new().start(snapshot.started_at_ms));
 
-    if snapshot.provider == Provider::Codex {
-        activity = activity.assets(
-            activity::Assets::new()
-                .large_image(CODEX_IMAGE_URL)
-                .large_text("OpenAI Codex"),
-        );
-    }
+    let mut large_text = match &snapshot.agent {
+        Some(agent) => format!("{provider} • {agent}"),
+        None => provider.to_string(),
+    };
+    truncate_in_place(&mut large_text, 128);
+    activity = activity.assets(
+        activity::Assets::new()
+            .large_image(snapshot.provider.logo_url())
+            .large_text(large_text),
+    );
 
     activity
+}
+
+fn truncate_in_place(s: &mut String, max_bytes: usize) {
+    if s.len() <= max_bytes {
+        return;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s.truncate(end);
 }
 
 #[cfg(test)]
@@ -141,10 +191,13 @@ mod tests {
             activity: "Editing files".to_string(),
             phase: Phase::RunningTools,
             started_at_ms: 1234,
+            agent: Some("DeepCoder".to_string()),
+            reasoning: None,
         };
         assert_eq!(snapshot.project, "Discodex");
         assert_eq!(snapshot.activity, "Editing files");
         assert_eq!(snapshot.started_at_ms, 1234);
+        assert_eq!(snapshot.agent.as_deref(), Some("DeepCoder"));
     }
 
     #[test]
@@ -158,13 +211,19 @@ mod tests {
             activity: "Editing files".to_string(),
             phase: Phase::Thinking,
             started_at_ms: 1_789_187_508_000,
+            agent: None,
+            reasoning: None,
         };
         let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
         assert_eq!(value["name"], "Claude Code");
         assert_eq!(value["details"], "Claude Code • Discodex • Rust");
         assert_eq!(value["state"], "discord.rs • Editing files");
         assert_eq!(value["timestamps"]["start"], 1_789_187_508_000_i64);
-        assert!(value.get("assets").is_none());
+        assert_eq!(
+            value["assets"]["large_image"],
+            Provider::ClaudeCode.logo_url()
+        );
+        assert_eq!(value["assets"]["large_text"], "Claude Code");
     }
 
     #[test]
@@ -178,9 +237,107 @@ mod tests {
             activity: "Reviewing tool results".to_string(),
             phase: Phase::Thinking,
             started_at_ms: 1_789_187_508_000,
+            agent: None,
+            reasoning: None,
         };
         let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
         assert_eq!(value["assets"]["large_image"], CODEX_IMAGE_URL);
         assert_eq!(value["assets"]["large_text"], "OpenAI Codex");
+    }
+
+    #[test]
+    fn every_supported_provider_has_rich_presence_logo_asset() {
+        for provider in Provider::ALL {
+            let snapshot = PresenceSnapshot {
+                provider,
+                project: "Discodex".to_string(),
+                project_stack: Some("Rust".to_string()),
+                current_file: None,
+                current_language: None,
+                activity: "Coding".to_string(),
+                phase: Phase::Thinking,
+                started_at_ms: 1_789_187_508_000,
+                agent: None,
+                reasoning: None,
+            };
+            let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
+            let assets = &value["assets"];
+            assert!(
+                assets.is_object(),
+                "Provider {provider:?} missing assets in activity"
+            );
+            assert_eq!(
+                assets["large_image"],
+                provider.logo_url(),
+                "Provider {provider:?} large_image mismatch"
+            );
+            assert_eq!(
+                assets["large_text"],
+                provider.display_name(),
+                "Provider {provider:?} large_text mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn activity_includes_agent_and_reasoning_in_discord_presence() {
+        let snapshot = PresenceSnapshot {
+            provider: Provider::Antigravity,
+            project: "Discodex".to_string(),
+            project_stack: Some("Rust".to_string()),
+            current_file: None,
+            current_language: None,
+            activity: "Reasoning: Evaluating Request and Identity".to_string(),
+            phase: Phase::Thinking,
+            started_at_ms: 1_789_187_508_000,
+            agent: Some("DeepCoder".to_string()),
+            reasoning: Some("Evaluating Request and Identity".to_string()),
+        };
+        let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
+        assert_eq!(value["name"], "Google Antigravity");
+        assert_eq!(
+            value["details"],
+            "Google Antigravity • DeepCoder • Discodex • Rust"
+        );
+        assert_eq!(value["state"], "Reasoning: Evaluating Request and Identity");
+        assert_eq!(
+            value["assets"]["large_image"],
+            Provider::Antigravity.logo_url()
+        );
+        assert_eq!(
+            value["assets"]["large_text"],
+            "Google Antigravity • DeepCoder"
+        );
+
+        // When running tools with agent
+        let tool_snapshot = PresenceSnapshot {
+            provider: Provider::Antigravity,
+            project: "Discodex".to_string(),
+            project_stack: Some("Rust".to_string()),
+            current_file: Some("discord.rs".to_string()),
+            current_language: Some("Rust".to_string()),
+            activity: "Editing files".to_string(),
+            phase: Phase::RunningTools,
+            started_at_ms: 1_789_187_508_000,
+            agent: Some("DeepCoder".to_string()),
+            reasoning: Some("Evaluating Request and Identity".to_string()),
+        };
+        let tool_value = serde_json::to_value(build_activity(&tool_snapshot)).unwrap();
+        assert_eq!(
+            tool_value["details"],
+            "Google Antigravity • DeepCoder • Discodex • Rust"
+        );
+        assert_eq!(
+            tool_value["state"],
+            "discord.rs • Editing files • Reasoning: Evaluating Request and Identity"
+        );
+        assert_eq!(
+            tool_value["assets"]["large_image"],
+            Provider::Antigravity.logo_url()
+        );
+        assert_eq!(
+            tool_value["assets"]["large_text"],
+            "Google Antigravity • DeepCoder"
+        );
     }
 }

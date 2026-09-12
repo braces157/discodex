@@ -10,6 +10,7 @@ Rich adapters read local session event files and convert only selected metadata 
 | --- | --- | --- |
 | OpenAI Codex | `~\.codex\sessions\...\rollout-*.jsonl` | Project, stack/language, file basename, activity, phase, timer |
 | Claude Code | `~\.claude\projects\...\*.jsonl` | Project, stack/language, file basename, activity, phase, timer |
+| Google Antigravity | `~\.gemini\antigravity\brain\...\transcript.jsonl` | Project, stack/language, file basename, activity, phase, timer |
 
 Session adapters do not forward prompt text, assistant responses, raw tool arguments, raw tool output, or full paths to Discord.
 
@@ -52,10 +53,10 @@ This mode is best-effort. Browser title formats, editor extension titles, and ex
 
 Provider recognition is centralized in `src/provider.rs`. A new provider normally needs:
 
-1. A `Provider` enum entry and display name.
+1. A `Provider` enum entry, display name, and logo URL mapping in `Provider::logo_url`.
 2. Executable/window recognition for standard detection.
 3. Optionally, a `SessionSource` plus parser support in `src/events.rs` for rich tracking.
-4. Tests proving that sensitive message content is discarded.
+4. Tests proving that sensitive message content is discarded and logo asset is present.
 
 Rich adapters should only be added when the local event format is sufficiently stable to parse without collecting conversation content.
 

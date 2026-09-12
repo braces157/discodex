@@ -65,7 +65,7 @@ impl LogTailer {
 
 pub fn recent_logs(root: &Path, provider: Provider, limit: usize) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    collect_logs(root, provider, &mut files);
+    collect_logs(root, provider, &mut files, 0);
     files.sort_by_key(|path| {
         fs::metadata(path)
             .and_then(|meta| meta.modified())
@@ -75,14 +75,28 @@ pub fn recent_logs(root: &Path, provider: Provider, limit: usize) -> Vec<PathBuf
     files.drain(keep_from..).collect()
 }
 
-fn collect_logs(dir: &Path, provider: Provider, files: &mut Vec<PathBuf>) {
+fn collect_logs(dir: &Path, provider: Provider, files: &mut Vec<PathBuf>, depth: usize) {
+    if depth > 5 {
+        return;
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect_logs(&path, provider, files);
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if (name_str.starts_with('.') && name_str != ".system_generated")
+                || name_str == "node_modules"
+                || name_str == "target"
+                || name_str == "scratch"
+                || name_str == "steps"
+                || name_str == "tasks"
+            {
+                continue;
+            }
+            collect_logs(&path, provider, files, depth + 1);
         } else if provider::is_session_log(provider, &path) {
             files.push(path);
         }
@@ -112,6 +126,31 @@ mod tests {
 
         fs::write(&path, "rotated\n").unwrap();
         assert_eq!(tailer.read_new(&path).unwrap(), vec!["rotated"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_from_start_reads_initial_lines_in_large_logs() {
+        let dir = std::env::temp_dir().join(format!("discodex-large-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("transcript.jsonl");
+
+        let mut file = fs::File::create(&path).unwrap();
+        writeln!(file, "{{\"step_index\":0,\"content\":\"/boost task\"}}").unwrap();
+        // Write ~300KB of content
+        let padding = "x".repeat(1000);
+        for i in 1..=300 {
+            writeln!(file, "{{\"step_index\":{i},\"data\":\"{padding}\"}}").unwrap();
+        }
+        file.flush().unwrap();
+        drop(file);
+
+        let mut tailer = LogTailer::default();
+        let lines = tailer.read_from_start(&path).unwrap();
+        assert_eq!(lines.len(), 301);
+        assert_eq!(lines[0], "{\"step_index\":0,\"content\":\"/boost task\"}");
+
         let _ = fs::remove_dir_all(&dir);
     }
 }

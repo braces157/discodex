@@ -28,12 +28,12 @@ Discodex uses two detection layers. Rich session tracking has the most detail; f
 | --- | --- | --- |
 | OpenAI Codex | Local session JSONL | Rich |
 | Claude Code | Local session JSONL | Rich |
+| Google Antigravity | Local session JSONL | Rich |
 | ChatGPT | Focused app/window | Standard |
 | Claude | Focused app/window | Standard |
 | Google Gemini | Focused app/window | Standard |
 | Cursor | Focused app/window | Standard |
 | Windsurf | Focused app/window | Standard |
-| Google Antigravity | Focused app/window | Standard |
 | Trae | Focused app/window | Standard |
 | Kiro | Focused app/window | Standard |
 | Zed AI | Focused app/window | Standard |

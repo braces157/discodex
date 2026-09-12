@@ -11,7 +11,9 @@ Depending on the provider and detection mode, Discodex may publish:
 - Inferred language or framework
 - Current file basename
 - Normalized activity such as `Editing files` or `Running Rust tests`
-- High-level phase such as thinking or running tools
+- High-level phase such as thinking/reasoning or running tools
+- Active agent or subagent role (e.g. `DeepCoder`, `DeepInvestigator`, `Planner`)
+- High-level reasoning topic or step heading (e.g. `Evaluating Request and Identity`)
 - Task start timestamp for elapsed time
 
 ## Data intentionally excluded
@@ -19,7 +21,7 @@ Depending on the provider and detection mode, Discodex may publish:
 Discodex does not publish:
 
 - User prompts
-- Assistant responses
+- Assistant responses or full chain-of-thought text
 - Full file paths
 - Raw shell commands
 - Tool arguments
@@ -29,7 +31,7 @@ Discodex does not publish:
 - Browser URLs
 - Account identifiers
 
-The parser converts recognized events into a small internal `PresenceSnapshot`; raw session lines are not sent to Discord.
+The parser converts recognized events into a small internal `PresenceSnapshot`; raw session lines and verbatim thought content are not sent to Discord.
 
 ## Focused-window detection
 
@@ -41,7 +43,7 @@ Disable this layer at any time from the tray menu with **Detect focused AI apps*
 foreground_detection = false
 ```
 
-Rich Codex and Claude Code session tracking remains available when focused-app detection is disabled.
+Rich Codex, Claude Code, and Google Antigravity session tracking remains available when focused-app detection is disabled.
 
 ## Network behavior
 

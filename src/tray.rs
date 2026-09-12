@@ -61,6 +61,10 @@ pub fn run(
         // Windows bitmap-scales the native popup menu on high-DPI displays, which makes
         // the text look soft on 1440p/4K monitors.
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let _ = windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
+        );
 
         let instance = GetModuleHandleW(None)?;
         let class_name = w!("DiscodexTrayWindow");
@@ -100,7 +104,12 @@ pub fn run(
             ..Default::default()
         };
         copy_wide(&mut nid.szTip, "Discodex — AI Discord Presence");
-        add_tray_icon(&mut nid)?;
+
+        let mut tray_added = add_tray_icon(&mut nid);
+        if !tray_added {
+            // Taskbar tray might not be ready yet (or explorer restarted). Retry every 5 seconds.
+            let _ = windows::Win32::UI::WindowsAndMessaging::SetTimer(Some(hwnd), 1, 5000, None);
+        }
 
         // Explorer broadcasts this after it restarts. Notification icons are wiped when
         // Explorer exits, so re-add ours automatically instead of silently disappearing.
@@ -109,31 +118,47 @@ pub fn run(
         let mut message = MSG::default();
         while GetMessageW(&mut message, None, 0, 0).as_bool() {
             if taskbar_created_message != 0 && message.message == taskbar_created_message {
-                let _ = add_tray_icon(&mut nid);
+                if add_tray_icon(&mut nid) {
+                    tray_added = true;
+                    let _ = windows::Win32::UI::WindowsAndMessaging::KillTimer(Some(hwnd), 1);
+                }
+                continue;
+            }
+            if message.message == windows::Win32::UI::WindowsAndMessaging::WM_TIMER
+                && message.wParam == windows::Win32::Foundation::WPARAM(1)
+            {
+                if !tray_added && add_tray_icon(&mut nid) {
+                    tray_added = true;
+                    let _ = windows::Win32::UI::WindowsAndMessaging::KillTimer(Some(hwnd), 1);
+                }
                 continue;
             }
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
         }
-        let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
+        let _ = windows::Win32::UI::WindowsAndMessaging::KillTimer(Some(hwnd), 1);
+        if tray_added {
+            let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
+        }
         if destroy_icon {
             let _ = DestroyIcon(icon);
         }
+        windows::Win32::System::Com::CoUninitialize();
     }
     Ok(())
 }
 
-fn add_tray_icon(nid: &mut NOTIFYICONDATAW) -> Result<(), Box<dyn std::error::Error>> {
+fn add_tray_icon(nid: &mut NOTIFYICONDATAW) -> bool {
     unsafe {
+        let _ = Shell_NotifyIconW(NIM_DELETE, nid);
         if !Shell_NotifyIconW(NIM_ADD, nid).as_bool() {
-            return Err("Explorer rejected the Discodex tray icon".into());
+            return false;
         }
 
-        // Use current notification-area callback semantics on modern Windows.
         nid.Anonymous.uVersion = NOTIFYICON_VERSION_4;
         let _ = Shell_NotifyIconW(NIM_SETVERSION, nid);
+        true
     }
-    Ok(())
 }
 
 fn load_app_icon() -> Result<(HICON, bool), Box<dyn std::error::Error>> {
