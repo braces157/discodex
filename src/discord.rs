@@ -2,6 +2,9 @@ use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
 
 use crate::{provider::Provider, state::Phase};
 
+const CODEX_IMAGE_URL: &str =
+    "https://raw.githubusercontent.com/braces157/discodex/main/assets/codex-bundle-blue.png";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresenceSnapshot {
     pub provider: Provider,
@@ -106,11 +109,21 @@ fn build_activity(snapshot: &PresenceSnapshot) -> activity::Activity<'_> {
         Some(file) => format!("{file} • {}", snapshot.activity),
         None => snapshot.activity.clone(),
     };
-    activity::Activity::new()
+    let mut activity = activity::Activity::new()
         .name(provider)
         .details(details)
         .state(state)
-        .timestamps(activity::Timestamps::new().start(snapshot.started_at_ms))
+        .timestamps(activity::Timestamps::new().start(snapshot.started_at_ms));
+
+    if snapshot.provider == Provider::Codex {
+        activity = activity.assets(
+            activity::Assets::new()
+                .large_image(CODEX_IMAGE_URL)
+                .large_text("OpenAI Codex"),
+        );
+    }
+
+    activity
 }
 
 #[cfg(test)]
@@ -151,5 +164,23 @@ mod tests {
         assert_eq!(value["details"], "Claude Code • Discodex • Rust");
         assert_eq!(value["state"], "discord.rs • Editing files");
         assert_eq!(value["timestamps"]["start"], 1_789_187_508_000_i64);
+        assert!(value.get("assets").is_none());
+    }
+
+    #[test]
+    fn codex_activity_uses_public_codex_artwork() {
+        let snapshot = PresenceSnapshot {
+            provider: Provider::Codex,
+            project: "Discodex".to_string(),
+            project_stack: Some("Rust".to_string()),
+            current_file: None,
+            current_language: None,
+            activity: "Reviewing tool results".to_string(),
+            phase: Phase::Thinking,
+            started_at_ms: 1_789_187_508_000,
+        };
+        let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
+        assert_eq!(value["assets"]["large_image"], CODEX_IMAGE_URL);
+        assert_eq!(value["assets"]["large_text"], "OpenAI Codex");
     }
 }

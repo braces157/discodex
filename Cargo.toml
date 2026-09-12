@@ -1,6 +1,6 @@
 [package]
 name = "discodex"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Discord Rich Presence for popular AI coding tools and assistants on Windows"
 repository = "https://github.com/braces157/discodex"
