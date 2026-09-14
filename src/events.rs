@@ -308,6 +308,7 @@ fn detect_project_root(path_str: &str) -> Option<(String, String)> {
 
     let mut current = Some(start_dir);
     let mut best_root = None;
+    let mut src_parent = None;
     while let Some(dir) = current {
         if dir.join(".git").exists()
             || dir.join("Cargo.toml").exists()
@@ -318,10 +319,20 @@ fn detect_project_root(path_str: &str) -> Option<(String, String)> {
             best_root = Some(dir);
             break;
         }
+        if src_parent.is_none()
+            && let Some(name) = dir.file_name().and_then(|n| n.to_str())
+            && matches!(
+                name,
+                "src" | "lib" | "tests" | "test" | "bin" | "dist" | "build" | "pkg" | "target"
+            )
+            && let Some(parent) = dir.parent()
+        {
+            src_parent = Some(parent);
+        }
         current = dir.parent();
     }
 
-    let root = best_root.unwrap_or(start_dir);
+    let root = best_root.or(src_parent).unwrap_or(start_dir);
     let cwd = root.to_string_lossy().to_string();
     let project = project_name(&cwd)?;
     Some((project, cwd))
@@ -1234,6 +1245,14 @@ mod tests {
         let final_answer = r#"{"step_index":5,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-12T06:05:15Z","content":"I have implemented the changes.","tool_calls":[]}"#;
         let events = parse_line_for(Provider::Antigravity, final_answer);
         assert_eq!(events, vec![ParsedEvent::TerminalCandidate]);
+    }
+
+    #[test]
+    fn detects_project_root_for_non_existent_virtual_paths() {
+        let (project, cwd) =
+            detect_project_root(r"Z:\nonexistent_disk_path\discodex_test\src\events.rs").unwrap();
+        assert_eq!(project, "discodex_test");
+        assert_eq!(cwd, r"Z:\nonexistent_disk_path\discodex_test");
     }
 
     #[test]
