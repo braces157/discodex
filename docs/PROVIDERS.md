@@ -58,5 +58,10 @@ Provider recognition is centralized in `src/provider.rs`. A new provider normall
 3. Optionally, a `SessionSource` plus parser support in `src/events.rs` for rich tracking.
 4. Tests proving that sensitive message content is discarded and logo asset is present.
 
-Rich adapters should only be added when the local event format is sufficiently stable to parse without collecting conversation content.
+### Rich Presence logos
 
+Product icons use PNGs from [Lobe Icons](https://github.com/lobehub/lobe-icons), pinned to `@lobehub/icons-static-png@1.97.0` on jsDelivr. Dark variants keep monochrome marks visible on Discord's dark background. Codex uses this repository's existing artwork; Zed, Aider, and Continue use their verified product organization avatars.
+
+When changing a mapping, fetch the URL and verify that it returns a decodable image, then inspect the artwork itself. A working URL or passing serialization test alone cannot detect a wrong brand. Use the specific product logo, especially for Antigravity, Claude Code, GitHub Copilot, and Microsoft Copilot; do not substitute the parent company's avatar. External images require network access and may remain cached by Discord after a change.
+
+Rich adapters should only be added when the local event format is sufficiently stable to parse without collecting conversation content.

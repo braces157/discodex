@@ -105,28 +105,26 @@ fn build_activity(snapshot: &PresenceSnapshot) -> activity::Activity<'_> {
     let provider = snapshot.provider.display_name();
 
     let mut details = match (snapshot.project == provider, &snapshot.agent, context) {
-        (true, Some(agent), Some(ctx)) => format!("{provider} • {agent} • {ctx}"),
-        (true, Some(agent), None) => format!("{provider} • {agent}"),
-        (true, None, Some(ctx)) => format!("Using {provider} • {ctx}"),
-        (true, None, None) => format!("Using {provider}"),
+        (true, Some(agent), Some(ctx)) => format!("{agent} • {ctx}"),
+        (true, Some(agent), None) => agent.clone(),
+        (true, None, Some(ctx)) => ctx.to_string(),
+        (true, None, None) => snapshot.project.clone(),
         (false, Some(agent), Some(ctx)) => {
-            format!("{provider} • {agent} • {} • {ctx}", snapshot.project)
+            format!("{agent} • {} • {ctx}", snapshot.project)
         }
         (false, Some(agent), None) => {
-            format!("{provider} • {agent} • {}", snapshot.project)
+            format!("{agent} • {}", snapshot.project)
         }
         (false, None, Some(ctx)) => {
-            format!("{provider} • {} • {ctx}", snapshot.project)
+            format!("{} • {ctx}", snapshot.project)
         }
-        (false, None, None) => {
-            format!("{provider} • {}", snapshot.project)
-        }
+        (false, None, None) => snapshot.project.clone(),
     };
     truncate_in_place(&mut details, 128);
 
     let mut state = if snapshot.phase == Phase::Thinking {
         let reasoning_label = match &snapshot.reasoning {
-            Some(r) if !r.trim().is_empty() => format!("Reasoning: {r}"),
+            Some(r) if !r.trim().is_empty() => r.clone(),
             _ => snapshot.activity.clone(),
         };
         match snapshot.current_file.as_deref() {
@@ -139,7 +137,7 @@ fn build_activity(snapshot: &PresenceSnapshot) -> activity::Activity<'_> {
             None => snapshot.activity.clone(),
         };
         match &snapshot.reasoning {
-            Some(r) if !r.trim().is_empty() => format!("{tool_state} • Reasoning: {r}"),
+            Some(r) if !r.trim().is_empty() => format!("{tool_state} • {r}"),
             _ => tool_state,
         }
     };
@@ -216,7 +214,7 @@ mod tests {
         };
         let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
         assert_eq!(value["name"], "Claude Code");
-        assert_eq!(value["details"], "Claude Code • Discodex • Rust");
+        assert_eq!(value["details"], "Discodex • Rust");
         assert_eq!(value["state"], "discord.rs • Editing files");
         assert_eq!(value["timestamps"]["start"], 1_789_187_508_000_i64);
         assert_eq!(
@@ -295,11 +293,8 @@ mod tests {
         };
         let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
         assert_eq!(value["name"], "Google Antigravity");
-        assert_eq!(
-            value["details"],
-            "Google Antigravity • DeepCoder • Discodex • Rust"
-        );
-        assert_eq!(value["state"], "Reasoning: Evaluating Request and Identity");
+        assert_eq!(value["details"], "DeepCoder • Discodex • Rust");
+        assert_eq!(value["state"], "Evaluating Request and Identity");
         assert_eq!(
             value["assets"]["large_image"],
             Provider::Antigravity.logo_url()
@@ -323,13 +318,10 @@ mod tests {
             reasoning: Some("Evaluating Request and Identity".to_string()),
         };
         let tool_value = serde_json::to_value(build_activity(&tool_snapshot)).unwrap();
-        assert_eq!(
-            tool_value["details"],
-            "Google Antigravity • DeepCoder • Discodex • Rust"
-        );
+        assert_eq!(tool_value["details"], "DeepCoder • Discodex • Rust");
         assert_eq!(
             tool_value["state"],
-            "discord.rs • Editing files • Reasoning: Evaluating Request and Identity"
+            "discord.rs • Editing files • Evaluating Request and Identity"
         );
         assert_eq!(
             tool_value["assets"]["large_image"],

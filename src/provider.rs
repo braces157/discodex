@@ -49,32 +49,64 @@ impl Provider {
         Self::Poe,
     ];
 
+    // Use product artwork, not parent-company avatars (e.g. Google or Microsoft).
+    // Pin the icon package so upstream releases cannot silently change the images.
     pub const fn logo_url(self) -> &'static str {
         match self {
             Self::Codex => {
                 "https://raw.githubusercontent.com/braces157/discodex/main/assets/codex-bundle-blue.png"
             }
-            Self::ClaudeCode => "https://avatars.githubusercontent.com/u/76263028?v=4",
-            Self::ChatGpt => "https://avatars.githubusercontent.com/u/14957082?v=4",
-            Self::Claude => "https://avatars.githubusercontent.com/u/76263028?v=4",
-            Self::Gemini => "https://avatars.githubusercontent.com/u/161781182?v=4",
-            Self::Cursor => "https://cursor.com/marketing-static/icon-192x192-light.png",
-            Self::Windsurf => "https://avatars.githubusercontent.com/u/85581684?v=4",
-            Self::Antigravity => "https://avatars.githubusercontent.com/u/8596759?v=4",
-            Self::Trae => "https://avatars.githubusercontent.com/u/192691831?v=4",
-            Self::Kiro => "https://avatars.githubusercontent.com/u/207925904?v=4",
-            Self::Zed => "https://avatars.githubusercontent.com/u/79345384?v=4",
-            Self::OpenCode => "https://avatars.githubusercontent.com/u/66570915?v=4",
-            Self::Aider => "https://avatars.githubusercontent.com/u/172139148?v=4",
-            Self::GitHubCopilot => "https://avatars.githubusercontent.com/u/9919?v=4",
-            Self::Cline => {
-                "https://raw.githubusercontent.com/cline/cline/main/assets/icons/icon.png"
+            Self::ClaudeCode => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/claudecode-color.png"
             }
-            Self::RooCode => "https://avatars.githubusercontent.com/u/211522643?v=4",
+            Self::ChatGpt => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/openai.png"
+            }
+            Self::Claude => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/claude-color.png"
+            }
+            Self::Gemini => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/gemini-color.png"
+            }
+            Self::Cursor => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/cursor.png"
+            }
+            Self::Windsurf => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/windsurf.png"
+            }
+            Self::Antigravity => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/antigravity-color.png"
+            }
+            Self::Trae => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/trae-color.png"
+            }
+            Self::Kiro => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/kiro-color.png"
+            }
+            Self::Zed => "https://avatars.githubusercontent.com/u/79345384?v=4",
+            Self::OpenCode => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/opencode.png"
+            }
+            Self::Aider => "https://avatars.githubusercontent.com/u/172139148?v=4",
+            Self::GitHubCopilot => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/githubcopilot.png"
+            }
+            Self::Cline => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/cline.png"
+            }
+            Self::RooCode => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/roocode.png"
+            }
             Self::Continue => "https://avatars.githubusercontent.com/u/127876214?v=4",
-            Self::Perplexity => "https://avatars.githubusercontent.com/u/185426709?v=4",
-            Self::MicrosoftCopilot => "https://avatars.githubusercontent.com/u/6154722?v=4",
-            Self::Poe => "https://avatars.githubusercontent.com/u/129537891?v=4",
+            Self::Perplexity => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/perplexity-color.png"
+            }
+            Self::MicrosoftCopilot => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/copilot-color.png"
+            }
+            Self::Poe => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/poe-color.png"
+            }
         }
     }
 

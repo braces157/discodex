@@ -745,7 +745,7 @@ fn clean_reasoning_text(text: &str) -> String {
         {
             end = last_space;
         }
-        format!("{}...", &collapsed[..end].trim_end())
+        format!("{}...", collapsed[..end].trim_end())
     } else {
         collapsed
     }
@@ -824,7 +824,11 @@ fn normalize_agent_name(name: &str) -> String {
     } else if trimmed.starts_with("DeepInvestigator") {
         "DeepInvestigator".to_string()
     } else if trimmed.len() > 24 {
-        format!("{}...", &trimmed[..21])
+        let mut end = 21;
+        while end > 0 && !trimmed.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", trimmed[..end].trim_end())
     } else {
         trimmed.to_string()
     }
