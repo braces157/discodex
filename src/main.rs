@@ -963,6 +963,14 @@ mod tests {
         let provider = Provider::DeepSeekHarness;
         let started = 1_792_540_721_885_i64;
         let mut activity = ActivityState::default();
+        // The project is the name of the folder the session runs in. The
+        // checkout folder of a build agent is not spelled the same way as the
+        // repository, so the expectation follows the path of the build.
+        let expected_project = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Discodex")
+            .to_string();
         let header = json!({"type":"session","version":4,"cwd":env!("CARGO_MANIFEST_DIR"),"createdAt":started});
         let model = json!({"type":"request/header","time":started,"data":{"header":{"config":{"model":"deepseek-v4-pro","reasoningEffort":"high","apiKey":"PRIVATE_KEY"}}}});
         apply_historical_lines(
@@ -990,7 +998,7 @@ mod tests {
         );
         let snapshot = activity.selected_presence().unwrap();
         assert_eq!(snapshot.agent.as_deref(), Some("deepseek-v4-pro (high)"));
-        assert_eq!(snapshot.project, "Discodex");
+        assert_eq!(snapshot.project, expected_project);
         assert_eq!(snapshot.project_stack.as_deref(), Some("Rust"));
         assert_eq!(snapshot.current_file.as_deref(), Some("main.rs"));
         assert_eq!(snapshot.phase, state::Phase::RunningTools);
