@@ -562,10 +562,10 @@ fn normalize_offset(text: &str) -> Option<String> {
     }
     let (sign, digits) = match rest.strip_prefix('+') {
         Some(digits) => ("+", digits),
-        None => match rest.strip_prefix('-') {
-            Some(digits) => ("-", digits),
-            None => return None,
-        },
+        None => {
+            let digits = rest.strip_prefix('-')?;
+            ("-", digits)
+        }
     };
     let digits: String = digits.chars().filter(|char| *char != ':').collect();
     if digits.is_empty() || digits.len() > 4 || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
