@@ -9,12 +9,13 @@ mod events;
 mod foreground;
 mod instance;
 mod provider;
+mod sources;
 mod state;
 mod tray;
 mod watcher;
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
     thread,
@@ -24,7 +25,7 @@ use std::{
 use config::AppConfig;
 use discord::{DiscordPublisher, PresenceSnapshot};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use provider::{Provider, SessionSource};
+use provider::{Provider, SessionSource, SessionStore};
 use state::ActivityState;
 use tray::TrayStatus;
 use watcher::LogTailer;
@@ -36,6 +37,16 @@ const SESSION_ACTIVE_TIMEOUT: Duration = Duration::from_secs(180);
 const FOREGROUND_POLL: Duration = Duration::from_millis(1_000);
 const FOREGROUND_DWELL_MS: i64 = 2_000;
 const FOREGROUND_HOLD_MS: i64 = 15_000;
+/// How often database-backed providers are polled for new rows.
+const STORE_POLL: Duration = Duration::from_secs(2);
+/// How many session documents of a provider are kept in memory.
+const RECENT_DOCUMENTS: usize = 12;
+/// How often the Aider transcripts of the workspace folders are scanned.
+const AIDER_SCAN_INTERVAL: Duration = Duration::from_secs(15);
+
+/// Modification time and the record keys that were already reported for a
+/// session document.
+type DocumentState = (SystemTime, HashSet<String>);
 
 #[derive(Debug)]
 enum WorkerEvent {
@@ -63,6 +74,7 @@ impl ForegroundState {
     }
 
     fn refresh_with_provider(&mut self, current_raw: Option<Provider>, now_ms: i64) {
+        let current_raw = current_raw.filter(|provider| !provider.has_session_tracking());
         if current_raw != self.raw_provider {
             self.raw_provider = current_raw;
             self.raw_since_ms = now_ms;
@@ -93,10 +105,6 @@ impl ForegroundState {
                 }
             }
         }
-    }
-
-    fn focused_provider(&self) -> Option<Provider> {
-        self.raw_provider.or(self.established_provider)
     }
 
     fn next_deadline_ms(&self) -> Option<i64> {
@@ -238,12 +246,16 @@ fn worker_loop(
 ) {
     let mut activity = ActivityState::default();
     let mut tailer = LogTailer::default();
+    let mut document_state: HashMap<PathBuf, DocumentState> = HashMap::new();
+    let mut database_state: HashMap<PathBuf, HashSet<String>> = HashMap::new();
     let mut effective_application_id = config.effective_discord_application_id();
     let mut publisher = DiscordPublisher::new(effective_application_id.clone());
     let mut test_presence_ms: Option<(i64, i64)> = None;
     let mut next_retry_ms = 0_i64;
     let mut next_healthcheck_ms = 0_i64;
     let mut next_foreground_poll_ms = 0_i64;
+    let mut next_store_poll_ms = 0_i64;
+    let mut next_aider_scan_ms = 0_i64;
     let mut foreground_state = ForegroundState::default();
 
     for source in &session_sources {
@@ -254,29 +266,75 @@ fn worker_loop(
             "scanning recent logs for {:?} at {:?}",
             source.provider, source.root
         ));
-        let now_sys = SystemTime::now();
-        let logs = watcher::recent_logs(&source.root, source.provider, 8);
-        log_line(&format!(
-            "found {} recent logs for {:?}",
-            logs.len(),
-            source.provider
-        ));
-        for path in logs {
-            let modified = std::fs::metadata(&path)
-                .and_then(|metadata| metadata.modified())
-                .unwrap_or(SystemTime::UNIX_EPOCH);
-            if now_sys.duration_since(modified).unwrap_or_default() > Duration::from_secs(900) {
-                continue;
+        match source.store {
+            SessionStore::LogFiles => {
+                let now_sys = SystemTime::now();
+                let logs = if source.provider == Provider::Aider {
+                    // Aider writes into the working tree of a repository, so
+                    // the scan stays shallow.
+                    watcher::recent_logs_at_depth(&source.root, source.provider, 8, 2)
+                } else {
+                    watcher::recent_logs(&source.root, source.provider, 8)
+                };
+                log_line(&format!(
+                    "found {} recent logs for {:?}",
+                    logs.len(),
+                    source.provider
+                ));
+                for path in logs {
+                    let modified = std::fs::metadata(&path)
+                        .and_then(|metadata| metadata.modified())
+                        .unwrap_or(SystemTime::UNIX_EPOCH);
+                    if now_sys.duration_since(modified).unwrap_or_default()
+                        > Duration::from_secs(900)
+                    {
+                        continue;
+                    }
+                    log_line(&format!("reading log {:?}", path));
+                    if let Ok(lines) = tailer.read_from_start(&path) {
+                        let fallback_observed_at_ms =
+                            system_time_ms(modified).unwrap_or_else(now_ms);
+                        apply_historical_lines(
+                            &mut activity,
+                            &path,
+                            source.provider,
+                            lines,
+                            fallback_observed_at_ms,
+                        );
+                    }
+                }
             }
-            log_line(&format!("reading log {:?}", path));
-            if let Ok(lines) = tailer.read_from_start(&path) {
-                let fallback_observed_at_ms = system_time_ms(modified).unwrap_or_else(now_ms);
-                apply_historical_lines(
+            SessionStore::JsonFiles | SessionStore::JsonLineSnapshot => {
+                let documents =
+                    watcher::recent_documents(&source.root, source.provider, RECENT_DOCUMENTS);
+                log_line(&format!(
+                    "found {} recent documents for {:?}",
+                    documents.len(),
+                    source.provider
+                ));
+                for path in documents {
+                    match source.store {
+                        SessionStore::JsonLineSnapshot => apply_snapshot(
+                            &mut activity,
+                            &mut document_state,
+                            &path,
+                            source.provider,
+                        ),
+                        _ => apply_document(
+                            &mut activity,
+                            &mut document_state,
+                            &path,
+                            source.provider,
+                        ),
+                    }
+                }
+            }
+            SessionStore::Sqlite => {
+                poll_databases(
                     &mut activity,
-                    &path,
+                    &mut database_state,
                     source.provider,
-                    lines,
-                    fallback_observed_at_ms,
+                    &source.root,
                 );
             }
         }
@@ -305,6 +363,12 @@ fn worker_loop(
     let mut watched_roots = HashSet::new();
     if let Some(watcher) = fs_watcher.as_mut() {
         for source in &session_sources {
+            if source.provider == Provider::Aider {
+                // Aider writes into the working tree of a repository. Watching
+                // the whole home directory would report every file change of
+                // the machine, so the transcript is polled instead.
+                continue;
+            }
             if source.root.exists()
                 && watcher
                     .watch(&source.root, RecursiveMode::Recursive)
@@ -336,8 +400,59 @@ fn worker_loop(
             next_foreground_poll_ms = now + FOREGROUND_POLL.as_millis() as i64;
         }
 
+        if now >= next_store_poll_ms {
+            next_store_poll_ms = now + STORE_POLL.as_millis() as i64;
+            for source in &session_sources {
+                match source.store {
+                    SessionStore::Sqlite => {
+                        if !source.root.exists() {
+                            continue;
+                        }
+                        poll_databases(
+                            &mut activity,
+                            &mut database_state,
+                            source.provider,
+                            &source.root,
+                        );
+                    }
+                    SessionStore::JsonFiles | SessionStore::JsonLineSnapshot => {
+                        // A rewrite can land in the middle of a write, so the
+                        // documents are re-read even without a file event.
+                        if !source.root.exists() {
+                            continue;
+                        }
+                        let documents = watcher::recent_documents(
+                            &source.root,
+                            source.provider,
+                            RECENT_DOCUMENTS,
+                        );
+                        for path in documents {
+                            match source.store {
+                                SessionStore::JsonLineSnapshot => apply_snapshot(
+                                    &mut activity,
+                                    &mut document_state,
+                                    &path,
+                                    source.provider,
+                                ),
+                                _ => apply_document(
+                                    &mut activity,
+                                    &mut document_state,
+                                    &path,
+                                    source.provider,
+                                ),
+                            }
+                        }
+                    }
+                    SessionStore::LogFiles => {}
+                }
+            }
+        }
+
         if let Some(watcher) = fs_watcher.as_mut() {
             for source in &session_sources {
+                if source.provider == Provider::Aider {
+                    continue;
+                }
                 if source.root.exists()
                     && !watched_roots.contains(&source.root)
                     && watcher
@@ -349,6 +464,24 @@ fn worker_loop(
                         source.root
                     ));
                     watched_roots.insert(source.root.clone());
+                }
+            }
+        }
+
+        if now >= next_aider_scan_ms {
+            next_aider_scan_ms = now + AIDER_SCAN_INTERVAL.as_millis() as i64;
+            for source in &session_sources {
+                if source.provider != Provider::Aider || !source.root.exists() {
+                    continue;
+                }
+                let logs = watcher::recent_logs_at_depth(&source.root, source.provider, 8, 2);
+                for path in logs {
+                    if let Ok(lines) = tailer.read_new(&path) {
+                        if !lines.is_empty() {
+                            log_line(&format!("read {} lines from {:?}", lines.len(), path));
+                        }
+                        apply_lines(&mut activity, &path, source.provider, lines);
+                    }
                 }
             }
         }
@@ -376,7 +509,7 @@ fn worker_loop(
             })
         } else {
             activity
-                .selected_presence_for_foreground(foreground_state.focused_provider())
+                .selected_presence()
                 .or_else(|| foreground_state.presence())
         };
 
@@ -422,22 +555,33 @@ fn worker_loop(
             None
         };
 
+        let store_deadline = if session_sources.iter().any(|source| {
+            source.store != SessionStore::LogFiles || source.provider == Provider::Aider
+        }) {
+            Some(next_store_poll_ms.max(now + 1))
+        } else {
+            None
+        };
+
         let timeout = next_timeout(
             now,
-            activity.next_terminal_deadline_ms(),
-            activity.next_stale_deadline_ms(SESSION_ACTIVE_TIMEOUT.as_millis() as i64),
-            test_presence_ms.map(|(deadline, _)| deadline),
-            if desired.is_some() && !publisher.is_connected() {
-                Some(next_retry_ms.max(now + 1))
-            } else {
-                None
-            },
-            if desired.is_some() && publisher.is_connected() {
-                Some(next_healthcheck_ms.max(now + 1))
-            } else {
-                None
-            },
-            foreground_deadline,
+            &[
+                activity.next_terminal_deadline_ms(),
+                activity.next_stale_deadline_ms(SESSION_ACTIVE_TIMEOUT.as_millis() as i64),
+                test_presence_ms.map(|(deadline, _)| deadline),
+                if desired.is_some() && !publisher.is_connected() {
+                    Some(next_retry_ms.max(now + 1))
+                } else {
+                    None
+                },
+                if desired.is_some() && publisher.is_connected() {
+                    Some(next_healthcheck_ms.max(now + 1))
+                } else {
+                    None
+                },
+                foreground_deadline,
+                store_deadline,
+            ],
         );
 
         let event = match timeout {
@@ -467,11 +611,43 @@ fn worker_loop(
                     let Some(source) = provider::source_for_path(&session_sources, &path) else {
                         continue;
                     };
-                    if let Ok(lines) = tailer.read_new(&path) {
-                        if !lines.is_empty() {
-                            log_line(&format!("read {} lines from {:?}", lines.len(), path));
+                    match source.store {
+                        SessionStore::LogFiles => {
+                            if let Ok(lines) = tailer.read_new(&path) {
+                                if !lines.is_empty() {
+                                    log_line(&format!(
+                                        "read {} lines from {:?}",
+                                        lines.len(),
+                                        path
+                                    ));
+                                }
+                                apply_lines(&mut activity, &path, source.provider, lines);
+                            }
                         }
-                        apply_lines(&mut activity, &path, source.provider, lines);
+                        SessionStore::JsonFiles => {
+                            apply_document(
+                                &mut activity,
+                                &mut document_state,
+                                &path,
+                                source.provider,
+                            );
+                        }
+                        SessionStore::JsonLineSnapshot => {
+                            apply_snapshot(
+                                &mut activity,
+                                &mut document_state,
+                                &path,
+                                source.provider,
+                            );
+                        }
+                        SessionStore::Sqlite => {
+                            poll_databases(
+                                &mut activity,
+                                &mut database_state,
+                                source.provider,
+                                &source.root,
+                            );
+                        }
                     }
                 }
                 if reload_config && let Ok(reloaded) = AppConfig::load(&config_path) {
@@ -537,8 +713,93 @@ fn apply_lines_at(
     observed_at_ms: i64,
 ) {
     for line in lines {
-        for event in events::parse_line_for(provider, &line) {
+        for event in sources::parse_log_line_at(provider, path, &line) {
             activity.apply(path, provider, event, observed_at_ms);
+        }
+    }
+}
+
+/// Re-read a session document that the provider rewrites in place.
+///
+/// Only records that were not reported before are applied, so a rewritten file
+/// never replays the whole conversation.
+fn apply_document(
+    activity: &mut ActivityState,
+    state: &mut HashMap<PathBuf, DocumentState>,
+    path: &std::path::Path,
+    provider: Provider,
+) {
+    let modified = std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    if let Some((seen_modified, _)) = state.get(path)
+        && *seen_modified == modified
+    {
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(document) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return;
+    };
+    let entry = state
+        .entry(path.to_path_buf())
+        .or_insert_with(|| (modified, HashSet::new()));
+    entry.0 = modified;
+    let key = provider::session_key(provider, path);
+    for event in sources::parse_json_document(provider, &document, &mut entry.1) {
+        activity.apply(&key, provider, event, now_ms());
+    }
+}
+
+/// Re-read a session file that holds JSON lines with conversation snapshots.
+///
+/// The harness appends a new snapshot of the whole conversation for every
+/// change, so the file is re-read as a whole and only records that were not
+/// reported before are applied.
+fn apply_snapshot(
+    activity: &mut ActivityState,
+    state: &mut HashMap<PathBuf, DocumentState>,
+    path: &std::path::Path,
+    provider: Provider,
+) {
+    let modified = std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    if let Some((seen_modified, _)) = state.get(path)
+        && *seen_modified == modified
+    {
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let entry = state
+        .entry(path.to_path_buf())
+        .or_insert_with(|| (modified, HashSet::new()));
+    entry.0 = modified;
+    let key = provider::session_key(provider, path);
+    for event in sources::parse_jsonl_snapshot_at(provider, path, &text, &mut entry.1) {
+        activity.apply(&key, provider, event, now_ms());
+    }
+}
+
+/// Poll the databases of a provider for rows that were written recently.
+fn poll_databases(
+    activity: &mut ActivityState,
+    state: &mut HashMap<PathBuf, HashSet<String>>,
+    provider: Provider,
+    root: &std::path::Path,
+) {
+    for database in sources::databases(provider, root) {
+        let seen = state.entry(database.clone()).or_default();
+        for store_event in sources::poll_database(provider, &database, seen) {
+            // One database holds many sessions, so every event is keyed by the
+            // session it belongs to.
+            let key =
+                std::path::PathBuf::from(format!("{}#{}", database.display(), store_event.session));
+            activity.apply(&key, provider, store_event.event, now_ms());
         }
     }
 }
@@ -552,7 +813,7 @@ fn apply_historical_lines(
 ) {
     for line in lines {
         let observed_at_ms = events::line_timestamp_ms(&line).unwrap_or(fallback_observed_at_ms);
-        for event in events::parse_line_for(provider, &line) {
+        for event in sources::parse_log_line_at(provider, path, &line) {
             activity.apply(path, provider, event, observed_at_ms);
         }
     }
@@ -564,17 +825,9 @@ fn system_time_ms(time: SystemTime) -> Option<i64> {
         .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
 }
 
-fn next_timeout(
-    now: i64,
-    terminal: Option<i64>,
-    stale: Option<i64>,
-    test: Option<i64>,
-    reconnect: Option<i64>,
-    healthcheck: Option<i64>,
-    foreground: Option<i64>,
-) -> Option<Duration> {
-    [terminal, stale, test, reconnect, healthcheck, foreground]
-        .into_iter()
+fn next_timeout(now: i64, deadlines: &[Option<i64>]) -> Option<Duration> {
+    deadlines
+        .iter()
         .flatten()
         .min()
         .map(|deadline| Duration::from_millis(deadline.saturating_sub(now).max(1) as u64))
@@ -645,28 +898,33 @@ mod tests {
     fn timeout_uses_nearest_deadline() {
         let timeout = next_timeout(
             1_000,
-            Some(5_000),
-            Some(8_000),
-            Some(3_000),
-            Some(4_000),
-            Some(6_000),
-            Some(7_000),
+            &[
+                Some(5_000),
+                Some(8_000),
+                Some(3_000),
+                Some(4_000),
+                Some(6_000),
+                Some(7_000),
+                Some(2_500),
+            ],
         )
         .unwrap();
-        assert_eq!(timeout, Duration::from_millis(2_000));
+        assert_eq!(timeout, Duration::from_millis(1_500));
     }
 
     #[test]
     fn foreground_state_session_tracked_never_emits_fallback_presence() {
-        let mut state = ForegroundState::default();
-        // User focuses Google Antigravity window
-        state.refresh_with_provider(Some(Provider::Antigravity), 1_000);
-        state.refresh_with_provider(Some(Provider::Antigravity), 3_000); // 2s dwell met
-        assert_eq!(state.established_provider, Some(Provider::Antigravity));
-        // Session-tracked tools must never emit presence from foreground detection alone!
-        assert!(state.presence().is_none());
-        // But focused_provider is available for session tie-breaking
-        assert_eq!(state.focused_provider(), Some(Provider::Antigravity));
+        for provider in Provider::ALL
+            .into_iter()
+            .filter(|provider| provider.has_session_tracking())
+        {
+            let mut state = ForegroundState::default();
+            state.refresh_with_provider(Some(provider), 1_000);
+            state.refresh_with_provider(Some(provider), 3_000);
+            assert_eq!(state.raw_provider, None);
+            assert_eq!(state.established_provider, None);
+            assert!(state.presence().is_none());
+        }
     }
 
     #[test]
@@ -685,6 +943,104 @@ mod tests {
         assert_eq!(state.established_provider, Some(Provider::Cursor));
         assert_eq!(state.started_at_ms, 2_000);
         assert!(state.presence().is_some());
+    }
+
+    #[test]
+    fn deepseek_harness_foreground_requires_session_activity() {
+        let detected = Provider::from_window("DeepSeek Harness.exe", "Private workspace title");
+        let mut state = ForegroundState::default();
+        state.refresh_with_provider(detected, 1_000);
+        assert!(state.presence().is_none());
+        state.refresh_with_provider(detected, 3_000);
+        assert_eq!(state.established_provider, None);
+        assert!(state.presence().is_none());
+    }
+
+    #[test]
+    fn deepseek_session_tracks_model_parallel_tools_and_all_turn_endings() {
+        use serde_json::json;
+        let path = std::path::Path::new("session.v4.jsonl.zstd");
+        let provider = Provider::DeepSeekHarness;
+        let started = 1_792_540_721_885_i64;
+        let mut activity = ActivityState::default();
+        let header = json!({"type":"session","version":4,"cwd":env!("CARGO_MANIFEST_DIR"),"createdAt":started});
+        let model = json!({"type":"request/header","time":started,"data":{"header":{"config":{"model":"deepseek-v4-pro","reasoningEffort":"high","apiKey":"PRIVATE_KEY"}}}});
+        apply_historical_lines(
+            &mut activity,
+            path,
+            provider,
+            vec![header.to_string(), model.to_string()],
+            started,
+        );
+        assert!(activity.selected_presence().is_none());
+        let start = json!({"type":"turn/start","time":started,"data":{"turn":1}});
+        let tool = |id: &str, name: &str, file: &str| {
+            json!({"type":"tool/call","time":started+1,"data":{"callId":id,"name":name,"arguments":json!({"file_path":file,"content":"PRIVATE_CONTENT"}).to_string()}}).to_string()
+        };
+        apply_historical_lines(
+            &mut activity,
+            path,
+            provider,
+            vec![
+                start.to_string(),
+                tool("read", "read", "C:/private/src/lib.rs"),
+                tool("write", "write", "C:/private/src/main.rs"),
+            ],
+            started,
+        );
+        let snapshot = activity.selected_presence().unwrap();
+        assert_eq!(snapshot.agent.as_deref(), Some("deepseek-v4-pro (high)"));
+        assert_eq!(snapshot.project, "Discodex");
+        assert_eq!(snapshot.project_stack.as_deref(), Some("Rust"));
+        assert_eq!(snapshot.current_file.as_deref(), Some("main.rs"));
+        assert_eq!(snapshot.phase, state::Phase::RunningTools);
+        assert_eq!(snapshot.started_at_ms, started);
+        assert!(snapshot.reasoning.is_none());
+        assert!(!format!("{snapshot:?}").contains("PRIVATE"));
+        assert!(!format!("{snapshot:?}").contains("C:/private"));
+
+        let result = |id: &str| {
+            json!({"type":"tool/result","time":started+2,"data":{"message":{"toolCallId":id,"content":"PRIVATE_OUTPUT"}}}).to_string()
+        };
+        apply_historical_lines(
+            &mut activity,
+            path,
+            provider,
+            vec![result("write"), result("unknown")],
+            started,
+        );
+        let snapshot = activity.selected_presence().unwrap();
+        assert_eq!(snapshot.phase, state::Phase::RunningTools);
+        assert_eq!(snapshot.current_file.as_deref(), Some("lib.rs"));
+        apply_historical_lines(&mut activity, path, provider, vec![result("read")], started);
+        assert_eq!(
+            activity.selected_presence().unwrap().phase,
+            state::Phase::Thinking
+        );
+        for reason in ["completed", "aborted", "error", "blocked", "interrupted"] {
+            apply_historical_lines(&mut activity, path, provider, vec![start.to_string(), json!({"type":"turn/end","time":started+3,"data":{"reason":{"kind":reason,"error":"PRIVATE_ERROR"}}}).to_string()], started);
+            assert!(activity.selected_presence().is_none());
+        }
+        apply_historical_lines(
+            &mut activity,
+            path,
+            provider,
+            vec![start.to_string()],
+            started,
+        );
+        activity.discard_stale_active(started + 180_001, 180_000);
+        assert!(activity.selected_presence().is_none());
+        apply_historical_lines(
+            &mut activity,
+            path,
+            provider,
+            vec![
+                start.to_string(),
+                json!({"type":"session/end-seed"}).to_string(),
+            ],
+            started,
+        );
+        assert!(activity.selected_presence().is_none());
     }
 
     #[test]

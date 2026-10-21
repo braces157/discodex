@@ -12,7 +12,7 @@ It runs quietly in the notification area, reconnects to Discord automatically, a
 
 ## Highlights
 
-- **Multi-provider support** — Codex, Claude Code, ChatGPT, Claude, Gemini, Cursor, Windsurf, GitHub Copilot, Cline, Roo Code, Continue, Perplexity, Poe, OpenCode, Aider, and more.
+- **Multi-provider support** — Codex, Claude Code, ChatGPT, Claude, Gemini, Cursor, Windsurf, GitHub Copilot, Cline, Roo Code, Continue, Perplexity, Poe, OpenCode, and more.
 - **Rich coding activity** — supported session adapters can show the project, language/framework, current file basename, normalized tool activity, phase, and elapsed time.
 - **Broad fallback detection** — focused applications, browser tabs, and IDE panels can still produce useful provider presence when no stable session format is available.
 - **Privacy-first design** — sensitive conversation and tool content is deliberately excluded from Discord payloads.
@@ -29,6 +29,25 @@ Discodex uses two detection layers. Rich session tracking has the most detail; f
 | OpenAI Codex | Local session JSONL | Rich |
 | Claude Code | Local session JSONL | Rich |
 | Google Antigravity | Local session JSONL | Rich |
+| DeepSeek Harness | Local JSONL / Zstandard session logs | Rich |
+| Gemini CLI | Local JSONL session logs | Rich |
+| Qwen Code | Local JSONL session logs | Rich |
+| GitHub Copilot CLI | Local JSONL session events | Rich |
+| Factory Droid | Local JSONL session logs | Rich |
+| Kiro | Local JSONL session transcripts | Rich |
+| Cursor | Local JSONL agent transcripts | Rich |
+| Windsurf / Cascade | Local JSONL transcripts | Rich |
+| Junie (JetBrains) | Local JSONL session events | Rich |
+| Aider | Local Markdown transcript | Rich |
+| Cline | Local JSON session documents | Rich |
+| Roo Code | Local JSON session documents | Rich |
+| Continue | Local JSON session documents | Rich |
+| Block Goose | Local SQLite session database | Rich |
+| Charm Crush | Local SQLite session database | Rich |
+| OpenCode | Local SQLite session database | Rich |
+| Zed | Local SQLite thread database | Rich |
+| Kilo Code | Local SQLite session database | Rich |
+| Sourcegraph Amp | Local JSONL thread log | Activity only |
 | ChatGPT | Focused app/window | Standard |
 | Claude | Focused app/window | Standard |
 | Google Gemini | Focused app/window | Standard |

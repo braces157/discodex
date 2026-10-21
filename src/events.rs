@@ -28,6 +28,13 @@ pub enum ParsedEvent {
         activity: ToolActivity,
     },
     ToolFinished,
+    TrackedToolStarted {
+        call_id: String,
+        activity: ToolActivity,
+    },
+    TrackedToolFinished {
+        call_id: String,
+    },
     TerminalCandidate,
     Completed,
     AgentDetected {
@@ -43,9 +50,96 @@ pub fn parse_line_for(provider: Provider, line: &str) -> Vec<ParsedEvent> {
     match provider {
         Provider::Codex => parse_line(line).into_iter().collect(),
         Provider::ClaudeCode => parse_claude_line(line),
+        Provider::DeepSeekHarness => parse_deepseek_line(line),
         Provider::Antigravity => parse_antigravity_line(line),
         _ => Vec::new(),
     }
+}
+
+// v4 schema: https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/session/src/types.ts
+fn parse_deepseek_line(line: &str) -> Vec<ParsedEvent> {
+    let Ok(value) = serde_json::from_str::<Value>(line) else {
+        return Vec::new();
+    };
+    let data = &value["data"];
+    let event =
+        match value["type"].as_str().unwrap_or("") {
+            "session" if value["version"].as_u64() == Some(4) => {
+                value["cwd"].as_str().and_then(|cwd| {
+                    project_name(cwd).map(|project| ParsedEvent::SessionMetadata {
+                        project,
+                        cwd: cwd.to_string(),
+                    })
+                })
+            }
+            "turn/start" => value["time"]
+                .as_i64()
+                .filter(|time| *time > 0)
+                .map(|started_at_ms| ParsedEvent::TaskStarted { started_at_ms }),
+            "step/start" => Some(ParsedEvent::Thinking { reasoning: None }),
+            "request/header" => {
+                let config = &data["header"]["config"];
+                deepseek_model_label(config).map(|agent| ParsedEvent::AgentDetected { agent })
+            }
+            "tool/call" => {
+                let name = data["name"].as_str();
+                let call_id = data["callId"].as_str();
+                name.zip(call_id).map(|(name, call_id)| {
+                    let arguments = tool_arguments(data);
+                    let command = arguments.as_ref().and_then(|args| args["command"].as_str());
+                    let file = arguments.as_ref().and_then(extract_file_basename);
+                    let language = file
+                        .as_deref()
+                        .and_then(language_from_file)
+                        .map(str::to_string);
+                    // Only fixed labels and basenames leave the parser. Never use the
+                    // tool's description, prompt, response, reasoning, or result text.
+                    ParsedEvent::TrackedToolStarted {
+                        call_id: call_id.to_string(),
+                        activity: ToolActivity {
+                            label: classify_tool(&name.to_ascii_lowercase(), command.unwrap_or(""))
+                                .to_string(),
+                            file,
+                            language,
+                        },
+                    }
+                })
+            }
+            "tool/result" => data["message"]["toolCallId"].as_str().map(|call_id| {
+                ParsedEvent::TrackedToolFinished {
+                    call_id: call_id.to_string(),
+                }
+            }),
+            // A closed turn includes success, cancellation, failure, and blocked input.
+            // A restore/fork boundary must not revive inherited work as live activity.
+            "turn/end" | "session/end-seed" => Some(ParsedEvent::Completed),
+            _ => None,
+        };
+    event.into_iter().collect()
+}
+
+fn deepseek_model_label(config: &Value) -> Option<String> {
+    let model = config["model"].as_str()?;
+    // Model IDs are metadata; reject prose and control characters from malformed logs.
+    if model.is_empty()
+        || model.len() > 128
+        || !model
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.:/@".contains(&b))
+    {
+        return None;
+    }
+    let effort = config["reasoningEffort"].as_str().filter(|effort| {
+        !effort.is_empty()
+            && effort.len() <= 24
+            && effort
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b))
+    });
+    Some(match effort {
+        Some(effort) => format!("{model} ({effort})"),
+        None => model.to_string(),
+    })
 }
 
 pub fn parse_line(line: &str) -> Option<ParsedEvent> {
@@ -295,7 +389,7 @@ fn is_internal_path(path_str: &str) -> bool {
     lower.contains(".gemini") || lower.contains(".codex") || lower.contains(".claude")
 }
 
-fn detect_project_root(path_str: &str) -> Option<(String, String)> {
+pub(crate) fn detect_project_root(path_str: &str) -> Option<(String, String)> {
     if is_internal_path(path_str) {
         return None;
     }
@@ -397,7 +491,7 @@ fn tool_activity(payload: &Value) -> ToolActivity {
     tool_activity_from_parts(name, arguments)
 }
 
-fn tool_activity_from_parts(name: &str, arguments: Option<Value>) -> ToolActivity {
+pub(crate) fn tool_activity_from_parts(name: &str, arguments: Option<Value>) -> ToolActivity {
     let lower_name = name.to_ascii_lowercase();
     let command = arguments
         .as_ref()
@@ -450,7 +544,7 @@ fn tool_arguments(payload: &Value) -> Option<Value> {
     }
 }
 
-fn classify_tool(name: &str, command: &str) -> &'static str {
+pub(crate) fn classify_tool(name: &str, command: &str) -> &'static str {
     let command = command.to_ascii_lowercase();
 
     if name.contains("apply_patch")
@@ -492,6 +586,8 @@ fn classify_tool(name: &str, command: &str) -> &'static str {
     }
 
     if name.contains("exec")
+        || name == "pwsh"
+        || name == "bash"
         || name.contains("shell")
         || name.contains("command")
         || !command.is_empty()
@@ -560,7 +656,7 @@ fn classify_tool(name: &str, command: &str) -> &'static str {
     }
 }
 
-fn extract_file_basename(arguments: &Value) -> Option<String> {
+pub(crate) fn extract_file_basename(arguments: &Value) -> Option<String> {
     for key in [
         "path",
         "file",
@@ -594,7 +690,7 @@ fn extract_file_basename(arguments: &Value) -> Option<String> {
     None
 }
 
-fn basename(path: &str) -> Option<String> {
+pub(crate) fn basename(path: &str) -> Option<String> {
     let normalized = path.replace('\\', "/");
     normalized
         .rsplit('/')
@@ -602,7 +698,7 @@ fn basename(path: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn language_from_file(file: &str) -> Option<&'static str> {
+pub(crate) fn language_from_file(file: &str) -> Option<&'static str> {
     let extension = file.rsplit_once('.')?.1.to_ascii_lowercase();
     match extension.as_str() {
         "rs" => Some("Rust"),
@@ -983,10 +1079,12 @@ pub fn line_timestamp_ms(line: &str) -> Option<i64> {
     value
         .get("timestamp")
         .or_else(|| value.get("created_at"))
+        .or_else(|| value.get("time"))
+        .or_else(|| value.get("createdAt"))
         .and_then(timestamp_ms)
 }
 
-fn project_name(cwd: &str) -> Option<String> {
+pub(crate) fn project_name(cwd: &str) -> Option<String> {
     Path::new(cwd)
         .components()
         .next_back()
@@ -994,7 +1092,7 @@ fn project_name(cwd: &str) -> Option<String> {
         .filter(|name| !name.is_empty())
 }
 
-fn timestamp_ms(value: &Value) -> Option<i64> {
+pub(crate) fn timestamp_ms(value: &Value) -> Option<i64> {
     if let Some(number) = value.as_i64() {
         return Some(if number.abs() < 10_000_000_000 {
             number.saturating_mul(1_000)
@@ -1027,6 +1125,77 @@ fn current_time_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deepseek_extracts_only_model_effort_and_safe_tool_metadata() {
+        let model = r#"{"type":"request/header","data":{"header":{"config":{"model":"minimax/minimax-m3.1-flash:free","reasoningEffort":"max","apiKey":"PRIVATE_KEY"},"system":"PRIVATE_SYSTEM"}}}"#;
+        assert_eq!(
+            parse_deepseek_line(model),
+            vec![ParsedEvent::AgentDetected {
+                agent: "minimax/minimax-m3.1-flash:free (max)".to_string(),
+            }]
+        );
+        let call = r#"{"type":"tool/call","data":{"callId":"one","name":"write","arguments":"{\"file_path\":\"C:\\\\private\\\\project\\\\src\\\\main.rs\",\"content\":\"PRIVATE_CONTENT\",\"description\":\"PRIVATE_DESCRIPTION\"}"}}"#;
+        assert_eq!(
+            parse_deepseek_line(call),
+            vec![ParsedEvent::TrackedToolStarted {
+                call_id: "one".to_string(),
+                activity: ToolActivity {
+                    label: "Editing files".to_string(),
+                    file: Some("main.rs".to_string()),
+                    language: Some("Rust".to_string()),
+                },
+            }]
+        );
+        let result = r#"{"type":"tool/result","data":{"message":{"toolCallId":"one","content":"PRIVATE_OUTPUT"}}}"#;
+        assert_eq!(
+            parse_deepseek_line(result),
+            vec![ParsedEvent::TrackedToolFinished {
+                call_id: "one".to_string()
+            }]
+        );
+        for kind in [
+            "user/message",
+            "assistant/message",
+            "system/message",
+            "assistant/attempt",
+            "session/title",
+        ] {
+            let line = serde_json::json!({"type":kind,"data":{"content":"PRIVATE_TEXT","stream":["PRIVATE_THOUGHTS"]}}).to_string();
+            assert!(parse_deepseek_line(&line).is_empty());
+        }
+    }
+
+    #[test]
+    fn deepseek_handles_turn_boundaries_timestamps_and_invalid_records() {
+        let line = r#"{"type":"turn/start","time":1792540721885,"data":{"turn":1}}"#;
+        assert_eq!(
+            parse_deepseek_line(line),
+            vec![ParsedEvent::TaskStarted {
+                started_at_ms: 1_792_540_721_885
+            }]
+        );
+        assert_eq!(line_timestamp_ms(line), Some(1_792_540_721_885));
+        for kind in ["turn/end", "session/end-seed"] {
+            assert_eq!(
+                parse_deepseek_line(&serde_json::json!({"type":kind,"data":{}}).to_string()),
+                vec![ParsedEvent::Completed]
+            );
+        }
+        for line in [
+            "{",
+            "null",
+            r#"{"type":"turn/start"}"#,
+            r#"{"type":"tool/call","data":{}}"#,
+            r#"{"type":"request/header","data":{"header":{"config":{"model":"PRIVATE prose\ntext"}}}}"#,
+        ] {
+            assert!(parse_deepseek_line(line).is_empty());
+        }
+        assert_eq!(
+            deepseek_model_label(&serde_json::json!({"model":"deepseek-v4-pro"})),
+            Some("deepseek-v4-pro".to_string())
+        );
+    }
 
     #[test]
     fn parses_session_metadata_without_exposing_path() {

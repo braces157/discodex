@@ -3,7 +3,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{discord::PresenceSnapshot, events::ParsedEvent, provider::Provider};
+use crate::{
+    discord::PresenceSnapshot,
+    events::{ParsedEvent, ToolActivity},
+    provider::Provider,
+};
 
 const TERMINAL_DEBOUNCE_MS: i64 = 4_000;
 
@@ -37,6 +41,7 @@ struct SessionState {
     terminal_deadline_ms: Option<i64>,
     agent: Option<String>,
     reasoning: Option<String>,
+    active_tools: HashMap<String, ToolActivity>,
 }
 
 impl Default for SessionState {
@@ -55,6 +60,34 @@ impl Default for SessionState {
             terminal_deadline_ms: None,
             agent: None,
             reasoning: None,
+            active_tools: HashMap::new(),
+        }
+    }
+}
+
+impl SessionState {
+    fn start_tool(&mut self, activity: ToolActivity, now_ms: i64) {
+        self.active = true;
+        if self.started_at_ms == 0 {
+            self.started_at_ms = now_ms;
+        }
+        self.phase = Phase::RunningTools;
+        self.activity = activity.label;
+        self.current_file = activity.file;
+        self.current_language = activity.language;
+        self.last_activity_ms = now_ms;
+        self.terminal_deadline_ms = None;
+    }
+
+    fn finish_tool(&mut self, now_ms: i64) {
+        if self.active {
+            self.phase = Phase::Thinking;
+            self.activity = match &self.reasoning {
+                Some(r) => format!("Reasoning: {r}"),
+                None => "Reviewing tool results".to_string(),
+            };
+            self.last_activity_ms = now_ms;
+            self.terminal_deadline_ms = None;
         }
     }
 }
@@ -163,6 +196,7 @@ impl ActivityState {
                 }
             }
             ParsedEvent::TaskStarted { started_at_ms } => {
+                session.active_tools.clear();
                 session.active = true;
                 session.phase = Phase::Thinking;
                 session.current_file = None;
@@ -188,26 +222,22 @@ impl ActivityState {
                 session.terminal_deadline_ms = None;
             }
             ParsedEvent::ToolStarted { activity } => {
-                session.active = true;
-                if session.started_at_ms == 0 {
-                    session.started_at_ms = now_ms;
-                }
-                session.phase = Phase::RunningTools;
-                session.activity = activity.label;
-                session.current_file = activity.file;
-                session.current_language = activity.language;
-                session.last_activity_ms = now_ms;
-                session.terminal_deadline_ms = None;
+                session.start_tool(activity, now_ms);
             }
             ParsedEvent::ToolFinished => {
-                if session.active {
-                    session.phase = Phase::Thinking;
-                    session.activity = match &session.reasoning {
-                        Some(r) => format!("Reasoning: {r}"),
-                        None => "Reviewing tool results".to_string(),
-                    };
-                    session.last_activity_ms = now_ms;
-                    session.terminal_deadline_ms = None;
+                session.finish_tool(now_ms);
+            }
+            ParsedEvent::TrackedToolStarted { call_id, activity } => {
+                session.active_tools.insert(call_id, activity.clone());
+                session.start_tool(activity, now_ms);
+            }
+            ParsedEvent::TrackedToolFinished { call_id } => {
+                if session.active && session.active_tools.remove(&call_id).is_some() {
+                    if let Some(activity) = session.active_tools.values().next().cloned() {
+                        session.start_tool(activity, now_ms);
+                    } else {
+                        session.finish_tool(now_ms);
+                    }
                 }
             }
             ParsedEvent::TerminalCandidate => {
@@ -219,6 +249,7 @@ impl ActivityState {
                 }
             }
             ParsedEvent::Completed => {
+                session.active_tools.clear();
                 session.active = false;
                 session.terminal_deadline_ms = None;
                 session.last_activity_ms = now_ms;
@@ -265,22 +296,13 @@ impl ActivityState {
             .min()
     }
 
-    #[allow(dead_code)]
     pub fn selected_presence(&self) -> Option<PresenceSnapshot> {
-        self.selected_presence_for_foreground(None)
-    }
-
-    pub fn selected_presence_for_foreground(
-        &self,
-        foreground_provider: Option<Provider>,
-    ) -> Option<PresenceSnapshot> {
         self.sessions
             .values()
             .filter(|session| session.active)
             .max_by_key(|session| {
                 (
                     session.phase == Phase::RunningTools,
-                    foreground_provider == Some(session.provider),
                     session.last_activity_ms,
                 )
             })
@@ -610,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn foreground_provider_prioritized_when_both_active() {
+    fn most_recent_provider_activity_is_selected_without_window_focus() {
         let mut state = ActivityState::default();
         let codex_path = Path::new("codex");
         let anti_path = Path::new("antigravity");
@@ -632,20 +654,19 @@ mod tests {
             1_500,
         );
 
-        // Without foreground focus, latest activity wins (Antigravity)
+        // Session selection uses log activity alone.
         assert_eq!(
             state.selected_presence().unwrap().provider,
             Provider::Antigravity
         );
 
-        // When focused on Codex, Codex wins
-        assert_eq!(
-            state
-                .selected_presence_for_foreground(Some(Provider::Codex))
-                .unwrap()
-                .provider,
-            Provider::Codex
+        state.apply(
+            codex_path,
+            Provider::Codex,
+            ParsedEvent::Thinking { reasoning: None },
+            2_000,
         );
+        assert_eq!(state.selected_presence().unwrap().provider, Provider::Codex);
     }
 
     #[test]

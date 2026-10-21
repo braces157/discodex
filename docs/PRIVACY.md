@@ -13,6 +13,7 @@ Depending on the provider and detection mode, Discodex may publish:
 - Normalized activity such as `Editing files` or `Running Rust tests`
 - High-level phase such as thinking/reasoning or running tools
 - Active agent or subagent role (e.g. `DeepCoder`, `DeepInvestigator`, `Planner`)
+- Selected model identifier and reasoning effort when available
 - High-level reasoning topic or step heading (e.g. `Evaluating Request and Identity`)
 - Task start timestamp for elapsed time
 
@@ -43,7 +44,7 @@ Disable this layer at any time from the tray menu with **Detect focused AI apps*
 foreground_detection = false
 ```
 
-Rich Codex, Claude Code, and Google Antigravity session tracking remains available when focused-app detection is disabled.
+Rich Codex, Claude Code, Google Antigravity, and DeepSeek Harness session tracking remains available when focused-app detection is disabled.
 
 ## Network behavior
 

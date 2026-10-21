@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 pub enum Provider {
     Codex,
     ClaudeCode,
+    DeepSeekHarness,
     ChatGpt,
     Claude,
     Gemini,
@@ -22,13 +23,24 @@ pub enum Provider {
     Perplexity,
     MicrosoftCopilot,
     Poe,
+    // Harnesses with a dedicated local activity store.
+    GeminiCli,
+    QwenCode,
+    CopilotCli,
+    FactoryDroid,
+    Goose,
+    Crush,
+    KiloCode,
+    JetBrains,
+    Amp,
 }
 
 impl Provider {
     #[cfg(test)]
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 30] = [
         Self::Codex,
         Self::ClaudeCode,
+        Self::DeepSeekHarness,
         Self::ChatGpt,
         Self::Claude,
         Self::Gemini,
@@ -47,6 +59,15 @@ impl Provider {
         Self::Perplexity,
         Self::MicrosoftCopilot,
         Self::Poe,
+        Self::GeminiCli,
+        Self::QwenCode,
+        Self::CopilotCli,
+        Self::FactoryDroid,
+        Self::Goose,
+        Self::Crush,
+        Self::KiloCode,
+        Self::JetBrains,
+        Self::Amp,
     ];
 
     // Use product artwork, not parent-company avatars (e.g. Google or Microsoft).
@@ -58,6 +79,9 @@ impl Provider {
             }
             Self::ClaudeCode => {
                 "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/claudecode-color.png"
+            }
+            Self::DeepSeekHarness => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/deepseek-color.png"
             }
             Self::ChatGpt => {
                 "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/openai.png"
@@ -107,6 +131,29 @@ impl Provider {
             Self::Poe => {
                 "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/poe-color.png"
             }
+            Self::GeminiCli => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/geminicli-color.png"
+            }
+            Self::QwenCode => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/qwen-color.png"
+            }
+            Self::CopilotCli => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/githubcopilot.png"
+            }
+            Self::FactoryDroid => {
+                "https://raw.githubusercontent.com/ctxrs/ctx/main/docs-content/provider-logos/factory.png"
+            }
+            Self::Goose => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/goose.png"
+            }
+            Self::Crush => "https://stuff.charm.sh/crush/charm-crush.png",
+            Self::KiloCode => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/kilocode.png"
+            }
+            Self::JetBrains => {
+                "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/junie.png"
+            }
+            Self::Amp => "https://ampcode.com/app-icon-192.png",
         }
     }
 
@@ -119,6 +166,7 @@ impl Provider {
         match self {
             Self::Codex => "OpenAI Codex",
             Self::ClaudeCode => "Claude Code",
+            Self::DeepSeekHarness => "DeepSeek Harness",
             Self::ChatGpt => "ChatGPT",
             Self::Claude => "Claude",
             Self::Gemini => "Google Gemini",
@@ -137,18 +185,60 @@ impl Provider {
             Self::Perplexity => "Perplexity",
             Self::MicrosoftCopilot => "Microsoft Copilot",
             Self::Poe => "Poe",
+            Self::GeminiCli => "Gemini CLI",
+            Self::QwenCode => "Qwen Code",
+            Self::CopilotCli => "GitHub Copilot CLI",
+            Self::FactoryDroid => "Factory Droid",
+            Self::Goose => "Goose",
+            Self::Crush => "Crush",
+            Self::KiloCode => "Kilo Code",
+            Self::JetBrains => "Junie",
+            Self::Amp => "Amp",
         }
     }
 
+    /// True when the provider's presence comes from its local activity store.
+    ///
+    /// Providers with a complete session adapter are excluded from focused-app
+    /// detection: their presence comes exclusively from session activity.
+    ///
+    /// Providers that also had a focused-app fallback (Cursor, Kiro, Cline,
+    /// Roo Code, OpenCode) keep it: their session adapter adds detail, but a
+    /// focused editor without a live session still reports activity.
     pub fn has_session_tracking(self) -> bool {
-        matches!(self, Self::Codex | Self::ClaudeCode | Self::Antigravity)
+        matches!(
+            self,
+            Self::Codex
+                | Self::ClaudeCode
+                | Self::DeepSeekHarness
+                | Self::Antigravity
+                | Self::GeminiCli
+                | Self::QwenCode
+                | Self::CopilotCli
+                | Self::FactoryDroid
+                | Self::Goose
+                | Self::Crush
+                | Self::KiloCode
+                | Self::JetBrains
+        )
     }
 
     pub fn default_activity(self) -> &'static str {
         match self {
-            Self::Codex | Self::ClaudeCode | Self::Antigravity | Self::OpenCode | Self::Aider => {
-                "Working with coding agent"
-            }
+            Self::Codex
+            | Self::ClaudeCode
+            | Self::DeepSeekHarness
+            | Self::Antigravity
+            | Self::GeminiCli
+            | Self::QwenCode
+            | Self::CopilotCli
+            | Self::FactoryDroid
+            | Self::Goose
+            | Self::Crush
+            | Self::KiloCode
+            | Self::JetBrains
+            | Self::OpenCode
+            | Self::Aider => "Working with coding agent",
             Self::Cursor
             | Self::Windsurf
             | Self::Trae
@@ -169,6 +259,7 @@ impl Provider {
             "chatgpt" => Some(Self::ChatGpt),
             "claude" => Some(Self::Claude),
             "claude-code" | "claudecode" => Some(Self::ClaudeCode),
+            "deepseek harness" | "deepseek-harness" => Some(Self::DeepSeekHarness),
             "gemini" => Some(Self::Gemini),
             "cursor" => Some(Self::Cursor),
             "windsurf" => Some(Self::Windsurf),
@@ -186,6 +277,15 @@ impl Provider {
             "perplexity" => Some(Self::Perplexity),
             "copilot" | "microsoftcopilot" => Some(Self::MicrosoftCopilot),
             "poe" => Some(Self::Poe),
+            "geminicli" | "gemini-cli" => Some(Self::GeminiCli),
+            "qwen" | "qwen-code" | "qwencode" => Some(Self::QwenCode),
+            "copilot-cli" | "copilotcli" => Some(Self::CopilotCli),
+            "droid" | "factory" | "factory-droid" => Some(Self::FactoryDroid),
+            "goose" => Some(Self::Goose),
+            "crush" => Some(Self::Crush),
+            "kilo" | "kilocode" | "kilo-code" => Some(Self::KiloCode),
+            "junie" => Some(Self::JetBrains),
+            "amp" => Some(Self::Amp),
             _ => None,
         }
     }
@@ -201,6 +301,11 @@ impl Provider {
         }
 
         // Terminal / CLI coding agents
+        if title_starts_or_is(&title, "deepseek harness")
+            || title_ends_or_is(&title, "deepseek harness")
+        {
+            return Some(Self::DeepSeekHarness);
+        }
         if title.contains("claude code") || title_starts_or_is(&title, "claude-code") {
             return Some(Self::ClaudeCode);
         }
@@ -212,6 +317,23 @@ impl Provider {
         }
         if title.contains("openai codex") {
             return Some(Self::Codex);
+        }
+
+        // Terminal coding agents that share a brand with a web app
+        if title == "gemini" || title_ends_or_is(&title, " - gemini") {
+            return Some(Self::GeminiCli);
+        }
+        if title == "qwen" || title.starts_with("qwen - ") {
+            return Some(Self::QwenCode);
+        }
+        if title == "droid" || title.starts_with("droid - ") {
+            return Some(Self::FactoryDroid);
+        }
+        if title == "goose" || title.starts_with("goose - ") {
+            return Some(Self::Goose);
+        }
+        if title == "crush" || title.starts_with("crush - ") {
+            return Some(Self::Crush);
         }
 
         // Web AI assistants (ChatGPT, Claude, Gemini, Perplexity, Poe)
@@ -248,6 +370,9 @@ impl Provider {
         }
         if title.contains("github copilot") || title.contains("copilot chat") {
             return Some(Self::GitHubCopilot);
+        }
+        if title == "copilot" {
+            return Some(Self::CopilotCli);
         }
 
         // Dedicated AI Editors & IDEs (match as whole app name or title suffix/prefix)
@@ -307,17 +432,42 @@ fn title_starts_or_is(title: &str, name: &str) -> bool {
     false
 }
 
+/// How a provider exposes its local activity store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStore {
+    /// Append-only, newline-delimited log files. Tailed incrementally.
+    LogFiles,
+    /// A JSON document that is rewritten in place. Re-read and diffed.
+    JsonFiles,
+    /// A JSON lines file where a line can hold a snapshot of the whole
+    /// conversation. Re-read and diffed per record.
+    JsonLineSnapshot,
+    /// A SQLite database. Polled for newly written rows.
+    Sqlite,
+}
+
 #[derive(Debug, Clone)]
 pub struct SessionSource {
     pub provider: Provider,
     pub root: PathBuf,
+    pub store: SessionStore,
 }
 
 impl SessionSource {
     pub fn matches(&self, path: &Path) -> bool {
         let norm_path = normalize_path(path);
         let norm_root = normalize_path(&self.root);
-        norm_path.starts_with(&norm_root) && is_session_log(self.provider, path)
+        if !norm_path.starts_with(&norm_root) {
+            return false;
+        }
+        match self.store {
+            SessionStore::LogFiles => is_session_log(self.provider, path),
+            SessionStore::JsonFiles | SessionStore::JsonLineSnapshot => {
+                is_session_document(self.provider, path)
+            }
+            // SQLite databases are polled, not matched against file events.
+            SessionStore::Sqlite => false,
+        }
     }
 }
 
@@ -327,25 +477,212 @@ fn normalize_path(path: &Path) -> PathBuf {
     PathBuf::from(s.replace('/', "\\").to_ascii_lowercase())
 }
 
+/// Editors that keep extension state under `%APPDATA%\<app>\User\globalStorage`.
+fn vscode_app_dirs() -> Vec<String> {
+    [
+        "Code",
+        "Code - Insiders",
+        "VSCodium",
+        "Cursor",
+        "Windsurf",
+        "Trae",
+        "Trae CN",
+        "Kiro",
+        "Void",
+        "Positron",
+        "Antigravity",
+        "PearAI",
+    ]
+    .iter()
+    .map(|name| name.to_string())
+    .collect()
+}
+
 pub fn session_sources() -> Vec<SessionSource> {
     let Some(home) = dirs::home_dir() else {
         return Vec::new();
     };
 
-    vec![
+    let mut sources = vec![
         SessionSource {
             provider: Provider::Codex,
             root: home.join(".codex").join("sessions"),
+            store: SessionStore::LogFiles,
         },
         SessionSource {
             provider: Provider::ClaudeCode,
             root: home.join(".claude").join("projects"),
+            store: SessionStore::LogFiles,
+        },
+        SessionSource {
+            provider: Provider::DeepSeekHarness,
+            root: home.join(".dsh").join("sessions"),
+            store: SessionStore::LogFiles,
         },
         SessionSource {
             provider: Provider::Antigravity,
             root: home.join(".gemini").join("antigravity").join("brain"),
+            store: SessionStore::LogFiles,
         },
-    ]
+        SessionSource {
+            provider: Provider::GeminiCli,
+            root: home.join(".gemini").join("tmp"),
+            store: SessionStore::JsonLineSnapshot,
+        },
+        SessionSource {
+            provider: Provider::QwenCode,
+            root: home.join(".qwen").join("projects"),
+            store: SessionStore::LogFiles,
+        },
+        SessionSource {
+            provider: Provider::CopilotCli,
+            root: home.join(".copilot").join("session-state"),
+            store: SessionStore::LogFiles,
+        },
+        SessionSource {
+            provider: Provider::FactoryDroid,
+            root: home.join(".factory").join("sessions"),
+            store: SessionStore::LogFiles,
+        },
+        SessionSource {
+            provider: Provider::Kiro,
+            root: home.join(".kiro").join("sessions"),
+            store: SessionStore::LogFiles,
+        },
+        SessionSource {
+            provider: Provider::Kiro,
+            root: home.join(".kiro").join("sessions"),
+            store: SessionStore::JsonFiles,
+        },
+        SessionSource {
+            provider: Provider::Cursor,
+            root: home.join(".cursor").join("projects"),
+            store: SessionStore::LogFiles,
+        },
+        SessionSource {
+            provider: Provider::Windsurf,
+            root: home.join(".windsurf").join("transcripts"),
+            store: SessionStore::LogFiles,
+        },
+        SessionSource {
+            provider: Provider::JetBrains,
+            root: home.join(".junie").join("sessions"),
+            store: SessionStore::LogFiles,
+        },
+        SessionSource {
+            provider: Provider::OpenCode,
+            root: home.join(".local").join("share").join("opencode"),
+            store: SessionStore::Sqlite,
+        },
+        SessionSource {
+            provider: Provider::KiloCode,
+            root: home.join(".local").join("share").join("kilo"),
+            store: SessionStore::Sqlite,
+        },
+        SessionSource {
+            provider: Provider::Continue,
+            root: home.join(".continue").join("sessions"),
+            store: SessionStore::JsonFiles,
+        },
+    ];
+
+    // Goose keeps one shared database for every session.
+    if let Some(appdata) = dirs::data_dir() {
+        sources.push(SessionSource {
+            provider: Provider::Goose,
+            root: appdata.join("Block").join("goose"),
+            store: SessionStore::Sqlite,
+        });
+    }
+
+    // Crush keeps one database per project, listed in a project registry.
+    if let Some(local) = dirs::data_local_dir() {
+        sources.push(SessionSource {
+            provider: Provider::Crush,
+            root: local.join("crush"),
+            store: SessionStore::Sqlite,
+        });
+    }
+
+    // Zed stores agent threads in a SQLite database.
+    if let Some(local) = dirs::data_local_dir() {
+        sources.push(SessionSource {
+            provider: Provider::Zed,
+            root: local.join("Zed").join("threads"),
+            store: SessionStore::Sqlite,
+        });
+    }
+
+    // Editor extensions keep per-task history in their global storage folder.
+    if let Some(appdata) = dirs::data_dir() {
+        for app in vscode_app_dirs() {
+            let global_storage = appdata.join(&app).join("User").join("globalStorage");
+            sources.push(SessionSource {
+                provider: Provider::RooCode,
+                root: global_storage.join("rooveterinaryinc.roo-cline"),
+                store: SessionStore::JsonFiles,
+            });
+            sources.push(SessionSource {
+                provider: Provider::Cline,
+                root: global_storage.join("saoudrizwan.claude-dev"),
+                store: SessionStore::JsonFiles,
+            });
+        }
+    }
+
+    // Cline 4 keeps its sessions in its own data folder, one directory per
+    // session with a transcript and a manifest. The folder also holds
+    // credentials, so the root stays narrow.
+    sources.push(SessionSource {
+        provider: Provider::Cline,
+        root: home.join(".cline").join("data").join("sessions"),
+        store: SessionStore::JsonFiles,
+    });
+
+    // Amp keeps one log per thread.
+    if let Some(local) = dirs::data_local_dir() {
+        sources.push(SessionSource {
+            provider: Provider::Amp,
+            root: local.join("amp").join("logs").join("threads"),
+            store: SessionStore::LogFiles,
+        });
+    }
+
+    // Aider writes its transcript into the working tree of the repository it
+    // edits, so the common workspace folders are scanned for it.
+    for candidate in aider_roots(&home) {
+        sources.push(SessionSource {
+            provider: Provider::Aider,
+            root: candidate,
+            store: SessionStore::LogFiles,
+        });
+    }
+
+    sources
+}
+
+/// Folders that can hold a repository Aider is working in.
+fn aider_roots(home: &Path) -> Vec<PathBuf> {
+    let mut roots = vec![home.to_path_buf()];
+    for name in [
+        "Documents",
+        "Desktop",
+        "source",
+        "repos",
+        "projects",
+        "dev",
+        "code",
+        "Projects",
+        "IdeaProjects",
+        "workspace",
+        "git",
+    ] {
+        let candidate = home.join(name);
+        if candidate.is_dir() {
+            roots.push(candidate);
+        }
+    }
+    roots
 }
 
 pub fn is_session_log(provider: Provider, path: &Path) -> bool {
@@ -354,16 +691,150 @@ pub fn is_session_log(provider: Provider, path: &Path) -> bool {
         .and_then(|name| name.to_str())
         .unwrap_or("");
     let lower_filename = filename.to_ascii_lowercase();
-    if !lower_filename.ends_with(".jsonl") {
-        return false;
+    if provider == Provider::DeepSeekHarness {
+        return matches!(
+            lower_filename.as_str(),
+            "session.v4.jsonl" | "session.v4.jsonl.zstd"
+        );
     }
 
     match provider {
-        Provider::Codex => lower_filename.starts_with("rollout-"),
-        Provider::ClaudeCode => true,
+        Provider::Codex => {
+            lower_filename.starts_with("rollout-") && lower_filename.ends_with(".jsonl")
+        }
+        Provider::ClaudeCode => lower_filename.ends_with(".jsonl"),
         Provider::Antigravity => lower_filename == "transcript.jsonl",
+        Provider::QwenCode => lower_filename.ends_with(".jsonl") && has_ancestor_dir(path, "chats"),
+        Provider::CopilotCli => {
+            lower_filename == "events.jsonl" || is_uuid_filename(&lower_filename, ".jsonl")
+        }
+        Provider::FactoryDroid => lower_filename.ends_with(".jsonl"),
+        Provider::Kiro => {
+            lower_filename == "messages.jsonl"
+                // The CLI keeps its transcript next to its sidecar.
+                || (lower_filename.ends_with(".jsonl")
+                    && path
+                        .parent()
+                        .and_then(|dir| dir.file_name())
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.eq_ignore_ascii_case("cli")))
+        }
+        Provider::Cursor => {
+            lower_filename.ends_with(".jsonl") && has_ancestor_dir(path, "agent-transcripts")
+        }
+        Provider::Windsurf => lower_filename.ends_with(".jsonl"),
+        Provider::JetBrains => lower_filename == "events.jsonl",
+        // Aider writes a Markdown transcript into the working tree.
+        Provider::Aider => lower_filename == ".aider.chat.history.md",
+        // Amp writes one JSON lines log per thread. The thread id is the stem
+        // of the file, the other logs of the CLI live next to that folder.
+        Provider::Amp => {
+            let stem = lower_filename.trim_end_matches(".log");
+            lower_filename.ends_with(".log")
+                && (stem.starts_with("t-") || is_uuid_filename(stem, ""))
+        }
         _ => false,
     }
+}
+
+/// JSON documents that are rewritten in place by the provider.
+pub fn is_session_document(provider: Provider, path: &Path) -> bool {
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match provider {
+        Provider::Continue => filename.ends_with(".json") && filename != "sessions.json",
+        Provider::RooCode => filename == "ui_messages.json",
+        // Kiro keeps the session metadata in a sidecar next to the transcript.
+        Provider::Kiro => {
+            filename == "session.json"
+                || (filename.ends_with(".json")
+                    && path
+                        .parent()
+                        .and_then(|dir| dir.file_name())
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.eq_ignore_ascii_case("cli")))
+        }
+        // Gemini CLI keeps session logs in a `chats` folder; the sibling `logs`
+        // folder holds an opt-in console capture that is not a session log.
+        Provider::GeminiCli => lower_jsonl_name(path) && has_ancestor_dir(path, "chats"),
+        // Cline 4 keeps `<sessionId>.messages.json` (transcript) and
+        // `<sessionId>.json` (manifest) next to each other; older versions
+        // wrote `ui_messages.json` into the editor global storage.
+        Provider::Cline => {
+            filename == "ui_messages.json"
+                || path
+                    .parent()
+                    .and_then(|dir| dir.file_name())
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        let name = name.to_ascii_lowercase();
+                        filename == format!("{name}.json")
+                            || filename == format!("{name}.messages.json")
+                    })
+        }
+        _ => false,
+    }
+}
+
+/// Key that identifies the session a document belongs to.
+///
+/// Some providers keep several files per session, such as a transcript and a
+/// manifest. They must share one state key, otherwise the project and the
+/// model would land on a different session than the tool activity.
+pub fn session_key(provider: Provider, path: &Path) -> PathBuf {
+    match provider {
+        Provider::Cline => path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| path.to_path_buf()),
+        _ => path.to_path_buf(),
+    }
+}
+
+/// True when the file name ends in `.jsonl`.
+fn lower_jsonl_name(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".jsonl"))
+}
+
+/// True when any ancestor directory of the path has the given name.
+fn has_ancestor_dir(path: &Path, name: &str) -> bool {
+    let mut current = path.parent();
+    let mut depth = 0;
+    while let Some(dir) = current {
+        if depth > 4 {
+            break;
+        }
+        if dir
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case(name))
+        {
+            return true;
+        }
+        current = dir.parent();
+        depth += 1;
+    }
+    false
+}
+
+fn is_uuid_filename(filename: &str, extension: &str) -> bool {
+    let Some(stem) = filename.strip_suffix(extension) else {
+        return false;
+    };
+    let groups: Vec<&str> = stem.split('-').collect();
+    if groups.len() != 5 {
+        return false;
+    }
+    let widths = [8, 4, 4, 4, 12];
+    groups
+        .iter()
+        .zip(widths)
+        .all(|(group, width)| group.len() == width && group.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 pub fn source_for_path<'a>(sources: &'a [SessionSource], path: &Path) -> Option<&'a SessionSource> {
@@ -433,6 +904,35 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_deepseek_harness_without_matching_unrelated_deepseek_mentions() {
+        for executable in ["DeepSeek Harness.exe", "deepseek-harness.EXE"] {
+            // Desktop window titles can contain only the workspace name.
+            assert_eq!(
+                Provider::from_window(executable, "Discodex"),
+                Some(Provider::DeepSeekHarness)
+            );
+        }
+        for title in [
+            "DeepSeek Harness",
+            "DeepSeek Harness - Discodex",
+            "Discodex — DeepSeek Harness",
+        ] {
+            assert_eq!(
+                Provider::from_window("WindowsTerminal.exe", title),
+                Some(Provider::DeepSeekHarness)
+            );
+        }
+        for title in [
+            "How to install DeepSeek Harness - Google Chrome",
+            "DeepSeek Harness review - Google Chrome",
+            "DeepSeek - Google Chrome",
+            "deepseek_harness.rs - Visual Studio Code",
+        ] {
+            assert_eq!(Provider::from_window("chrome.exe", title), None);
+        }
+    }
+
+    #[test]
     fn matches_legitimate_editor_and_browser_titles() {
         assert_eq!(
             Provider::from_window("Code.exe", "Cargo.toml - Cursor"),
@@ -482,10 +982,28 @@ mod tests {
     }
 
     #[test]
+    fn deepseek_matches_only_supported_session_generations() {
+        for name in ["session.v4.jsonl", "session.v4.jsonl.zstd"] {
+            assert!(is_session_log(Provider::DeepSeekHarness, Path::new(name)));
+        }
+        for name in [
+            "session.v3.jsonl.zstd",
+            "session.v5.jsonl.zstd",
+            "session.v4.jsonl.zstd.tmp",
+            "config.json",
+            "rollout-1.jsonl",
+        ] {
+            assert!(!is_session_log(Provider::DeepSeekHarness, Path::new(name)));
+        }
+        assert!(Provider::DeepSeekHarness.has_session_tracking());
+    }
+
+    #[test]
     fn session_source_matches_case_insensitive_and_prefix() {
         let source = SessionSource {
             provider: Provider::Antigravity,
             root: PathBuf::from(r"C:\Users\PC\.gemini\antigravity\brain"),
+            store: SessionStore::LogFiles,
         };
         assert!(source.matches(Path::new(
             r"c:\users\pc\.gemini\antigravity\brain\123\.system_generated\logs\transcript.jsonl"
@@ -530,6 +1048,7 @@ mod tests {
             match p {
                 Provider::Codex => {}
                 Provider::ClaudeCode => {}
+                Provider::DeepSeekHarness => {}
                 Provider::ChatGpt => {}
                 Provider::Claude => {}
                 Provider::Gemini => {}
@@ -548,8 +1067,17 @@ mod tests {
                 Provider::Perplexity => {}
                 Provider::MicrosoftCopilot => {}
                 Provider::Poe => {}
+                Provider::GeminiCli => {}
+                Provider::QwenCode => {}
+                Provider::CopilotCli => {}
+                Provider::FactoryDroid => {}
+                Provider::Goose => {}
+                Provider::Crush => {}
+                Provider::KiloCode => {}
+                Provider::JetBrains => {}
+                Provider::Amp => {}
             }
         }
-        assert_eq!(set.len(), 20);
+        assert_eq!(set.len(), 30);
     }
 }

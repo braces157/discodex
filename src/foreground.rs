@@ -20,8 +20,12 @@ pub fn active_provider() -> Option<Provider> {
         return None;
     }
     let executable = foreground_executable(window)?;
+    if let Some(provider) = Provider::from_executable(&executable) {
+        // Log-backed providers are independent of focus. Skip reading their titles.
+        return (!provider.has_session_tracking()).then_some(provider);
+    }
     let title = foreground_title(window);
-    Provider::from_window(&executable, &title)
+    Provider::from_window(&executable, &title).filter(|provider| !provider.has_session_tracking())
 }
 
 fn foreground_executable(window: windows::Win32::Foundation::HWND) -> Option<String> {
