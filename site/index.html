@@ -3,28 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Discodex — your AI session in Discord</title>
-<meta name="description" content="A Windows tray app that turns local coding-agent logs into Discord Rich Presence, and publishes only the fields you allow.">
-<meta name="theme-color" content="#111111">
+<title>Discodex — Discord Rich Presence for AI coding tools</title>
+<meta name="description" content="Discodex is a native Windows tray app that mirrors your AI coding sessions — Codex, Claude Code, Cursor, Gemini and 20+ more — into Discord Rich Presence. Prompts, paths and commands never leave your machine.">
+<meta name="theme-color" content="#0a0b09">
 <meta name="color-scheme" content="dark">
-<meta property="og:title" content="Discodex — your AI session in Discord">
-<meta property="og:description" content="A Windows tray app that turns local coding-agent logs into Discord Rich Presence, and publishes only the fields you allow.">
+<meta property="og:title" content="Discodex — Your AI session, live in Discord">
+<meta property="og:description" content="Native Windows tray app. 21 rich session adapters, 39 provider targets, one .exe. Prompts, responses, paths and commands stay local.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://braces157.github.io/discodex/">
 <meta property="og:image" content="https://braces157.github.io/discodex/assets/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Discodex — your AI session in Discord">
-<meta name="twitter:description" content="A Windows tray app that turns local coding-agent logs into Discord Rich Presence, and publishes only the fields you allow.">
+<meta name="twitter:title" content="Discodex — Your AI session, live in Discord">
+<meta name="twitter:description" content="Native Windows tray app that turns local AI coding activity into Discord Rich Presence. Nothing sensitive leaves the machine.">
 <meta name="twitter:image" content="https://braces157.github.io/discodex/assets/og-card.png">
 <link rel="canonical" href="https://braces157.github.io/discodex/">
 <link rel="icon" href="assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" href="assets/discodex-64.png">
 <link rel="apple-touch-icon" href="assets/discodex-192.png">
-<link rel="preload" href="assets/fonts/work-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/schibsted-grotesk-normal-400-900-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/instrument-serif-italic-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="styles.css">
-<script>document.documentElement.classList.add('js');</script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -32,7 +32,7 @@
   "name": "Discodex",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "Windows 10, Windows 11",
-  "description": "A Windows tray app that turns local coding-agent logs into Discord Rich Presence, and publishes only the fields you allow.",
+  "description": "Native Windows tray app that mirrors AI coding sessions into Discord Rich Presence without sending prompts, responses, paths or commands.",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
   "softwareVersion": "0.1.1"
 }
@@ -42,410 +42,602 @@
 
 <a class="skip" href="#main">Skip to content</a>
 
-<div class="page">
-  <header class="top">
-    <a class="wordmark" href="#top">
-      <img src="assets/discodex-256.png" alt="" width="22" height="22">
+<div class="amb" aria-hidden="true">
+  <div class="amb-a"></div>
+  <div class="amb-b"></div>
+  <div class="amb-grid"></div>
+</div>
+<div class="grain" aria-hidden="true"></div>
+
+<!-- ============================== NAV ============================== -->
+<div class="nav-shell">
+  <nav class="nav" id="nav" aria-label="Primary">
+    <a class="brand" href="#top" aria-label="Discodex home">
+      <img src="assets/discodex-256.png" alt="" width="26" height="26">
       <span>Discodex</span>
     </a>
-    <nav aria-label="Primary">
-      <a href="#payload">The payload</a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
       <a href="#how">How it works</a>
-      <a href="#covers">Coverage</a>
+      <a href="#providers">Providers</a>
+      <a href="#privacy">Privacy</a>
       <a href="#install">Install</a>
-    </nav>
-    <a class="top-action" href="https://github.com/braces157/discodex" target="_blank" rel="noopener">GitHub</a>
-  </header>
+    </div>
+    <div class="nav-actions">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/braces157/discodex" target="_blank" rel="noopener">
+        <span>GitHub</span>
+        <span class="ic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+        </span>
+      </a>
+      <button class="burger" id="burger" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="mmenu">
+        <span></span><span></span>
+      </button>
+    </div>
+  </nav>
 </div>
+
+<div class="mmenu" id="mmenu" aria-hidden="true">
+  <ul>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#providers">Providers</a></li>
+    <li><a href="#privacy">Privacy</a></li>
+    <li><a href="#install">Install</a></li>
+  </ul>
+  <div class="mm-foot">
+    <span class="mono">Windows 10/11 · v0.1.1</span>
+    <a class="btn btn-primary btn-sm" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">
+      <span>Download</span>
+      <span class="ic" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12"/><path d="M6 12l6 6 6-6"/><path d="M5 20h14"/></svg>
+      </span>
+    </a>
+  </div>
+</div>
+
+<!-- ============================== HERO ============================== -->
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <span class="eyebrow rv">v0.1.1 · Windows 10/11 · open source</span>
+        <h1 class="rv" style="--d:.06s">Your AI session,<br><em>live</em> in Discord.</h1>
+        <p class="lead rv" style="--d:.12s">
+          Discodex sits in your notification area and mirrors what your coding agent is
+          doing — the project, the file, the phase, the clock — into Discord Rich Presence.
+          Prompts, responses, paths and commands never leave your machine.
+        </p>
+        <div class="hero-ctas rv" style="--d:.18s">
+          <a class="btn btn-primary" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">
+            <span>Download for Windows</span>
+            <span class="ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12"/><path d="M6 12l6 6 6-6"/><path d="M5 20h14"/></svg>
+            </span>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/braces157/discodex" target="_blank" rel="noopener">
+            <span>View source</span>
+            <span class="ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+            </span>
+          </a>
+          <a class="text-link" href="#privacy">Privacy model</a>
+        </div>
+        <div class="hero-meta rv" style="--d:.24s">
+          <span>Single .exe</span>
+          <span>No installer</span>
+          <span>No account</span>
+          <span>Zero telemetry</span>
+        </div>
+      </div>
+
+      <div class="deck rv" style="--d:.2s" aria-hidden="true">
+        <div class="deck-glow"></div>
+
+        <div class="glass disc">
+          <div class="disc-head">
+            <span class="mono">Discord · Rich Presence</span>
+            <span class="live"><i></i>Connected</span>
+          </div>
+          <div class="disc-body">
+            <div class="disc-art">
+              <img class="big" src="assets/codex-bundle-blue.png" alt="" width="78" height="78">
+              <img class="small" src="assets/discodex-256.png" alt="" width="30" height="30">
+            </div>
+            <div class="disc-lines">
+              <span class="disc-kicker">Playing</span>
+              <span class="disc-name">OpenAI Codex</span>
+              <span class="disc-row">discodex — <span id="pFile">presence.rs</span></span>              <span class="disc-row dim">Rust · Codex session adapter</span>
+              <span class="disc-time">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                <span id="elapsed">02:14:37</span> elapsed
+              </span>
+            </div>
+          </div>
+          <div class="disc-foot">
+            <span class="pip"></span>
+            <span>Sample presence · real data stays local</span>
+          </div>
+        </div>
+
+        <div class="glass stream">
+          <div class="stream-head">
+            <span class="mono">Session stream</span>
+            <span class="mono on">Live</span>
+          </div>
+          <ul class="stream-rows">
+            <li><span class="k">project</span><span class="v">discodex</span></li>
+            <li><span class="k">file</span><span class="v" id="sFile">presence.rs</span></li>
+            <li><span class="k">stack</span><span class="v">Rust · edition 2024</span></li>
+            <li><span class="k">phase</span><span class="v" id="sPhase">running tests</span></li>
+            <li><span class="k">elapsed</span><span class="v" id="sElapsed">02:14:37</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="spec-strip rv" style="--d:.1s">
+      <div class="spec">
+        <span class="spec-v">21</span>
+        <span class="spec-l">Rich session adapters</span>
+      </div>
+      <div class="spec">
+        <span class="spec-v">39</span>
+        <span class="spec-l">Provider targets</span>
+      </div>
+      <div class="spec">
+        <span class="spec-v">4</span>
+        <span class="spec-l">Store formats read</span>
+      </div>
+      <div class="spec">
+        <span class="spec-v">0<small>bytes</small></span>
+        <span class="spec-l">Conversation content sent</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee-track" id="mtrack">
+      <span>OpenAI Codex</span><span>Claude Code</span><span>DeepSeek Harness</span><span>Gemini CLI</span><span>Qwen Code</span><span>GitHub Copilot CLI</span><span>Cursor</span><span>Windsurf</span><span>Factory Droid</span><span>Kiro</span><span>Junie</span><span>Aider</span><span>Cline</span><span>Roo Code</span><span>Continue</span><span>Block Goose</span><span>Charm Crush</span><span>OpenCode</span><span>Zed</span><span>Kilo Code</span><span>Google Antigravity</span><span>Sourcegraph Amp</span><span>Perplexity</span><span>Poe</span>
+    </div>
+  </div>
+</header>
 
 <main id="main">
 
-  <!-- ============================== HERO ============================== -->
-  <section class="hero" id="top">
-    <div class="page">
-      <div class="hero-inner">
-        <h1 class="display">
-          <span class="line-mask"><span data-line style="--i:0">Your AI session</span></span>
-          <span class="line-mask"><span data-line style="--i:1">in Discord</span></span>
-        </h1>
-        <div class="hero-copy">
-          <p class="lead" data-load style="--d:320ms">
-            A Windows tray app that reads your local coding-agent logs and publishes
-            the safe parts to Discord Rich Presence. You decide what those parts are.
-          </p>
-          <div class="hero-actions" data-load style="--d:420ms">
-            <a class="button" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">Download for Windows</a>
-            <a class="text-link" href="#payload">See what it sends</a>
-          </div>
+  <!-- ============================== FEATURES ============================== -->
+  <section class="sec" id="features">
+    <div class="wrap">
+      <div class="sec-head">
+        <div>
+          <span class="idx rv"><b>01</b> — Why Discodex</span>
+          <h2 class="rv" style="--d:.05s">A tray icon with<br>a narrow job.</h2>
         </div>
-        <aside class="hero-status" data-ui data-load style="--d:500ms" aria-label="Example status">
-          <div class="hs-head"><span class="hs-dot"></span>Connected to Discord</div>
-          <div class="hs-row"><span>Codex</span><span class="hs-on">running tests</span></div>
-          <div class="hs-row"><span>Claude Code</span><span class="hs-idle">idle 4m</span></div>
-          <div class="hs-row"><span>Cursor</span><span class="hs-idle">idle 22m</span></div>
-          <div class="hs-foot">3 sessions found · 1 publishing</div>
-        </aside>
+        <p class="lead rv" style="--d:.1s">
+          One small executable reads local session logs, reduces them to a handful of
+          safe fields, and publishes presence. It does not proxy your AI, phone home,
+          or need a login.
+        </p>
+      </div>
 
-
-        <!-- The live thing: the allowlist, editable, with the payload beside it -->
-        <div class="payload" id="payload" data-open>
-          <div class="payload-head">
-            <h2>Discord is receiving</h2>
-            <span class="payload-state" id="payloadState"><i></i>6 of 6 fields</span>
-          </div>
-
-          <div class="payload-stage" data-ui>
-            <div class="payload-fields" id="payloadFields">
-              <div class="field-row" data-field="provider"><span class="k">provider</span><span class="v">OpenAI Codex</span></div>
-              <div class="field-row" data-field="project"><span class="k">project</span><span class="v">discodex</span></div>
-              <div class="field-row" data-field="file"><span class="k">file</span><span class="v">presence.rs</span></div>
-              <div class="field-row" data-field="language"><span class="k">language</span><span class="v">Rust</span></div>
-              <div class="field-row" data-field="activity"><span class="k">activity</span><span class="v">Running tests</span></div>
-              <div class="field-row" data-field="elapsed"><span class="k">elapsed</span><span class="v" id="elapsed">02:14:37</span></div>
+      <div class="bento">
+        <div class="bezel sp-7 rv">
+          <div class="inner">
+            <div class="bcard">
+              <span class="tag">Adapters</span>
+              <h3>Presence that describes the work</h3>
+              <p>
+                When a provider keeps a stable local log, Discodex reports the project,
+                stack, current file, activity and phase — not a generic “using an app”
+                status. Elapsed time comes from the task start, not from launch.
+              </p>
+              <div class="rows">
+                <div class="row"><span class="k">project</span><span class="v">discodex</span></div>
+                <div class="row"><span class="k">file</span><span class="v">src/presence.rs</span></div>
+                <div class="row"><span class="k">stack</span><span class="v">Rust · edition 2024</span></div>
+                <div class="row"><span class="k">phase</span><span class="v"><span class="lime">running tests</span></span></div>
+                <div class="row"><span class="k">elapsed</span><span class="v">02:14:37</span></div>
+              </div>
             </div>
-            <p class="payload-empty" id="payloadEmpty">
-              No fields selected. Discord shows your name and nothing else.
-            </p>
-          </div>
-
-          <div class="payload-controls" role="group" aria-label="Choose which fields Discord may receive">
-            <label class="switch"><input type="checkbox" data-toggle="provider" checked><span class="track"></span>Provider</label>
-            <label class="switch"><input type="checkbox" data-toggle="project" checked><span class="track"></span>Project</label>
-            <label class="switch"><input type="checkbox" data-toggle="file" checked><span class="track"></span>File name</label>
-            <label class="switch"><input type="checkbox" data-toggle="language" checked><span class="track"></span>Language</label>
-            <label class="switch"><input type="checkbox" data-toggle="activity" checked><span class="track"></span>Activity</label>
-            <label class="switch"><input type="checkbox" data-toggle="elapsed" checked><span class="track"></span>Elapsed time</label>
-          </div>
-
-          <div class="payload-foot">
-            <span>Never available: prompts, responses, full paths, commands, tool output, window titles.</span>
-            <a class="text-link" href="#how">How the filter works</a>
           </div>
         </div>
 
-        <ul class="spec">
-          <li><strong>21</strong> session adapters</li>
-          <li><strong>39</strong> provider targets</li>
-          <li><strong>4</strong> store formats read</li>
-          <li><strong>0 bytes</strong> telemetry</li>
-        </ul>
+        <div class="bezel sp-5 rv" style="--d:.06s">
+          <div class="inner">
+            <div class="bcard">
+              <span class="tag">Boundary</span>
+              <h3>A short allowlist, enforced at the source</h3>
+              <p>
+                The filter sits between the adapters and Discord’s IPC, so sensitive fields
+                are excluded before a payload is built. If a provider exposes nothing safe,
+                only its name is shown.
+              </p>
+              <div class="rows">
+                <div class="row"><span class="k">prompts</span><span class="v">never parsed</span></div>
+                <div class="row"><span class="k">paths</span><span class="v">basename only</span></div>
+                <div class="row"><span class="k">window titles</span><span class="v">matched, discarded</span></div>
+                <div class="row"><span class="k">telemetry</span><span class="v">none</span></div>
+              </div>
+              <div class="fine">docs/PRIVACY.md</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bezel sp-4 rv">
+          <div class="inner">
+            <div class="bcard">
+              <span class="tag">Surface</span>
+              <h3>Lives in the tray</h3>
+              <p>Right-click for presence, detection and startup. No window to manage.</p>
+              <div class="tray" aria-hidden="true">
+                <div class="tray-head">
+                  <img src="assets/discodex-256.png" alt="" width="20" height="20">
+                  <span class="tray-name">Discodex</span>
+                  <span class="tray-state"><i></i>Active</span>
+                </div>
+                <div class="tray-item"><span>Presence enabled</span><span class="sw on"></span></div>
+                <div class="tray-item"><span>Detect focused AI apps</span><span class="sw on"></span></div>
+                <div class="tray-item"><span>Start with Windows</span><span class="sw"></span></div>
+                <div class="tray-item sep"><span>Status</span><span class="key">CODEX</span></div>
+                <div class="tray-item"><span>Open config</span><span class="key">TOML</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bezel sp-4 rv" style="--d:.06s">
+          <div class="inner">
+            <div class="bcard">
+              <span class="tag">Reliability</span>
+              <h3>Reconnects before you notice</h3>
+              <p>
+                Discord restarts, Explorer restarts and sleeping laptops are handled.
+                Presence is health-checked between publishes and cleared on exit.
+              </p>
+              <div class="rows">
+                <div class="row"><span class="k">transport</span><span class="v">Discord IPC</span></div>
+                <div class="row"><span class="k">on disconnect</span><span class="v">retry + re-sync</span></div>
+                <div class="row"><span class="k">on exit</span><span class="v">activity cleared</span></div>
+                <div class="row"><span class="k">duplicate instance</span><span class="v">named mutex</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bezel sp-4 rv" style="--d:.12s">
+          <div class="inner">
+            <div class="bcard">
+              <span class="tag">Config</span>
+              <h3>Four keys, hot-reloaded</h3>
+              <p>Everything lives in one TOML file. Save it and the worker picks it up.</p>
+              <div class="code">
+                <div class="code-bar"><span>%APPDATA%\Discodex\config.toml</span></div>
+                <pre><span class="ck">discord_application_id</span> = <span class="cs">""</span>
+<span class="ck">enabled</span> = <span class="cv">true</span>
+<span class="ck">start_with_windows</span> = <span class="cv">false</span>
+<span class="ck">foreground_detection</span> = <span class="cv">true</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- ============================== HOW ============================== -->
-  <section class="section" id="how">
-    <div class="page">
-      <div class="section-head">
-        <h2 class="head" data-reveal>Three things happen</h2>
-        <p class="body" data-reveal>
-          Discodex never calls a provider API and never reads network traffic.
-          Everything it knows comes from files already on the disk.
+  <section class="sec" id="how">
+    <div class="wrap how-grid">
+      <div class="how-left">
+        <span class="idx rv"><b>02</b> — How it works</span>
+        <h2 class="rv" style="--d:.05s">Local logs in.<br>Presence out.<br><em>Nothing else.</em></h2>
+        <p class="lead rv" style="--d:.1s">
+          Discodex never calls provider APIs and never inspects network traffic.
+          Everything it knows comes from files already on your disk.
         </p>
+        <div class="how-note rv" style="--d:.15s">
+          <span><b>No</b> provider API calls</span>
+          <span><b>No</b> network reads</span>
+          <span><b>No</b> cloud component</span>
+        </div>
       </div>
 
-      <div class="pinned">
-        <div class="pinned-steps" id="steps">
-          <div class="step" data-step="0">
-            <p><span class="step-word">It reads</span> the log your agent already writes.</p>
-            <p class="step-body">
-              One adapter per harness, for the shape it actually uses: append-only
-              JSONL, rewritten JSON documents, Markdown transcripts, or SQLite.
-            </p>
-          </div>
-          <div class="step" data-step="1">
-            <p><span class="step-word">It drops</span> everything that is not on the list.</p>
-            <p class="step-body">
-              Events are reduced to six fields before a payload exists. Prompts,
-              responses, paths, commands and tool output have no field to travel in.
-            </p>
-          </div>
-          <div class="step" data-step="2">
-            <p><span class="step-word">It publishes</span> over Discord IPC.</p>
-            <p class="step-body">
-              A thin client keeps the activity alive, reconnects when Discord restarts,
-              and clears presence the moment you exit.
+      <div class="steps">
+        <div class="step rv">
+          <span class="step-num">01</span>
+          <div>
+            <h3>Adapters read local sessions</h3>
+            <p>
+              Each provider gets its own adapter for the shape it actually writes —
+              append-only JSONL, rewritten JSON documents, Markdown transcripts, or SQLite
+              databases. The adapter derives project, stack, file, phase and start time.
             </p>
           </div>
         </div>
-
-        <div class="pinned-stage">
-          <div class="state-panel is-on" data-state="0">
-            <div class="log" data-ui>
-              <div class="log-row"><span class="t">14:02:11</span><span class="m">session start · discodex</span><span class="s">read</span></div>
-              <div class="log-row"><span class="t">14:02:44</span><span class="m">tool · shell → cargo test</span><span class="s">read</span></div>
-              <div class="log-row"><span class="t">14:03:02</span><span class="m">file · src/presence.rs</span><span class="s">read</span></div>
-              <div class="log-row"><span class="t">14:03:19</span><span class="m">prompt · 1,842 characters</span><span class="s">discarded</span></div>
-              <div class="log-row"><span class="t">14:03:51</span><span class="m">assistant · 4,110 characters</span><span class="s">discarded</span></div>
-              <div class="log-row is-idle"><span class="t">14:04:07</span><span class="m">tool result · 12,904 bytes</span><span class="s">discarded</span></div>
-            </div>
+        <div class="step rv" style="--d:.06s">
+          <span class="step-num">02</span>
+          <div>
+            <h3>The filter decides what may exist</h3>
+            <p>
+              Events are reduced to a small <code>PresenceSnapshot</code> before anything
+              reaches Discord. Prompts, responses, absolute paths, commands, tool arguments
+              and tool output have no field to travel in.
+            </p>
           </div>
-
-          <div class="state-panel" data-state="1">
-            <div class="log" data-ui>
-              <div class="filter-line"><span class="pass">provider name</span><span class="pass">kept</span></div>
-              <div class="filter-line"><span class="pass">workspace folder</span><span class="pass">kept</span></div>
-              <div class="filter-line"><span class="pass">file basename</span><span class="pass">kept</span></div>
-              <div class="filter-line"><span class="pass">language</span><span class="pass">kept</span></div>
-              <div class="filter-line"><span class="drop">full file path</span><span class="drop">dropped</span></div>
-              <div class="filter-line"><span class="drop">window title</span><span class="drop">dropped</span></div>
-              <div class="filter-line"><span class="drop">tool arguments</span><span class="drop">dropped</span></div>
-            </div>
-          </div>
-
-          <div class="state-panel" data-state="2">
-            <div class="out" data-ui>
-              <div class="out-row"><span class="k">name</span><span class="v">OpenAI Codex</span></div>
-              <div class="out-row"><span class="k">details</span><span class="v">discodex · Rust</span></div>
-              <div class="out-row"><span class="k">state</span><span class="v">presence.rs · Running tests</span></div>
-              <div class="out-row"><span class="k">start</span><span class="v">1789187508000</span></div>
-              <div class="out-note">Published over the local Discord IPC socket. 128-byte field limit, applied.</div>
-            </div>
+        </div>
+        <div class="step rv" style="--d:.12s">
+          <span class="step-num">03</span>
+          <div>
+            <h3>Discord IPC publishes the result</h3>
+            <p>
+              A thin IPC client publishes the activity and keeps it healthy: reconnecting
+              after Discord restarts, refreshing periodically, and clearing presence when
+              you exit or switch it off.
+            </p>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============================== FEATURES ============================== -->
-  <section class="section" id="details">
-    <div class="page">
-      <div class="section-head">
-        <h2 class="head" data-reveal>What it does with the rest</h2>
-        <p class="body" data-reveal>
-          The parts that are not the privacy boundary: how a session is chosen,
-          where the settings live, and what happens when Discord is not running.
+  <!-- ============================== PROVIDERS ============================== -->
+  <section class="sec" id="providers">
+    <div class="wrap prov-grid">
+      <div class="prov-left">
+        <span class="idx rv"><b>03</b> — Coverage</span>
+        <h2 class="rv" style="--d:.05s">If you code with AI, it is probably covered.</h2>
+        <p class="lead rv" style="--d:.1s">
+          Two detection layers: rich session tracking wherever a stable local format
+          exists, and focused-app detection as the broad fallback.
+        </p>
+        <p class="prov-note rv" style="--d:.15s">
+          Session selection ignores window focus — tools win over idle, recent wins over
+          stale. <a class="link-arrow" href="https://github.com/braces157/discodex/blob/main/docs/PROVIDERS.md" target="_blank" rel="noopener">Provider docs</a>
         </p>
       </div>
 
-      <div class="cells">
-        <article class="cell" data-reveal style="--i:0">
-          <div class="cell-text">
-            <h3>Tools win over idle</h3>
-            <p>When several sessions are open, one running a tool takes the slot. Otherwise the most recent wins. Window focus is ignored.</p>
-          </div>
-          <div class="frag" data-ui>
-            <div class="frag-row"><span>codex · discodex</span><b>running tests</b></div>
-            <div class="frag-row"><span>claude · notes</span><span class="dim">idle 4m</span></div>
-            <div class="frag-row"><span>gemini · scratch</span><span class="dim">idle 22m</span></div>
-          </div>
-        </article>
-
-        <article class="cell flip" data-reveal style="--i:1">
-          <div class="frag" data-ui>
-            <div class="kv">
-              <span class="k">enabled</span><span class="v">true</span>
-              <span class="k">start_with_windows</span><span class="v">false</span>
-              <span class="k">foreground_detection</span><span class="v">true</span>
-              <span class="k">application_id</span><span class="v">embedded</span>
+      <div class="bezel rv" style="--d:.08s">
+        <div class="inner prov-panel">
+          <div class="prov-block">
+            <div class="prov-head">
+              <h3>Rich session tracking</h3>
+              <span class="cnt">21 providers · project · file · phase · clock</span>
             </div>
+            <ul class="prov-list">
+              <li><span>OpenAI Codex</span></li>
+              <li><span>Claude Code</span></li>
+              <li><span>Google Antigravity</span></li>
+              <li><span>DeepSeek Harness</span></li>
+              <li><span>Gemini CLI</span></li>
+              <li><span>Qwen Code</span></li>
+              <li><span>GitHub Copilot CLI</span></li>
+              <li><span>Factory Droid</span></li>
+              <li><span>Kiro</span></li>
+              <li><span>Cursor</span></li>
+              <li><span>Windsurf / Cascade</span></li>
+              <li><span>Junie (JetBrains)</span></li>
+              <li><span>Aider</span></li>
+              <li><span>Cline</span></li>
+              <li><span>Roo Code</span></li>
+              <li><span>Continue</span></li>
+              <li><span>Block Goose</span></li>
+              <li><span>Charm Crush</span></li>
+              <li><span>OpenCode</span></li>
+              <li><span>Zed</span></li>
+              <li><span>Kilo Code</span></li>
+            </ul>
           </div>
-          <div class="cell-text">
-            <h3>Four keys, hot-reloaded</h3>
-            <p>One TOML file at %APPDATA%\Discodex. Save it and the worker picks the change up without a restart.</p>
-          </div>
-        </article>
 
-        <article class="cell" data-reveal style="--i:0">
-          <div class="cell-text">
-            <h3>It reconnects itself</h3>
-            <p>Discord starting late, Discord restarting, Explorer restarting: presence comes back without a prompt.</p>
-          </div>
-          <div class="frag" data-ui>
-            <div class="frag-row"><span>socket</span><b>connected</b></div>
-            <div class="frag-row"><span>last publish</span><span>2s ago</span></div>
-            <div class="frag-row"><span>retries</span><span>0</span></div>
-            <div class="bar"><i style="width:100%"></i></div>
-          </div>
-        </article>
-
-        <article class="cell flip" data-reveal style="--i:1">
-          <div class="frag" data-ui>
-            <div class="frag-row"><span>Codex</span><span class="dim">JSONL</span></div>
-            <div class="frag-row"><span>Claude Code</span><span class="dim">JSONL</span></div>
-            <div class="frag-row"><span>Zed</span><span class="dim">SQLite</span></div>
-            <div class="frag-row"><span>Aider</span><span class="dim">Markdown</span></div>
-          </div>
-          <div class="cell-text">
-            <h3>Four store shapes</h3>
-            <p>Append-only logs are tailed. Rewritten documents are re-read. Databases are polled. Each harness uses the one it has.</p>
-          </div>
-        </article>
-
-        <article class="cell" data-reveal style="--i:0">
-          <div class="cell-text">
-            <h3>One process, one icon</h3>
-            <p>A named Windows mutex stops a second copy. Right-click the tray icon for presence, detection, startup and exit.</p>
-          </div>
-          <div class="frag" data-ui>
-            <div class="frag-row"><span>Presence enabled</span><b>on</b></div>
-            <div class="frag-row"><span>Detect focused apps</span><b>on</b></div>
-            <div class="frag-row"><span>Start with Windows</span><span class="dim">off</span></div>
-            <div class="frag-row"><span>Exit</span><span class="dim">clears activity</span></div>
-          </div>
-        </article>
-
-        <article class="cell flip" data-reveal style="--i:1">
-          <div class="frag tray-frag" data-ui>
-            <div class="tray-head">
-              <img src="assets/discodex-256.png" alt="" width="16" height="16">
-              <span>Discodex</span>
-              <span class="tray-live">active</span>
+          <div class="prov-block">
+            <div class="prov-head">
+              <h3>Focused-app detection</h3>
+              <span class="cnt">17 targets · compatibility fallback</span>
             </div>
-            <div class="tray-item"><span>Presence enabled</span><span class="tray-sw on"></span></div>
-            <div class="tray-item"><span>Detect focused AI apps</span><span class="tray-sw on"></span></div>
-            <div class="tray-item"><span>Start with Windows</span><span class="tray-sw"></span></div>
-            <div class="tray-sep"></div>
-            <div class="tray-item"><span>Status</span><span class="tray-dim">codex · running tests</span></div>
-            <div class="tray-item"><span>Test presence</span><span class="tray-dim">›</span></div>
-            <div class="tray-item"><span>Open config</span><span class="tray-dim">›</span></div>
-            <div class="tray-item"><span>Exit</span><span class="tray-dim">clears activity</span></div>
+            <div class="chips">
+              <span class="chip">ChatGPT</span>
+              <span class="chip">Claude</span>
+              <span class="chip">Google Gemini</span>
+              <span class="chip">Cursor</span>
+              <span class="chip">Windsurf</span>
+              <span class="chip">Trae</span>
+              <span class="chip">Kiro</span>
+              <span class="chip">Zed AI</span>
+              <span class="chip">OpenCode</span>
+              <span class="chip">Aider</span>
+              <span class="chip">GitHub Copilot</span>
+              <span class="chip">Cline</span>
+              <span class="chip">Roo Code</span>
+              <span class="chip">Continue</span>
+              <span class="chip">Perplexity</span>
+              <span class="chip">Microsoft Copilot</span>
+              <span class="chip">Poe</span>
+            </div>
+            <p class="prov-note" style="margin-top:16px">
+              Sourcegraph Amp reports activity-only from local thread logs.
+            </p>
           </div>
-          <div class="cell-text">
-            <h3>The whole app is this menu</h3>
-            <p>Right-click the tray icon for presence, detection, startup, status and exit. There is no window to open.</p>
-          </div>
-        </article>
+        </div>
       </div>
     </div>
   </section>
 
-  <!-- ============================== COVERAGE ============================== -->
-  <section class="section" id="covers">
-    <div class="page">
-      <div class="section-head">
-        <h2 class="head" data-reveal>What it covers</h2>
-        <p class="body" data-reveal>
-          Twenty-one harnesses have a session adapter. Seventeen more applications are
-          recognised from the focused window when no stable log exists.
+  <!-- ============================== PRIVACY ============================== -->
+  <section class="sec" id="privacy">
+    <div class="wrap priv-grid">
+      <div class="priv-left">
+        <span class="idx rv"><b>04</b> — Privacy model</span>
+        <h2 class="rv" style="--d:.05s">Nothing sensitive <em>leaves</em> the process.</h2>
+        <p class="lead rv" style="--d:.1s">
+          Discord learns that you are building. It does not learn what you asked,
+          what the model answered, or where the files live.
+        </p>
+        <p class="rv" style="--d:.15s">
+          <a class="link-arrow" href="https://github.com/braces157/discodex/blob/main/docs/PRIVACY.md" target="_blank" rel="noopener">Read the privacy model</a>
         </p>
       </div>
 
-      <div class="providers">
-        <div>
-          <p class="body" style="margin-bottom:20px">
-            Each row is a provider and the format Discodex reads from it. Sessions keep
-            reporting while the app is minimised.
-          </p>
+      <div class="priv-panels">
+        <div class="bezel rv" style="--d:.06s">
+          <div class="inner plist ok">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
+              May be sent
+            </h3>
+            <ul>
+              <li>Provider name</li>
+              <li>Workspace folder name</li>
+              <li>Inferred language or framework</li>
+              <li>Current file basename</li>
+              <li>Normalized activity label</li>
+              <li>Phase and task start time</li>
+              <li>Agent role, model, reasoning effort</li>
+            </ul>
+          </div>
         </div>
-        <ul class="provider-list">
-          <li><span class="name">OpenAI Codex</span><span class="store">JSONL</span></li>
-          <li><span class="name">Claude Code</span><span class="store">JSONL</span></li>
-          <li><span class="name">Google Antigravity</span><span class="store">JSONL</span></li>
-          <li><span class="name">DeepSeek Harness</span><span class="store">JSONL · zstd</span></li>
-          <li><span class="name">Gemini CLI</span><span class="store">JSONL snapshot</span></li>
-          <li><span class="name">Qwen Code</span><span class="store">JSONL</span></li>
-          <li><span class="name">GitHub Copilot CLI</span><span class="store">JSONL</span></li>
-          <li><span class="name">Factory Droid</span><span class="store">JSONL</span></li>
-          <li><span class="name">Kiro</span><span class="store">JSONL</span></li>
-          <li><span class="name">Cursor</span><span class="store">JSONL</span></li>
-          <li><span class="name">Windsurf / Cascade</span><span class="store">JSONL</span></li>
-          <li><span class="name">Junie</span><span class="store">JSONL</span></li>
-          <li><span class="name">Aider</span><span class="store">Markdown</span></li>
-          <li><span class="name">Cline</span><span class="store">JSON</span></li>
-          <li><span class="name">Roo Code</span><span class="store">JSON</span></li>
-          <li><span class="name">Continue</span><span class="store">JSON</span></li>
-          <li><span class="name">Block Goose</span><span class="store">SQLite</span></li>
-          <li><span class="name">Charm Crush</span><span class="store">SQLite</span></li>
-          <li><span class="name">OpenCode</span><span class="store">SQLite</span></li>
-          <li><span class="name">Zed</span><span class="store">SQLite</span></li>
-          <li><span class="name">Kilo Code</span><span class="store">SQLite</span></li>
-        </ul>
+
+        <div class="bezel rv" style="--d:.12s">
+          <div class="inner plist no">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M6 18L18 6"/></svg>
+              Never sent
+            </h3>
+            <ul>
+              <li>Prompts and assistant responses</li>
+              <li>Full file paths</li>
+              <li>Raw shell commands</li>
+              <li>Tool arguments and output</li>
+              <li>Session contents</li>
+              <li>Window titles and browser URLs</li>
+              <li>Account identifiers</li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="priv-fine rv" style="--d:.18s">
+          <b>Focused-app detection</b> compares executable names and known product names in the
+          active window title, locally. The title is neither stored nor included in presence.
+          Turn the layer off in the tray and rich session tracking keeps working.
+        </p>
       </div>
-
-
     </div>
   </section>
 
   <!-- ============================== INSTALL ============================== -->
-  <section class="section" id="install">
-    <div class="page">
-      <div class="section-head">
-        <h2 class="head" data-reveal>Install</h2>
-        <p class="body" data-reveal>
-          One executable, no installer, no account. It needs Windows 10 or 11 and
-          Discord Desktop running for presence to appear.
+  <section class="sec" id="install">
+    <div class="wrap install-grid">
+      <div>
+        <div class="sec-head solo">
+          <div>
+            <span class="idx rv"><b>05</b> — Install</span>
+            <h2 class="rv" style="--d:.05s">Two minutes,<br>no installer.</h2>
+          </div>
+        </div>
+
+        <div class="install-steps">
+          <div class="install-step rv">
+            <span class="n">01</span>
+            <div>
+              <h3>Download the release</h3>
+              <p>Grab <a href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">discodex.exe</a> from the latest GitHub release. A single file, nothing bundled around it.</p>
+            </div>
+          </div>
+          <div class="install-step rv" style="--d:.06s">
+            <span class="n">02</span>
+            <div>
+              <h3>Run it</h3>
+              <p>The icon appears in the notification area. Configuration is created on first launch at <code class="inline-code">%APPDATA%\Discodex</code>.</p>
+            </div>
+          </div>
+          <div class="install-step rv" style="--d:.12s">
+            <span class="n">03</span>
+            <div>
+              <h3>Keep Discord running</h3>
+              <p>Presence connects over Discord IPC and reconnects by itself if Discord starts later or restarts.</p>
+            </div>
+          </div>
+        </div>
+
+        <p class="install-aside rv" style="--d:.16s">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 9.5-4.1-1.9-7-5.3-7-9.5V6l7-3z"/></svg>
+          <span>Requirements: Windows 10 or 11, Discord Desktop. One Discodex process runs per Windows session.</span>
         </p>
       </div>
 
-      <div class="install" data-reveal>
-        <ol class="steps-list">
-          <li>
-            <h3>Download discodex.exe</h3>
-            <p>Grab the file from the <a href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">latest release</a>. Nothing is bundled around it.</p>
-          </li>
-          <li>
-            <h3>Run it</h3>
-            <p>The icon appears in the notification area and the config file is created on first launch.</p>
-          </li>
-          <li>
-            <h3>Leave Discord running</h3>
-            <p>Presence connects over IPC, and reconnects on its own if Discord starts later.</p>
-          </li>
-        </ol>
+      <div class="bezel terminal rv" style="--d:.1s">
+        <div class="inner">
+          <div class="code">
+            <div class="code-bar">
+              <span>Build from source · PowerShell</span>
+              <button class="copy" id="copyBtn" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+                <span>copy</span>
+              </button>
+            </div>
+            <pre><span class="cm"># Rust 1.85+ · Discord Desktop</span>
+git clone <span class="cs">https://github.com/braces157/discodex.git</span>
+<span class="ck">cd</span> discodex
+<span class="ck">cargo</span> test
+<span class="ck">cargo</span> build --release
+<span class="cm"># → target\release\discodex.exe</span>
 
-        <div class="code" data-ui>
-          <div class="code-bar">
-            <span>Build from source</span>
-            <button class="copy" id="copyBtn" type="button"><span>copy</span></button>
+<span class="cm"># Optional: your own Discord application ID</span>
+<span class="ck">$env:DISCODEX_DISCORD_APPLICATION_ID</span> = <span class="cs">"YOUR_APPLICATION_ID"</span>
+<span class="ck">cargo</span> build --release</pre>
           </div>
-          <pre><code><span class="cm"># Rust 1.85 or newer</span>
-git clone https://github.com/braces157/discodex.git
-cd discodex
-cargo test
-cargo build --release
-
-<span class="cm"># your own Discord application ID</span>
-$env:DISCODEX_DISCORD_APPLICATION_ID = "YOUR_ID"
-cargo build --release</code></pre>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============================== CLOSING ============================== -->
-  <section class="closing">
-    <div class="page">
-      <div class="closing-inner">
-        <h2 data-reveal>Get it running<br>in two minutes</h2>
-        <div class="closing-config" data-ui>
-          <div class="cfg-row"><span class="cfg-k">enabled</span><span class="cfg-v">true</span></div>
-          <div class="cfg-row"><span class="cfg-k">start_with_windows</span><span class="cfg-v">false</span></div>
-          <div class="cfg-row"><span class="cfg-k">foreground_detection</span><span class="cfg-v">true</span></div>
-          <div class="cfg-row"><span class="cfg-k">discord_application_id</span><span class="cfg-v">embedded</span></div>
-          <p class="cfg-note">%APPDATA%\Discodex\config.toml</p>
-        </div>
-        <div class="closing-side">
-          <p class="closing-lead">
-            Download the executable, run it once, keep Discord open.
-            The config file is written on first launch.
+  <!-- ============================== CHANGELOG ============================== -->
+  <section class="changelog">
+    <div class="wrap">
+      <div class="bezel rv">
+        <div class="inner">
+          <span class="cl-tag">Unreleased</span>
+          <p class="cl-text">
+            <b>Next up:</b> rich session tracking for 18 more harnesses — DeepSeek Harness,
+            Gemini CLI, Qwen Code, GitHub Copilot CLI, Cursor, Windsurf, Aider, Cline,
+            Roo Code, Zed, OpenCode and others — with model, reasoning effort and tool
+            activity where the logs allow it.
+            <a class="link-arrow" href="https://github.com/braces157/discodex/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
           </p>
-          <a class="button" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">Download for Windows</a>
-          <ul class="closing-facts">
-            <li><strong>1 file</strong> to download</li>
-            <li><strong>0 accounts</strong> to create</li>
-            <li><strong>Windows 10/11</strong> only</li>
-          </ul>
         </div>
       </div>
     </div>
   </section>
-
-  <footer class="foot">
-    <div class="page">
-      <div class="foot-line">
-        <span>Discodex, for Windows</span>
-        <span class="links">
-          <a href="https://github.com/braces157/discodex" target="_blank" rel="noopener">GitHub</a>
-          <a href="https://github.com/braces157/discodex/blob/main/docs/PRIVACY.md" target="_blank" rel="noopener">Privacy</a>
-          <a href="https://github.com/braces157/discodex/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
-        </span>
-        <span class="right">© <span id="year">2026</span> braces157</span>
-      </div>
-
-    </div>
-  </footer>
 </main>
+
+<!-- ============================== FOOTER ============================== -->
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="foot-brand">
+        <img src="assets/discodex-256.png" alt="Discodex" width="34" height="34">
+        <div>
+          <div class="fb-name">Discodex</div>
+          <p>Discord Rich Presence for the AI tools you actually use. Native, private, open source.</p>
+        </div>
+      </div>
+      <div class="foot-links">
+        <a href="https://github.com/braces157/discodex" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/braces157/discodex/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+        <a href="https://github.com/braces157/discodex/blob/main/docs/INSTALLATION.md" target="_blank" rel="noopener">Installation</a>
+        <a href="https://github.com/braces157/discodex/blob/main/docs/CONFIGURATION.md" target="_blank" rel="noopener">Configuration</a>
+        <a href="https://github.com/braces157/discodex/blob/main/docs/PROVIDERS.md" target="_blank" rel="noopener">Providers</a>
+        <a href="https://github.com/braces157/discodex/blob/main/docs/PRIVACY.md" target="_blank" rel="noopener">Privacy</a>
+        <a href="https://github.com/braces157/discodex/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a>
+        <a href="https://github.com/braces157/discodex/blob/main/docs/TROUBLESHOOTING.md" target="_blank" rel="noopener">Troubleshooting</a>
+        <a href="https://github.com/braces157/discodex/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+        <a href="https://github.com/braces157/discodex/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Independent open-source project — not affiliated with Discord, OpenAI or Anthropic.</span>
+      <span>© <span id="year">2026</span> braces157</span>
+    </div>
+  </div>
+</footer>
 
 <script>
 (function () {
@@ -454,106 +646,144 @@ cargo build --release</code></pre>
   var root = document.documentElement;
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  /* ---------- Load sequence (settled inside 1.2s) ---------- */
-  requestAnimationFrame(function () {
-    document.querySelectorAll(".hero [data-line], .hero [data-load]").forEach(function (el) {
-      el.classList.add("is-up");
-    });
-    var panel = document.querySelector(".payload[data-open]");
-    if (panel) panel.classList.add("is-open");
-  });
+  /* Static mode keeps every reveal visible (screenshots, print, no-JS fallbacks). */
+  if (/[?&]static(=|&|$)/.test(location.search)) root.classList.add("static");
 
-  /* ---------- Section reveals ---------- */
-  var reveals = document.querySelectorAll("[data-reveal]");
-  if ("IntersectionObserver" in window && !reduce) {
+  /* ---------- Reveal ---------- */
+  var reveals = document.querySelectorAll(".rv");
+  if ("IntersectionObserver" in window && !root.classList.contains("static")) {
     var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (e.isIntersecting) { e.target.classList.add("is-in"); io.unobserve(e.target); }
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("in");
+          io.unobserve(entry.target);
+        }
       });
-    }, { rootMargin: "0px 0px 0px 0px", threshold: 0 });
+    }, { threshold: 0.08, rootMargin: "0px 0px -6% 0px" });
     reveals.forEach(function (el) { io.observe(el); });
   } else {
-    reveals.forEach(function (el) { el.classList.add("is-in"); });
+    reveals.forEach(function (el) { el.classList.add("in"); });
   }
-  /* safety net: a reveal must never leave content invisible */
-  window.addEventListener("load", function () {
-    setTimeout(function () {
-      reveals.forEach(function (el) {
-        var r = el.getBoundingClientRect();
-        if (r.top < window.innerHeight && r.bottom > 0) el.classList.add("is-in");
-      });
-    }, 400);
+
+  /* ---------- Nav state + scrollspy ---------- */
+  var nav = document.getElementById("nav");
+  var links = Array.prototype.slice.call(document.querySelectorAll(".nav-links a"));
+  var sections = links.map(function (a) {
+    return document.querySelector(a.getAttribute("href"));
+  }).filter(Boolean);
+  var ticking = false;
+
+  function onScroll() {
+    nav.classList.toggle("scrolled", window.scrollY > 16);
+    var probe = window.scrollY + window.innerHeight * 0.32;
+    var current = -1;
+    sections.forEach(function (sec, i) {
+      if (sec.offsetTop <= probe) current = i;
+    });
+    links.forEach(function (a, i) {
+      if (i === current) a.setAttribute("aria-current", "true");
+      else a.removeAttribute("aria-current");
+    });
+    ticking = false;
+  }
+  window.addEventListener("scroll", function () {
+    if (!ticking) {
+      ticking = true;
+      requestAnimationFrame(onScroll);
+    }
+  }, { passive: true });
+  onScroll();
+
+  /* ---------- Mobile menu ---------- */
+  var burger = document.getElementById("burger");
+  var mmenu = document.getElementById("mmenu");
+  function setMenu(open) {
+    burger.classList.toggle("open", open);
+    mmenu.classList.toggle("open", open);
+    burger.setAttribute("aria-expanded", String(open));
+    burger.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    mmenu.setAttribute("aria-hidden", String(!open));
+    document.body.style.overflow = open ? "hidden" : "";
+  }
+  burger.addEventListener("click", function () {
+    setMenu(!mmenu.classList.contains("open"));
+  });
+  mmenu.querySelectorAll("a").forEach(function (a) {
+    a.addEventListener("click", function () { setMenu(false); });
+  });
+  window.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && mmenu.classList.contains("open")) setMenu(false);
   });
 
-  /* ---------- The live thing: the allowlist drives the payload ---------- */
-  var panel = document.getElementById("payload");
-  var fields = document.getElementById("payloadFields");
-  var state = document.getElementById("payloadState");
-  var toggles = Array.prototype.slice.call(document.querySelectorAll("[data-toggle]"));
-
-  function render() {
-    var on = 0;
-    toggles.forEach(function (input) {
-      var row = fields.querySelector('[data-field="' + input.dataset.toggle + '"]');
-      if (row) row.classList.toggle("is-off", !input.checked);
-      if (input.checked) on++;
-    });
-    panel.classList.toggle("is-blank", on === 0);
-    state.innerHTML = on === 0
-      ? "<i></i>nothing published"
-      : "<i></i>" + on + " of " + toggles.length + " fields";
-  }
-  toggles.forEach(function (input) { input.addEventListener("change", render); });
-  render();
-
-  /* ---------- Elapsed clock ---------- */
+  /* ---------- Simulated session clock + stream ---------- */
   var started = Date.now() - ((2 * 3600 + 14 * 60 + 37) * 1000);
   var elapsedEl = document.getElementById("elapsed");
+  var sElapsed = document.getElementById("sElapsed");
+  var pFile = document.getElementById("pFile");
+  var sFile = document.getElementById("sFile");
+  var sPhase = document.getElementById("sPhase");
+
   function pad(n) { return n < 10 ? "0" + n : String(n); }
   function clock() {
-    if (!elapsedEl) return;
     var total = Math.floor((Date.now() - started) / 1000);
-    elapsedEl.textContent = pad(Math.floor(total / 3600)) + ":" + pad(Math.floor((total % 3600) / 60)) + ":" + pad(total % 60);
+    var text = pad(Math.floor(total / 3600)) + ":" + pad(Math.floor((total % 3600) / 60)) + ":" + pad(total % 60);
+    if (elapsedEl) elapsedEl.textContent = text;
+    if (sElapsed) sElapsed.textContent = text;
   }
   clock();
   setInterval(clock, 1000);
 
-  /* ---------- Pinned states: which step is centred drives the panel ---------- */
-  var steps = Array.prototype.slice.call(document.querySelectorAll("[data-step]"));
-  var panels = Array.prototype.slice.call(document.querySelectorAll("[data-state]"));
-  function show(i) {
-    steps.forEach(function (s, k) { s.classList.toggle("is-live", k === i); });
-    panels.forEach(function (p, k) { p.classList.toggle("is-on", k === i); });
-  }
-  if ("IntersectionObserver" in window) {
-    var spy = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (e.isIntersecting) show(Number(e.target.dataset.step));
-      });
-    }, { rootMargin: "-45% 0px -45% 0px" });
-    steps.forEach(function (s) { spy.observe(s); });
-    show(0);
+  var frames = [
+    { file: "presence.rs", phase: "running tests" },
+    { file: "state.rs", phase: "editing" },
+    { file: "watcher.rs", phase: "reading logs" },
+    { file: "discord.rs", phase: "publishing" },
+    { file: "tray.rs", phase: "thinking" }
+  ];
+  if (!reduce && sFile && sPhase && pFile) {
+    var frame = 0;
+    setInterval(function () {
+      frame = (frame + 1) % frames.length;
+      [sFile, pFile].forEach(function (el) { el.classList.add("swap"); });
+      setTimeout(function () {
+        sFile.textContent = frames[frame].file;
+        pFile.textContent = frames[frame].file;
+        sPhase.textContent = frames[frame].phase;
+        [sFile, pFile].forEach(function (el) { el.classList.remove("swap"); });
+      }, 220);
+    }, 4200);
   }
 
-  /* ---------- Copy ---------- */
+  /* ---------- Seamless marquee ---------- */
+  var mtrack = document.getElementById("mtrack");
+  if (mtrack) mtrack.innerHTML += mtrack.innerHTML;
+
+  /* ---------- Copy build commands ---------- */
   var copyBtn = document.getElementById("copyBtn");
   if (copyBtn) {
     copyBtn.addEventListener("click", function () {
-      var text = "git clone https://github.com/braces157/discodex.git\ncd discodex\ncargo test\ncargo build --release";
+      var text =
+        "git clone https://github.com/braces157/discodex.git\n" +
+        "cd discodex\n" +
+        "cargo test\n" +
+        "cargo build --release";
       var label = copyBtn.querySelector("span");
-      var done = function () {
+      var reset = function () {
         copyBtn.classList.add("done");
         label.textContent = "copied";
-        setTimeout(function () { copyBtn.classList.remove("done"); label.textContent = "copy"; }, 1800);
+        setTimeout(function () {
+          copyBtn.classList.remove("done");
+          label.textContent = "copy";
+        }, 1800);
       };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done, function () {});
+        navigator.clipboard.writeText(text).then(reset, function () {});
       } else {
         var ta = document.createElement("textarea");
         ta.value = text;
         document.body.appendChild(ta);
         ta.select();
-        try { document.execCommand("copy"); done(); } catch (err) {}
+        try { document.execCommand("copy"); reset(); } catch (err) {}
         document.body.removeChild(ta);
       }
     });
