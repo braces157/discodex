@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="no-js">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -37,6 +37,7 @@
   "softwareVersion": "0.2.0"
 }
 </script>
+<script>document.documentElement.classList.replace("no-js", "js");</script>
 </head>
 <body>
 
@@ -86,7 +87,7 @@
     <li><a href="#install">Install</a></li>
   </ul>
   <div class="mm-foot">
-    <span class="mono">Windows 10/11 · v0.2.0</span>
+    <span class="mono">Windows 10/11, v0.2.0</span>
     <a class="btn btn-primary btn-sm" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">
       <span>Download</span>
       <span class="ic" aria-hidden="true">
@@ -101,11 +102,9 @@
   <div class="wrap">
     <div class="hero-grid">
       <div class="hero-copy">
-        <span class="eyebrow rv-blur">v0.2.0 · Windows 10/11 · open source</span>
         <h1 class="rv-blur" style="--d:.08s">Your AI session,<br>live in Discord.</h1>
         <p class="lead rv-blur" style="--d:.16s">
-          Discodex sits in your notification area and mirrors what your coding agent is
-          doing — the project, the file, the phase, the clock — into Discord Rich Presence.
+          Discodex sits in the tray and mirrors what your coding agent is doing.
           Prompts, responses, paths and commands never leave your machine.
         </p>
         <div class="hero-ctas rv-blur" style="--d:.24s">
@@ -136,7 +135,7 @@
 
         <div class="glass disc">
           <div class="disc-head">
-            <span class="mono">Discord · Rich Presence</span>
+            <span class="mono">Discord Rich Presence</span>
             <span class="live"><i></i>Connected</span>
           </div>
           <div class="disc-body">
@@ -147,7 +146,7 @@
             <div class="disc-lines">
               <span class="disc-kicker">Playing</span>
               <span class="disc-name">OpenAI Codex</span>
-              <span class="disc-row">discodex — <span id="pFile">presence.rs</span></span>              <span class="disc-row dim">Rust · Codex session adapter</span>
+              <span class="disc-row">discodex — <span id="pFile">presence.rs</span></span>              <span class="disc-row dim">Rust, Codex session adapter</span>
               <span class="disc-time">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                 <span id="elapsed">02:14:37</span> elapsed
@@ -156,7 +155,7 @@
           </div>
           <div class="disc-foot">
             <span class="pip"></span>
-            <span>Sample presence · real data stays local</span>
+            <span>Sample presence. Real data stays local.</span>
           </div>
         </div>
 
@@ -168,7 +167,7 @@
           <ul class="stream-rows">
             <li><span class="k">project</span><span class="v">discodex</span></li>
             <li><span class="k">file</span><span class="v" id="sFile">presence.rs</span></li>
-            <li><span class="k">stack</span><span class="v">Rust · edition 2024</span></li>
+            <li><span class="k">stack</span><span class="v">Rust, edition 2024</span></li>
             <li><span class="k">phase</span><span class="v" id="sPhase">running tests</span></li>
             <li><span class="k">elapsed</span><span class="v" id="sElapsed">02:14:37</span></li>
           </ul>
@@ -211,7 +210,7 @@
       <div class="sec-head">
         <div>
           <span class="idx rv-left"><b>01</b> — Why Discodex</span>
-          <h2 class="rv-blur" style="--d:.05s">A tray icon with<br>a narrow job.</h2>
+          <h2 class="rv-blur" style="--d:.05s">A tray icon with a narrow job.</h2>
         </div>
         <p class="lead rv" style="--d:.1s">
           One small executable reads local session logs, reduces them to a handful of
@@ -234,7 +233,7 @@
               <div class="rows">
                 <div class="row"><span class="k">project</span><span class="v">discodex</span></div>
                 <div class="row"><span class="k">file</span><span class="v">src/presence.rs</span></div>
-                <div class="row"><span class="k">stack</span><span class="v">Rust · edition 2024</span></div>
+                <div class="row"><span class="k">stack</span><span class="v">Rust, edition 2024</span></div>
                 <div class="row"><span class="k">phase</span><span class="v"><span class="hl">running tests</span></span></div>
                 <div class="row"><span class="k">elapsed</span><span class="v">02:14:37</span></div>
               </div>
@@ -329,7 +328,7 @@
     <div class="wrap how-grid" id="howGrid">
       <div class="how-left">
         <span class="idx rv-left"><b>02</b> — How it works</span>
-        <h2 class="rv-blur" style="--d:.05s">Local logs in.<br>Presence out.<br><em>Nothing else.</em></h2>
+        <h2 class="rv-blur" style="--d:.05s">Local logs in.<br>Presence out.<br><span class="em">Nothing else.</span></h2>
         <p class="lead rv" style="--d:.1s">
           Discodex never calls provider APIs and never inspects network traffic.
           Everything it knows comes from files already on your disk.
@@ -352,7 +351,7 @@
               append-only JSONL, rewritten JSON documents, Markdown transcripts, or SQLite
               databases. The adapter derives project, stack, file, phase and start time.
             </p>
-            <p class="step-fine">Reads: JSONL · JSON · Markdown · SQLite</p>
+            <p class="step-fine">Reads: JSONL, JSON, Markdown, SQLite</p>
           </div>
         </div>
         <div class="step" data-step="1">
@@ -364,7 +363,7 @@
               reaches Discord. Prompts, responses, absolute paths, commands, tool arguments
               and tool output have no field to travel in.
             </p>
-            <p class="step-fine">Drops: prompts · paths · commands · tool output</p>
+            <p class="step-fine">Drops: prompts, paths, commands, tool output</p>
           </div>
         </div>
         <div class="step" data-step="2">
@@ -376,7 +375,7 @@
               after Discord restarts, refreshing periodically, and clearing presence when
               you exit or switch it off.
             </p>
-            <p class="step-fine">Keeps alive: reconnect · refresh · clear on exit</p>
+            <p class="step-fine">Keeps alive: reconnect, refresh, clear on exit</p>
           </div>
         </div>
       </div>
@@ -404,7 +403,7 @@
           <div class="prov-block">
             <div class="prov-head">
               <h3>Rich session tracking</h3>
-              <span class="cnt">21 providers · project · file · phase · clock</span>
+              <span class="cnt">21 providers: project, file, phase, clock</span>
             </div>
             <ul class="prov-list">
               <li><img class="pm" src="assets/logos/codex.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>OpenAI Codex</span></li>
@@ -434,7 +433,7 @@
           <div class="prov-block">
             <div class="prov-head">
               <h3>Focused-app detection</h3>
-              <span class="cnt">17 targets · compatibility fallback</span>
+              <span class="cnt">17 targets, compatibility fallback</span>
             </div>
             <div class="chips">
               <span class="chip"><img class="pm" src="assets/logos/chatgpt.png" alt="" width="16" height="16" loading="lazy" decoding="async">ChatGPT</span>
@@ -571,13 +570,13 @@
         <div class="inner">
           <div class="code">
             <div class="code-bar">
-              <span>Build from source · PowerShell</span>
+              <span>Build from source (PowerShell)</span>
               <button class="copy" id="copyBtn" type="button">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
                 <span>copy</span>
               </button>
             </div>
-            <pre><span class="cm"># Rust 1.85+ · Discord Desktop</span>
+            <pre><span class="cm"># Rust 1.85+, Discord Desktop</span>
 git clone <span class="cs">https://github.com/braces157/discodex.git</span>
 <span class="ck">cd</span> discodex
 <span class="ck">cargo</span> test
