@@ -326,7 +326,7 @@
 
   <!-- ============================== HOW ============================== -->
   <section class="sec" id="how">
-    <div class="wrap how-grid">
+    <div class="wrap how-grid" id="howGrid">
       <div class="how-left">
         <span class="idx rv-left"><b>02</b> — How it works</span>
         <h2 class="rv-blur" style="--d:.05s">Local logs in.<br>Presence out.<br><em>Nothing else.</em></h2>
@@ -341,9 +341,10 @@
         </div>
       </div>
 
-      <div class="steps">
-        <div class="step rv">
-          <span class="step-num">01</span>
+      <div class="steps" id="howSteps">
+        <div class="how-rail" aria-hidden="true"><i id="howRailFill"></i></div>
+        <div class="step" data-step="0">
+          <span class="step-num"><b>01</b></span>
           <div>
             <h3>Adapters read local sessions</h3>
             <p>
@@ -351,10 +352,11 @@
               append-only JSONL, rewritten JSON documents, Markdown transcripts, or SQLite
               databases. The adapter derives project, stack, file, phase and start time.
             </p>
+            <p class="step-fine">Reads: JSONL · JSON · Markdown · SQLite</p>
           </div>
         </div>
-        <div class="step rv" style="--d:.06s">
-          <span class="step-num">02</span>
+        <div class="step" data-step="1">
+          <span class="step-num"><b>02</b></span>
           <div>
             <h3>The filter decides what may exist</h3>
             <p>
@@ -362,10 +364,11 @@
               reaches Discord. Prompts, responses, absolute paths, commands, tool arguments
               and tool output have no field to travel in.
             </p>
+            <p class="step-fine">Drops: prompts · paths · commands · tool output</p>
           </div>
         </div>
-        <div class="step rv" style="--d:.12s">
-          <span class="step-num">03</span>
+        <div class="step" data-step="2">
+          <span class="step-num"><b>03</b></span>
           <div>
             <h3>Discord IPC publishes the result</h3>
             <p>
@@ -373,6 +376,7 @@
               after Discord restarts, refreshing periodically, and clearing presence when
               you exit or switch it off.
             </p>
+            <p class="step-fine">Keeps alive: reconnect · refresh · clear on exit</p>
           </div>
         </div>
       </div>
@@ -701,6 +705,45 @@ git clone <span class="cs">https://github.com/braces157/discodex.git</span>
       });
     }, { threshold: 0.4 });
     sio.observe(specStrip);
+  }
+
+  /* ---------- How-it-works scroll sequence ---------- */
+  var howSteps = document.getElementById("howSteps");
+  var howRailFill = document.getElementById("howRailFill");
+  if (howSteps && howRailFill) {
+    var stepEls = howSteps.querySelectorAll(".step");
+    if (reduce || root.classList.contains("static") || !("IntersectionObserver" in window)) {
+      /* Fallback: everything visible and lit. */
+      root.classList.add("no-io");
+      stepEls.forEach(function (s) { s.classList.add("on"); });
+    } else {
+      var activeCount = -1;
+      function updateHow() {
+        var rect = howSteps.getBoundingClientRect();
+        var vh = window.innerHeight;
+        /* Progress 0→1 across the steps block travelling the viewport middle. */
+        var start = vh * 0.72;
+        var progress = Math.min(1, Math.max(0, (start - rect.top) / Math.max(rect.height - vh * 0.25, 1)));
+        howRailFill.style.transform = "scaleY(" + progress.toFixed(4) + ")";
+        var count = Math.round(progress * stepEls.length + 0.28);
+        count = Math.min(stepEls.length, Math.max(1, count));
+        if (count !== activeCount) {
+          activeCount = count;
+          stepEls.forEach(function (s, i) {
+            s.classList.toggle("on", i < count);
+          });
+        }
+      }
+      var howTicking = false;
+      window.addEventListener("scroll", function () {
+        if (!howTicking) {
+          howTicking = true;
+          requestAnimationFrame(function () { updateHow(); howTicking = false; });
+        }
+      }, { passive: true });
+      window.addEventListener("resize", updateHow, { passive: true });
+      updateHow();
+    }
   }
 
   /* ---------- Nav state + scrollspy ---------- */

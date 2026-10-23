@@ -1046,25 +1046,82 @@ section[id] { scroll-margin-top: 96px; }
 }
 .how-note b { color: var(--paper-2); font-weight: 500; }
 
-.steps { display: grid; }
+.steps { display: grid; position: relative; padding-left: 34px; }
+
+/* Scroll progress rail: a faint track with an accent fill that grows
+   as the reader works through the three steps. */
+.how-rail {
+  position: absolute;
+  left: 9px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: var(--line-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.how-rail i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(180deg, var(--accent), rgba(160, 134, 114, 0.55));
+  transform-origin: 50% 0;
+  transform: scaleY(0);
+  will-change: transform;
+}
+
 .step {
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
-  gap: 18px;
-  padding: 28px 0;
-  border-bottom: 1px solid var(--line-2);
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 16px;
+  padding: 30px 0;
+  opacity: 0.32;
+  transform: translateX(0);
+  transition: opacity 0.55s var(--ease), transform 0.55s var(--ease-2);
 }
 .step:first-child { padding-top: 0; }
-.step:last-child { border-bottom: none; padding-bottom: 0; }
+.step:last-child { padding-bottom: 0; }
+.step.on { opacity: 1; }
+.step.on + .step { border-top: 1px solid var(--line-2); }
 .step-num {
   font-family: var(--mono);
   font-size: 12px;
   letter-spacing: 0.1em;
-  color: var(--accent);
+  color: var(--paper-4);
   padding-top: 4px;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
 }
-.step h3 { margin: 0 0 8px; font-size: 19px; letter-spacing: -0.02em; font-weight: 600; }
+.step-num::before {
+  content: "";
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line-3);
+  transition: background 0.5s var(--ease), width 0.5s var(--ease-2), box-shadow 0.5s var(--ease);
+}
+.step.on .step-num { color: var(--accent); }
+.step.on .step-num::before {
+  width: 34px;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(160, 134, 114, 0.45);
+}
+.step h3 { margin: 0 0 8px; font-size: 19px; letter-spacing: -0.02em; font-weight: 600; color: var(--paper-2); transition: color 0.5s var(--ease); }
+.step.on h3 { color: var(--paper); }
 .step p { margin: 0; font-size: 15px; line-height: 1.66; color: var(--paper-3); max-width: 52ch; }
+.step-fine {
+  margin-top: 10px !important;
+  font-family: var(--mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--paper-4);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.5s var(--ease) 0.15s, transform 0.5s var(--ease-2) 0.15s;
+}
+.step.on .step-fine { opacity: 0.9; transform: none; }
 .step code {
   font-family: var(--mono);
   font-size: 0.85em;
@@ -1432,6 +1489,14 @@ html.static .rv-blur,
 html.static .rv-left,
 html.static .rv-clip { opacity: 1; transform: none; filter: none; clip-path: none; transition: none; }
 
+/* Static mode + no-JS: every step fully visible, rail filled. */
+html.static .step,
+.no-io .step { opacity: 1; }
+html.static .step .step-fine,
+.no-io .step .step-fine { opacity: 0.9; transform: none; }
+html.static .how-rail i,
+.no-io .how-rail i { transform: none; }
+
 /* --------------------------------------------------------------------------
    Responsive
    -------------------------------------------------------------------------- */
@@ -1510,6 +1575,9 @@ html.static .rv-clip { opacity: 1; transform: none; filter: none; clip-path: non
   .amb-a, .amb-b, .marquee-track, .eyebrow::before, .live i { animation: none !important; }
   .rv, .rv-blur, .rv-left, .rv-clip { opacity: 1; transform: none; transition: none; filter: none; clip-path: none; }
   .rv.in .row, .rv.in .stream-rows li { animation: none; }
+  .step { opacity: 1; transition: none; }
+  .step .step-fine { opacity: 0.9; transform: none; transition: none; }
+  .how-rail i { transform: none; transition: none; }
   *, *::before, *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
