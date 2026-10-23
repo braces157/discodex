@@ -720,7 +720,12 @@ section[id] { scroll-margin-top: 96px; }
   display: flex;
   width: max-content;
   animation: slide 64s linear infinite;
+  will-change: transform;
 }
+/* When JS drives the loop, the CSS animation stands down and the
+   transform comes from the rAF loop instead — including when the OS
+   reports reduced motion, which would freeze the keyframes. */
+.marquee-track.mq-js { animation: none; }
 .marquee:hover .marquee-track { animation-play-state: paused; }
 @keyframes slide { to { transform: translate3d(-50%, 0, 0); } }
 .marquee-track span {
@@ -1572,7 +1577,9 @@ html.static .how-rail i,
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .amb-a, .amb-b, .marquee-track, .eyebrow::before, .live i { animation: none !important; }
+  .amb-a, .amb-b, .eyebrow::before, .live i { animation: none !important; }
+  /* The marquee is JS-driven (mq-js); its CSS fallback freezes. */
+  .marquee-track:not(.mq-js), .marquee-track:not(.mq-js) { animation: none !important; }
   .rv, .rv-blur, .rv-left, .rv-clip { opacity: 1; transform: none; transition: none; filter: none; clip-path: none; }
   .rv.in .row, .rv.in .stream-rows li { animation: none; }
   .step { opacity: 1; transition: none; }

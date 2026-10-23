@@ -835,9 +835,45 @@ git clone <span class="cs">https://github.com/braces157/discodex.git</span>
     }, 4200);
   }
 
-  /* ---------- Seamless marquee ---------- */
+  /* ---------- Seamless marquee ----------
+     Driven by rAF rather than CSS so the loop still runs when the OS
+     reports a reduced-motion preference (Windows "Show animations" off),
+     where CSS animations are globally frozen. Decorative, slow, and
+     hover-pausable; the CSS keyframes remain as the no-JS fallback. */
   var mtrack = document.getElementById("mtrack");
-  if (mtrack) mtrack.innerHTML += mtrack.innerHTML;
+  if (mtrack) {
+    mtrack.innerHTML += mtrack.innerHTML;
+    mtrack.classList.add("mq-js");
+    var mqX = 0;
+    var mqPaused = false;
+    var mqLast = null;
+    /* 64s per loop matches the CSS fallback speed. */
+    var SPEED = 64;
+    var half = 0;
+    function mqMeasure() {
+      half = mtrack.scrollWidth / 2;
+    }
+    function mqFrame(t) {
+      if (mqLast === null) mqLast = t;
+      var dt = (t - mqLast) / 1000;
+      mqLast = t;
+      if (!mqPaused && !document.hidden && half > 0) {
+        mqX -= (half / SPEED) * dt;
+        if (half > 0 && -mqX >= half) mqX += half;
+        mtrack.style.transform = "translate3d(" + mqX.toFixed(2) + "px, 0, 0)";
+      }
+      requestAnimationFrame(mqFrame);
+    }
+    var mqWrap = mtrack.closest(".marquee");
+    if (mqWrap) {
+      mqWrap.addEventListener("mouseenter", function () { mqPaused = true; });
+      mqWrap.addEventListener("mouseleave", function () { mqPaused = false; mqLast = null; });
+    }
+    window.addEventListener("resize", mqMeasure, { passive: true });
+    mqMeasure();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(mqMeasure);
+    requestAnimationFrame(mqFrame);
+  }
 
   /* ---------- Copy build commands ---------- */
   var copyBtn = document.getElementById("copyBtn");
