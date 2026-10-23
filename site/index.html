@@ -23,6 +23,7 @@
 <link rel="icon" type="image/png" href="assets/discodex-64.png">
 <link rel="apple-touch-icon" href="assets/discodex-192.png">
 <link rel="preload" href="assets/fonts/work-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="styles.css">
 <script type="application/ld+json">
 {
@@ -100,14 +101,14 @@
   <div class="wrap">
     <div class="hero-grid">
       <div class="hero-copy">
-        <span class="eyebrow rv">v0.1.1 · Windows 10/11 · open source</span>
-        <h1 class="rv" style="--d:.06s">Your AI session,<br>live in Discord.</h1>
-        <p class="lead rv" style="--d:.12s">
+        <span class="eyebrow rv-blur">v0.1.1 · Windows 10/11 · open source</span>
+        <h1 class="rv-blur" style="--d:.08s">Your AI session,<br>live in Discord.</h1>
+        <p class="lead rv-blur" style="--d:.16s">
           Discodex sits in your notification area and mirrors what your coding agent is
           doing — the project, the file, the phase, the clock — into Discord Rich Presence.
           Prompts, responses, paths and commands never leave your machine.
         </p>
-        <div class="hero-ctas rv" style="--d:.18s">
+        <div class="hero-ctas rv-blur" style="--d:.24s">
           <a class="btn btn-primary" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">
             <span>Download for Windows</span>
             <span class="ic" aria-hidden="true">
@@ -122,7 +123,7 @@
           </a>
           <a class="text-link" href="#privacy">Privacy model</a>
         </div>
-        <div class="hero-meta rv" style="--d:.24s">
+        <div class="hero-meta rv-blur" style="--d:.3s">
           <span>Single .exe</span>
           <span>No installer</span>
           <span>No account</span>
@@ -130,7 +131,7 @@
         </div>
       </div>
 
-      <div class="deck rv" style="--d:.2s" aria-hidden="true">
+      <div class="deck rv-blur" style="--d:.26s" aria-hidden="true">
         <div class="deck-glow"></div>
 
         <div class="glass disc">
@@ -175,7 +176,7 @@
       </div>
     </div>
 
-    <div class="spec-strip rv" style="--d:.1s">
+    <div class="spec-strip rv-clip" style="--d:.15s">
       <div class="spec">
         <span class="spec-v">21</span>
         <span class="spec-l">Rich session adapters</span>
@@ -209,8 +210,8 @@
     <div class="wrap">
       <div class="sec-head">
         <div>
-          <span class="idx rv"><b>01</b> — Why Discodex</span>
-          <h2 class="rv" style="--d:.05s">A tray icon with<br>a narrow job.</h2>
+          <span class="idx rv-left"><b>01</b> — Why Discodex</span>
+          <h2 class="rv-blur" style="--d:.05s">A tray icon with<br>a narrow job.</h2>
         </div>
         <p class="lead rv" style="--d:.1s">
           One small executable reads local session logs, reduces them to a handful of
@@ -220,7 +221,7 @@
       </div>
 
       <div class="bento">
-        <div class="bezel sp-7 rv">
+        <div class="bezel sp-7 rv-clip">
           <div class="inner">
             <div class="bcard">
               <span class="tag">Adapters</span>
@@ -234,14 +235,14 @@
                 <div class="row"><span class="k">project</span><span class="v">discodex</span></div>
                 <div class="row"><span class="k">file</span><span class="v">src/presence.rs</span></div>
                 <div class="row"><span class="k">stack</span><span class="v">Rust · edition 2024</span></div>
-                <div class="row"><span class="k">phase</span><span class="v"><span class="lime">running tests</span></span></div>
+                <div class="row"><span class="k">phase</span><span class="v"><span class="hl">running tests</span></span></div>
                 <div class="row"><span class="k">elapsed</span><span class="v">02:14:37</span></div>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="bezel sp-5 rv" style="--d:.06s">
+        <div class="bezel sp-5 rv-clip" style="--d:.08s">
           <div class="inner">
             <div class="bcard">
               <span class="tag">Boundary</span>
@@ -284,7 +285,7 @@
           </div>
         </div>
 
-        <div class="bezel sp-4 rv" style="--d:.06s">
+        <div class="bezel sp-4 rv-clip" style="--d:.06s">
           <div class="inner">
             <div class="bcard">
               <span class="tag">Reliability</span>
@@ -303,7 +304,7 @@
           </div>
         </div>
 
-        <div class="bezel sp-4 rv" style="--d:.12s">
+        <div class="bezel sp-4 rv-clip" style="--d:.12s">
           <div class="inner">
             <div class="bcard">
               <span class="tag">Config</span>
@@ -327,8 +328,8 @@
   <section class="sec" id="how">
     <div class="wrap how-grid">
       <div class="how-left">
-        <span class="idx rv"><b>02</b> — How it works</span>
-        <h2 class="rv" style="--d:.05s">Local logs in.<br>Presence out.<br><em>Nothing else.</em></h2>
+        <span class="idx rv-left"><b>02</b> — How it works</span>
+        <h2 class="rv-blur" style="--d:.05s">Local logs in.<br>Presence out.<br><em>Nothing else.</em></h2>
         <p class="lead rv" style="--d:.1s">
           Discodex never calls provider APIs and never inspects network traffic.
           Everything it knows comes from files already on your disk.
@@ -382,8 +383,8 @@
   <section class="sec" id="providers">
     <div class="wrap prov-grid">
       <div class="prov-left">
-        <span class="idx rv"><b>03</b> — Coverage</span>
-        <h2 class="rv" style="--d:.05s">If you code with AI, it is probably covered.</h2>
+        <span class="idx rv-left"><b>03</b> — Coverage</span>
+        <h2 class="rv-blur" style="--d:.05s">If you code with AI, it is probably covered.</h2>
         <p class="lead rv" style="--d:.1s">
           Two detection layers: rich session tracking wherever a stable local format
           exists, and focused-app detection as the broad fallback.
@@ -394,7 +395,7 @@
         </p>
       </div>
 
-      <div class="bezel rv" style="--d:.08s">
+      <div class="bezel rv-clip" style="--d:.08s">
         <div class="inner prov-panel">
           <div class="prov-block">
             <div class="prov-head">
@@ -402,27 +403,27 @@
               <span class="cnt">21 providers · project · file · phase · clock</span>
             </div>
             <ul class="prov-list">
-              <li><span>OpenAI Codex</span></li>
-              <li><span>Claude Code</span></li>
-              <li><span>Google Antigravity</span></li>
-              <li><span>DeepSeek Harness</span></li>
-              <li><span>Gemini CLI</span></li>
-              <li><span>Qwen Code</span></li>
-              <li><span>GitHub Copilot CLI</span></li>
-              <li><span>Factory Droid</span></li>
-              <li><span>Kiro</span></li>
-              <li><span>Cursor</span></li>
-              <li><span>Windsurf / Cascade</span></li>
-              <li><span>Junie (JetBrains)</span></li>
-              <li><span>Aider</span></li>
-              <li><span>Cline</span></li>
-              <li><span>Roo Code</span></li>
-              <li><span>Continue</span></li>
-              <li><span>Block Goose</span></li>
-              <li><span>Charm Crush</span></li>
-              <li><span>OpenCode</span></li>
-              <li><span>Zed</span></li>
-              <li><span>Kilo Code</span></li>
+              <li><img class="pm" src="assets/logos/codex.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>OpenAI Codex</span></li>
+              <li><img class="pm" src="assets/logos/claude-code.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Claude Code</span></li>
+              <li><img class="pm" src="assets/logos/antigravity.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Google Antigravity</span></li>
+              <li><img class="pm" src="assets/logos/deepseek-harness.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>DeepSeek Harness</span></li>
+              <li><img class="pm" src="assets/logos/gemini-cli.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Gemini CLI</span></li>
+              <li><img class="pm" src="assets/logos/qwen-code.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Qwen Code</span></li>
+              <li><img class="pm" src="assets/logos/copilot-cli.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>GitHub Copilot CLI</span></li>
+              <li><img class="pm" src="assets/logos/factory-droid.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Factory Droid</span></li>
+              <li><img class="pm" src="assets/logos/kiro.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Kiro</span></li>
+              <li><img class="pm" src="assets/logos/cursor.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Cursor</span></li>
+              <li><img class="pm" src="assets/logos/windsurf.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Windsurf / Cascade</span></li>
+              <li><img class="pm" src="assets/logos/junie.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Junie (JetBrains)</span></li>
+              <li><img class="pm" src="assets/logos/aider.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Aider</span></li>
+              <li><img class="pm" src="assets/logos/cline.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Cline</span></li>
+              <li><img class="pm" src="assets/logos/roo-code.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Roo Code</span></li>
+              <li><img class="pm" src="assets/logos/continue.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Continue</span></li>
+              <li><img class="pm" src="assets/logos/goose.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Block Goose</span></li>
+              <li><img class="pm" src="assets/logos/crush.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Charm Crush</span></li>
+              <li><img class="pm" src="assets/logos/opencode.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>OpenCode</span></li>
+              <li><img class="pm" src="assets/logos/zed.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Zed</span></li>
+              <li><img class="pm" src="assets/logos/kilo-code.png" alt="" width="20" height="20" loading="lazy" decoding="async"><span>Kilo Code</span></li>
             </ul>
           </div>
 
@@ -432,26 +433,27 @@
               <span class="cnt">17 targets · compatibility fallback</span>
             </div>
             <div class="chips">
-              <span class="chip">ChatGPT</span>
-              <span class="chip">Claude</span>
-              <span class="chip">Google Gemini</span>
-              <span class="chip">Cursor</span>
-              <span class="chip">Windsurf</span>
-              <span class="chip">Trae</span>
-              <span class="chip">Kiro</span>
-              <span class="chip">Zed AI</span>
-              <span class="chip">OpenCode</span>
-              <span class="chip">Aider</span>
-              <span class="chip">GitHub Copilot</span>
-              <span class="chip">Cline</span>
-              <span class="chip">Roo Code</span>
-              <span class="chip">Continue</span>
-              <span class="chip">Perplexity</span>
-              <span class="chip">Microsoft Copilot</span>
-              <span class="chip">Poe</span>
+              <span class="chip"><img class="pm" src="assets/logos/chatgpt.png" alt="" width="16" height="16" loading="lazy" decoding="async">ChatGPT</span>
+              <span class="chip"><img class="pm" src="assets/logos/claude.png" alt="" width="16" height="16" loading="lazy" decoding="async">Claude</span>
+              <span class="chip"><img class="pm" src="assets/logos/gemini.png" alt="" width="16" height="16" loading="lazy" decoding="async">Google Gemini</span>
+              <span class="chip"><img class="pm" src="assets/logos/cursor.png" alt="" width="16" height="16" loading="lazy" decoding="async">Cursor</span>
+              <span class="chip"><img class="pm" src="assets/logos/windsurf.png" alt="" width="16" height="16" loading="lazy" decoding="async">Windsurf</span>
+              <span class="chip"><img class="pm" src="assets/logos/trae.png" alt="" width="16" height="16" loading="lazy" decoding="async">Trae</span>
+              <span class="chip"><img class="pm" src="assets/logos/kiro.png" alt="" width="16" height="16" loading="lazy" decoding="async">Kiro</span>
+              <span class="chip"><img class="pm" src="assets/logos/zed.png" alt="" width="16" height="16" loading="lazy" decoding="async">Zed AI</span>
+              <span class="chip"><img class="pm" src="assets/logos/opencode.png" alt="" width="16" height="16" loading="lazy" decoding="async">OpenCode</span>
+              <span class="chip"><img class="pm" src="assets/logos/aider.png" alt="" width="16" height="16" loading="lazy" decoding="async">Aider</span>
+              <span class="chip"><img class="pm" src="assets/logos/github-copilot.png" alt="" width="16" height="16" loading="lazy" decoding="async">GitHub Copilot</span>
+              <span class="chip"><img class="pm" src="assets/logos/cline.png" alt="" width="16" height="16" loading="lazy" decoding="async">Cline</span>
+              <span class="chip"><img class="pm" src="assets/logos/roo-code.png" alt="" width="16" height="16" loading="lazy" decoding="async">Roo Code</span>
+              <span class="chip"><img class="pm" src="assets/logos/continue.png" alt="" width="16" height="16" loading="lazy" decoding="async">Continue</span>
+              <span class="chip"><img class="pm" src="assets/logos/perplexity.png" alt="" width="16" height="16" loading="lazy" decoding="async">Perplexity</span>
+              <span class="chip"><img class="pm" src="assets/logos/microsoft-copilot.png" alt="" width="16" height="16" loading="lazy" decoding="async">Microsoft Copilot</span>
+              <span class="chip"><img class="pm" src="assets/logos/poe.png" alt="" width="16" height="16" loading="lazy" decoding="async">Poe</span>
             </div>
-            <p class="prov-note" style="margin-top:16px">
-              Sourcegraph Amp reports activity-only from local thread logs.
+            <p class="prov-note" style="margin-top:16px;display:flex;align-items:center;gap:8px">
+              <img class="pm" src="assets/logos/amp.png" alt="" width="20" height="20" loading="lazy" decoding="async">
+              <span>Sourcegraph Amp reports activity-only from local thread logs.</span>
             </p>
           </div>
         </div>
@@ -463,8 +465,8 @@
   <section class="sec" id="privacy">
     <div class="wrap priv-grid">
       <div class="priv-left">
-        <span class="idx rv"><b>04</b> — Privacy model</span>
-        <h2 class="rv" style="--d:.05s">Nothing sensitive leaves the process.</h2>
+        <span class="idx rv-left"><b>04</b> — Privacy model</span>
+        <h2 class="rv-blur" style="--d:.05s">Nothing sensitive leaves the process.</h2>
         <p class="lead rv" style="--d:.1s">
           Discord learns that you are building. It does not learn what you asked,
           what the model answered, or where the files live.
@@ -475,7 +477,7 @@
       </div>
 
       <div class="priv-panels">
-        <div class="bezel rv" style="--d:.06s">
+        <div class="bezel rv-clip" style="--d:.06s">
           <div class="inner plist ok">
             <h3>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
@@ -493,7 +495,7 @@
           </div>
         </div>
 
-        <div class="bezel rv" style="--d:.12s">
+        <div class="bezel rv-clip" style="--d:.12s">
           <div class="inner plist no">
             <h3>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M6 18L18 6"/></svg>
@@ -526,8 +528,8 @@
       <div>
         <div class="sec-head solo">
           <div>
-            <span class="idx rv"><b>05</b> — Install</span>
-            <h2 class="rv" style="--d:.05s">Two minutes,<br>no installer.</h2>
+            <span class="idx rv-left"><b>05</b> — Install</span>
+            <h2 class="rv-blur" style="--d:.05s">Two minutes,<br>no installer.</h2>
           </div>
         </div>
 
@@ -590,7 +592,7 @@ git clone <span class="cs">https://github.com/braces157/discodex.git</span>
   <!-- ============================== CHANGELOG ============================== -->
   <section class="changelog">
     <div class="wrap">
-      <div class="bezel rv">
+      <div class="bezel rv-clip">
         <div class="inner">
           <span class="cl-tag">Unreleased</span>
           <p class="cl-text">
@@ -649,7 +651,8 @@ git clone <span class="cs">https://github.com/braces157/discodex.git</span>
   if (/[?&]static(=|&|$)/.test(location.search)) root.classList.add("static");
 
   /* ---------- Reveal ---------- */
-  var reveals = document.querySelectorAll(".rv");
+  var revealSel = ".rv, .rv-blur, .rv-left, .rv-clip";
+  var reveals = document.querySelectorAll(revealSel);
   if ("IntersectionObserver" in window && !root.classList.contains("static")) {
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
@@ -662,6 +665,42 @@ git clone <span class="cs">https://github.com/braces157/discodex.git</span>
     reveals.forEach(function (el) { io.observe(el); });
   } else {
     reveals.forEach(function (el) { el.classList.add("in"); });
+  }
+
+  /* ---------- Stat count-up ---------- */
+  function countUp(el, target) {
+    var dur = 1100;
+    var t0 = null;
+    function frame(t) {
+      if (t0 === null) t0 = t;
+      var p = Math.min((t - t0) / dur, 1);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = String(Math.round(target * eased));
+      if (p < 1) requestAnimationFrame(frame);
+      else el.textContent = String(target);
+    }
+    requestAnimationFrame(frame);
+  }
+  var specStrip = document.querySelector(".spec-strip");
+  if (specStrip && "IntersectionObserver" in window && !reduce && !root.classList.contains("static")) {
+    var nums = specStrip.querySelectorAll(".spec-v");
+    var targets = [];
+    nums.forEach(function (el) {
+      targets.push(el.querySelector("small") ? null : parseInt(el.textContent, 10) || 0);
+    });
+    var seen = false;
+    var sio = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting && !seen) {
+          seen = true;
+          nums.forEach(function (el, i) {
+            if (targets[i] !== null) countUp(el, targets[i]);
+          });
+          sio.disconnect();
+        }
+      });
+    }, { threshold: 0.4 });
+    sio.observe(specStrip);
   }
 
   /* ---------- Nav state + scrollspy ---------- */
