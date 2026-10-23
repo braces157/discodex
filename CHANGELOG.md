@@ -2,7 +2,12 @@
 
 All notable user-facing changes to Discodex are documented here.
 
-## Unreleased
+## 0.2.0 - 2026-10-23
+
+### Fixed
+
+- Discodex starts even when Windows denies access to the optional launch-at-login registry setting. Starting with that option disabled no longer requests registry write access when there is no entry to remove.
+- Startup errors identify the failing step, and startup-setting failures are recorded in the local diagnostic log.
 
 ### Added
 
@@ -10,11 +15,13 @@ All notable user-facing changes to Discodex are documented here.
 - Rich session tracking for Gemini CLI, Qwen Code, GitHub Copilot CLI, Factory Droid, Kiro, Cursor, Windsurf/Cascade, Junie, Aider, Cline, Roo Code, Continue, Block Goose, Charm Crush, OpenCode, Zed, and Kilo Code.
 - Session adapters for harnesses that keep their activity in a rewritten document or in a database, with a polling path for the database-backed providers.
 - A live test that checks the adapters against the session files that are installed on the machine (`cargo test -- --ignored live_`).
+- One normalised 512px mark per harness in `assets/logos/`, rebuilt by `tools/logos/build.py` from pinned sources with a recorded digest.
 
 ### Changed
 
 - Session-backed providers use log activity alone; window focus no longer affects their selection. Focused-app detection is reserved for providers without session tracking.
 - Providers that gained a session adapter but keep a useful focused fallback now report the session while it runs and fall back to the focused window otherwise.
+- Provider artwork is served from this repository instead of hotlinked vendor sites and third-party icon packages, so a mark cannot disappear or silently change upstream. Every mark now shares one plate geometry, corner radius and optical size.
 
 ## 0.1.1 - 2026-09-12
 

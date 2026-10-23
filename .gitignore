@@ -4,3 +4,5 @@
 Thumbs.db
 .DS_Store
 .taste-skill/
+/.run-test/
+__pycache__/
