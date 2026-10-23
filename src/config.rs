@@ -1,7 +1,10 @@
 use std::{fs, io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
-use winreg::{RegKey, enums::HKEY_CURRENT_USER};
+use winreg::{
+    RegKey,
+    enums::{HKEY_CURRENT_USER, KEY_SET_VALUE},
+};
 
 const EMBEDDED_DISCORD_APPLICATION_ID: &str = env!("DISCODEX_EMBEDDED_APPLICATION_ID");
 
@@ -76,14 +79,28 @@ fn effective_application_id(configured: &str, embedded: &str) -> String {
 }
 
 pub fn set_start_with_windows(enabled: bool) -> io::Result<()> {
+    const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let (run_key, _) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")?;
 
     if enabled {
         let executable = std::env::current_exe()?;
         let command = format!("\"{}\"", executable.display());
+        let (run_key, _) = hkcu.create_subkey_with_flags(RUN_KEY, KEY_SET_VALUE)?;
         run_key.set_value("Discodex", &command)?;
     } else {
+        // A normal launch with startup disabled needs no registry write access
+        // unless a previous Discodex startup entry actually needs removing.
+        let read_key = match hkcu.open_subkey(RUN_KEY) {
+            Ok(key) => key,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        match read_key.get_raw_value("Discodex") {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        }
+        let run_key = hkcu.open_subkey_with_flags(RUN_KEY, KEY_SET_VALUE)?;
         match run_key.delete_value("Discodex") {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}

@@ -14,6 +14,7 @@ It runs quietly in the notification area, reconnects to Discord automatically, a
 
 - **Multi-provider support** — Codex, Claude Code, ChatGPT, Claude, Gemini, Cursor, Windsurf, GitHub Copilot, Cline, Roo Code, Continue, Perplexity, Poe, OpenCode, and more.
 - **Rich coding activity** — supported session adapters can show the project, language/framework, current file basename, normalized tool activity, phase, and elapsed time.
+- **One mark per harness** — 30 provider logos are rebuilt to a single 512px plate and served from this repository, so a Discord profile reads as one set instead of 30 mismatched hotlinks.
 - **Broad fallback detection** — focused applications, browser tabs, and IDE panels can still produce useful provider presence when no stable session format is available.
 - **Privacy-first design** — sensitive conversation and tool content is deliberately excluded from Discord payloads.
 - **Native Windows tray app** — no browser server, account system, Electron runtime, or background web service.
@@ -66,7 +67,7 @@ Discodex uses two detection layers. Rich session tracking has the most detail; f
 | Microsoft Copilot | Focused app/window | Standard |
 | Poe | Focused app/window | Standard |
 
-See [Provider support](docs/PROVIDERS.md) for how each detection mode works and what data it exposes.
+See [Provider support](docs/PROVIDERS.md) for how each detection mode works and what data it exposes, and [Provider artwork](docs/ARTWORK.md) for the mark set and how to rebuild it.
 
 ## Install
 
@@ -147,6 +148,7 @@ Read the full [Privacy model](docs/PRIVACY.md).
 - [Installation](docs/INSTALLATION.md)
 - [Configuration](docs/CONFIGURATION.md)
 - [Provider support](docs/PROVIDERS.md)
+- [Provider artwork](docs/ARTWORK.md)
 - [Privacy model](docs/PRIVACY.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)

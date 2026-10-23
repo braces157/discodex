@@ -2,10 +2,6 @@ use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
 
 use crate::{provider::Provider, state::Phase};
 
-#[cfg(test)]
-const CODEX_IMAGE_URL: &str =
-    "https://raw.githubusercontent.com/braces157/discodex/main/assets/codex-bundle-blue.png";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresenceSnapshot {
     pub provider: Provider,
@@ -239,7 +235,12 @@ mod tests {
             reasoning: None,
         };
         let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
-        assert_eq!(value["assets"]["large_image"], CODEX_IMAGE_URL);
+        let large_image = value["assets"]["large_image"].as_str().unwrap();
+        assert_eq!(large_image, Provider::Codex.logo_url());
+        assert!(
+            large_image.ends_with("/assets/logos/codex.png"),
+            "Codex should use its own mark, got {large_image}"
+        );
         assert_eq!(value["assets"]["large_text"], "OpenAI Codex");
     }
 

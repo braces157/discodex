@@ -152,6 +152,9 @@ fn log_line(msg: &str) {
             .join("Discodex")
             .join("discodex.log");
         use std::io::Write;
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         if let Ok(meta) = std::fs::metadata(&path)
             && meta.len() > 500_000
         {
@@ -191,15 +194,19 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     log_line("run() started, acquiring single instance...");
-    let Some(_single_instance) = instance::SingleInstance::acquire()? else {
+    let Some(_single_instance) = instance::SingleInstance::acquire()
+        .map_err(|error| format!("Could not acquire the single-instance mutex: {error}"))?
+    else {
         log_line("single instance mutex already locked! exiting.");
         return Ok(());
     };
     log_line("single instance acquired.");
 
-    let (config, config_path) = AppConfig::load_or_create()?;
+    let (config, config_path) = AppConfig::load_or_create().map_err(|error| {
+        format!("Could not load or create %APPDATA%\\Discodex\\config.toml: {error}")
+    })?;
     log_line(&format!("config loaded from {:?}", config_path));
-    config::set_start_with_windows(config.start_with_windows)?;
+    sync_start_with_windows(config.start_with_windows);
 
     let session_sources = provider::session_sources();
 
@@ -230,10 +237,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     log_line("starting tray::run...");
     let res = tray::run(tx, status);
     log_line(&format!("tray::run returned: {:?}", res));
-    res?;
+    res.map_err(|error| format!("Could not create the notification-area tray: {error}"))?;
 
     let _ = worker.join();
     Ok(())
+}
+
+fn sync_start_with_windows(enabled: bool) {
+    if let Err(error) = config::set_start_with_windows(enabled) {
+        log_line(&format!(
+            "Could not update Start with Windows (enabled={enabled}); continuing without changing the startup entry: {error}"
+        ));
+    }
 }
 
 fn worker_loop(
@@ -658,7 +673,7 @@ fn worker_loop(
                         effective_application_id = reloaded_application_id;
                         publisher = DiscordPublisher::new(effective_application_id.clone());
                     }
-                    let _ = config::set_start_with_windows(config.start_with_windows);
+                    sync_start_with_windows(config.start_with_windows);
                 }
             }
             WorkerEvent::ToggleEnabled => {
@@ -671,10 +686,14 @@ fn worker_loop(
             }
             WorkerEvent::ToggleStartup => {
                 config.start_with_windows = !config.start_with_windows;
-                if config::set_start_with_windows(config.start_with_windows).is_ok() {
-                    let _ = config.save(&config_path);
-                } else {
-                    config.start_with_windows = !config.start_with_windows;
+                match config::set_start_with_windows(config.start_with_windows) {
+                    Ok(()) => {
+                        let _ = config.save(&config_path);
+                    }
+                    Err(error) => {
+                        log_line(&format!("Could not toggle Start with Windows: {error}"));
+                        config.start_with_windows = !config.start_with_windows;
+                    }
                 }
             }
             WorkerEvent::TestPresence => {

@@ -33,6 +33,8 @@ Rich adapters read local session data and convert only selected metadata into sa
 
 Session adapters do not forward prompt text, assistant responses, raw tool arguments, raw tool output, or full paths to Discord.
 
+Each provider has one normalised mark in `assets/logos/`, used as the Rich Presence large image. See [Provider artwork](ARTWORK.md) for the set and how it is rebuilt.
+
 When multiple tracked sessions are active, sessions running tools take priority, followed by the most recently active session. Window focus does not affect session selection. Rich tracking continues when an app is minimized or unfocused, and when focused-app detection is disabled.
 
 ### Store kinds

@@ -1,5 +1,11 @@
 # Troubleshooting
 
+## Discodex could not start: Access is denied (os error 5)
+
+Older builds treated a failure to update the Windows launch-at-login registry entry as a fatal startup error, even when **Start with Windows** was disabled. Rebuild or update Discodex to get the fix. Discodex now continues running if Windows blocks that optional setting, and only requests registry write access when needed.
+
+If another startup step fails, the error dialog identifies the step. Details are also written to `%APPDATA%\Discodex\discodex.log` when that folder is writable. For a configuration error, check access to `%APPDATA%\Discodex\config.toml`.
+
 ## Discord shows no activity
 
 Check these in order:
