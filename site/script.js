@@ -5,6 +5,22 @@
   var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (/[?&]static(=|&|$)/.test(window.location.search)) root.classList.add("static");
 
+  var scrollProgress = document.getElementById("scrollProgress");
+  var progressFrame = 0;
+  function renderScrollProgress() {
+    var scrollable = document.documentElement.scrollHeight - window.innerHeight;
+    var progress = scrollable > 0 ? Math.min(1, Math.max(0, window.scrollY / scrollable)) : 0;
+    scrollProgress.style.transform = "scaleX(" + progress.toFixed(4) + ")";
+    progressFrame = 0;
+  }
+  if (!reducedMotion && !root.classList.contains("static")) {
+    window.addEventListener("scroll", function () {
+      if (!progressFrame) progressFrame = window.requestAnimationFrame(renderScrollProgress);
+    }, { passive: true });
+    window.addEventListener("resize", renderScrollProgress, { passive: true });
+    renderScrollProgress();
+  }
+
   var revealElements = document.querySelectorAll(".reveal");
   if ("IntersectionObserver" in window && !root.classList.contains("static") && !reducedMotion) {
     var revealObserver = new IntersectionObserver(function (entries) {
@@ -18,6 +34,26 @@
     revealElements.forEach(function (element) { revealObserver.observe(element); });
   } else {
     revealElements.forEach(function (element) { element.classList.add("in"); });
+  }
+
+  var countValue = document.querySelector(".count-value");
+  if (countValue && "IntersectionObserver" in window && !reducedMotion && !root.classList.contains("static")) {
+    var countTarget = Number(countValue.dataset.count);
+    var countObserver = new IntersectionObserver(function (entries) {
+      if (!entries[0].isIntersecting) return;
+      countObserver.disconnect();
+      var countStart = 0;
+      function tickCount(timestamp) {
+        if (!countStart) countStart = timestamp;
+        var progress = Math.min(1, (timestamp - countStart) / 1100);
+        var eased = 1 - Math.pow(1 - progress, 3);
+        countValue.textContent = String(Math.round(countTarget * eased));
+        if (progress < 1) window.requestAnimationFrame(tickCount);
+      }
+      countValue.textContent = "0";
+      window.requestAnimationFrame(tickCount);
+    }, { threshold: 0.45 });
+    countObserver.observe(countValue);
   }
 
   var menuToggle = document.getElementById("menuToggle");
@@ -127,10 +163,46 @@
     }, { passive: true });
   }
 
+  var depthCards = document.querySelectorAll(".depth-card");
+  if (finePointer.matches && !reducedMotion && !root.classList.contains("static")) {
+    depthCards.forEach(function (card) {
+      var depthFrame = 0;
+      var depthX = 0;
+      var depthY = 0;
+      function renderDepth() {
+        card.style.setProperty("--depth-rx", (-depthY * 3.2).toFixed(2) + "deg");
+        card.style.setProperty("--depth-ry", (depthX * 4.2).toFixed(2) + "deg");
+        depthFrame = 0;
+      }
+      function queueDepth() {
+        if (!depthFrame) depthFrame = window.requestAnimationFrame(renderDepth);
+      }
+      card.addEventListener("pointermove", function (event) {
+        var bounds = card.getBoundingClientRect();
+        depthX = Math.max(-1, Math.min(1, ((event.clientX - bounds.left) / bounds.width - 0.5) * 2));
+        depthY = Math.max(-1, Math.min(1, ((event.clientY - bounds.top) / bounds.height - 0.5) * 2));
+        card.style.setProperty("--glare-x", ((depthX + 1) * 50).toFixed(1) + "%");
+        card.style.setProperty("--glare-y", ((depthY + 1) * 50).toFixed(1) + "%");
+        card.style.setProperty("--depth-z", "7px");
+        card.classList.add("is-tilting");
+        queueDepth();
+      }, { passive: true });
+      card.addEventListener("pointerleave", function () {
+        depthX = 0;
+        depthY = 0;
+        card.style.setProperty("--depth-z", "0px");
+        card.classList.remove("is-tilting");
+        queueDepth();
+      }, { passive: true });
+    });
+  }
+
   var providerChoices = document.querySelectorAll(".provider-choice");
+  var presenceCard = document.getElementById("presenceCard");
   var providerImage = document.getElementById("providerImage");
   var providerName = document.getElementById("providerName");
   var activityPhase = document.getElementById("activityPhase");
+  var providerSwapTimer = 0;
   providerChoices.forEach(function (choice) {
     choice.addEventListener("click", function () {
       providerChoices.forEach(function (item) {
@@ -140,6 +212,13 @@
       providerImage.src = "assets/logos/" + choice.dataset.provider + ".png";
       providerName.textContent = choice.dataset.name;
       activityPhase.textContent = choice.dataset.phase;
+      if (!reducedMotion && !root.classList.contains("static")) {
+        window.clearTimeout(providerSwapTimer);
+        presenceCard.classList.remove("switching");
+        void presenceCard.offsetWidth;
+        presenceCard.classList.add("switching");
+        providerSwapTimer = window.setTimeout(function () { presenceCard.classList.remove("switching"); }, 600);
+      }
     });
   });
 
