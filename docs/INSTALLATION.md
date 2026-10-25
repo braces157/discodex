@@ -22,6 +22,18 @@ The first run creates `%APPDATA%\Discodex\config.toml`.
 
 Windows may show a reputation/SmartScreen warning for unsigned community builds. Verify that the executable came from this repository's release page before running it.
 
+## Quiet launch from a local build
+
+The included PowerShell launcher starts the executable directly without opening a console window:
+
+```powershell
+pwsh -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File .\tools\start-discodex.ps1
+```
+
+It uses `discodex.exe` beside the script when present, otherwise `target\release\discodex.exe` in this checkout. Pass `-ExecutablePath "C:\path\to\discodex.exe"` to select another local copy. A Windows shortcut to this command gives you a double-click launcher. The launcher runs with your current user permissions and does not change Windows security settings or the executable's signing status. Startup errors are still shown in a dialog.
+
+If a build folder has a **Low Mandatory Level** security label, executables in that folder also launch at Low integrity. Windows can then block access to Discord's IPC pipe even though both apps belong to the same user. Install the app in a normal per-user folder such as `%LOCALAPPDATA%\Programs\Discodex` with the standard Medium integrity label. Administrator access is not required. `icacls path\to\discodex.exe` displays the executable's label.
+
 ## Start with Windows
 
 Right-click the tray icon and enable **Start with Windows**. Discodex writes a per-user startup entry under the standard Windows `Run` registry key.
