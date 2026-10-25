@@ -2,6 +2,9 @@ use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
 
 use crate::{provider::Provider, state::Phase};
 
+const DISCODEX_LOGO_URL: &str =
+    "https://raw.githubusercontent.com/braces157/discodex/main/assets/brand/discodex-512.png";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresenceSnapshot {
     pub provider: Provider,
@@ -153,7 +156,9 @@ fn build_activity(snapshot: &PresenceSnapshot) -> activity::Activity<'_> {
     activity = activity.assets(
         activity::Assets::new()
             .large_image(snapshot.provider.logo_url())
-            .large_text(large_text),
+            .large_text(large_text)
+            .small_image(DISCODEX_LOGO_URL)
+            .small_text("Discodex"),
     );
 
     activity
@@ -275,6 +280,12 @@ mod tests {
                 provider.display_name(),
                 "Provider {provider:?} large_text mismatch"
             );
+            assert_eq!(
+                assets["small_image"],
+                "https://raw.githubusercontent.com/braces157/discodex/main/assets/brand/discodex-512.png",
+                "Provider {provider:?} missing the Discodex badge"
+            );
+            assert_eq!(assets["small_text"], "Discodex");
         }
     }
 
