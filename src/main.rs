@@ -54,6 +54,9 @@ enum WorkerEvent {
     ToggleEnabled,
     ToggleForegroundDetection,
     ToggleStartup,
+    ToggleReasoning,
+    ToggleProjectNames,
+    ToggleFileNames,
     TestPresence,
     OpenConfig,
     Exit,
@@ -214,6 +217,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         enabled: config.enabled,
         foreground_detection: config.foreground_detection,
         start_with_windows: config.start_with_windows,
+        privacy: config.privacy.clone(),
         text: "Starting...".to_string(),
     }));
 
@@ -359,7 +363,9 @@ fn worker_loop(
     activity.discard_stale_active(startup_now, SESSION_ACTIVE_TIMEOUT.as_millis() as i64);
     log_line(&format!(
         "read historical logs. Initial presence: {:?}",
-        activity.selected_presence()
+        activity
+            .selected_presence()
+            .map(|snapshot| snapshot.redacted(&config.privacy))
     ));
 
     let watch_tx = tx.clone();
@@ -528,6 +534,8 @@ fn worker_loop(
                 .or_else(|| foreground_state.presence())
         };
 
+        let desired = desired.map(|snapshot| snapshot.redacted(&config.privacy));
+
         if desired != last_desired {
             log_line(&format!("desired presence changed: {:?}", desired));
             last_desired = desired.clone();
@@ -537,7 +545,7 @@ fn worker_loop(
         if can_attempt {
             let force_refresh =
                 desired.is_some() && publisher.is_connected() && now >= next_healthcheck_ms;
-            let sync_res = publisher.sync(desired.as_ref(), force_refresh);
+            let sync_res = publisher.sync(desired.as_ref(), force_refresh, &config.privacy);
             if let Err(error) = sync_res {
                 log_line(&format!("publisher.sync error: {error}"));
                 next_retry_ms = now + DISCORD_RETRY.as_millis() as i64;
@@ -665,7 +673,7 @@ fn worker_loop(
                         }
                     }
                 }
-                if reload_config && let Ok(reloaded) = AppConfig::load(&config_path) {
+                if reload_config && let Ok(reloaded) = config.reload(&config_path) {
                     let reloaded_application_id = reloaded.effective_discord_application_id();
                     let app_id_changed = reloaded_application_id != effective_application_id;
                     config = reloaded;
@@ -703,6 +711,25 @@ fn worker_loop(
                     started_at_ms,
                 ));
             }
+            WorkerEvent::ToggleReasoning
+            | WorkerEvent::ToggleProjectNames
+            | WorkerEvent::ToggleFileNames => {
+                match event {
+                    WorkerEvent::ToggleReasoning => {
+                        config.privacy.share_reasoning = !config.privacy.share_reasoning
+                    }
+                    WorkerEvent::ToggleProjectNames => {
+                        config.privacy.show_project_names = !config.privacy.show_project_names
+                    }
+                    WorkerEvent::ToggleFileNames => {
+                        config.privacy.show_file_names = !config.privacy.show_file_names
+                    }
+                    _ => unreachable!(),
+                }
+                if let Err(error) = config.save(&config_path) {
+                    log_line(&format!("Could not save privacy settings: {error}"));
+                }
+            }
             WorkerEvent::OpenConfig => {
                 let _ = std::process::Command::new("notepad.exe")
                     .arg(&config_path)
@@ -712,7 +739,7 @@ fn worker_loop(
         }
     }
 
-    let _ = publisher.sync(None, false);
+    let _ = publisher.sync(None, false, &config.privacy);
 }
 
 fn apply_lines(
@@ -905,6 +932,7 @@ fn update_status(
         status.enabled = config.enabled;
         status.foreground_detection = config.foreground_detection;
         status.start_with_windows = config.start_with_windows;
+        status.privacy = config.privacy.clone();
         status.text = text;
     }
 }

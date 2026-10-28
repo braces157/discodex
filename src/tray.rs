@@ -24,7 +24,7 @@ use windows::{
     core::{PCWSTR, w},
 };
 
-use crate::WorkerEvent;
+use crate::{WorkerEvent, config::PrivacySettings};
 
 const WM_TRAYICON: u32 = WM_APP + 1;
 const ID_TOGGLE_ENABLED: usize = 1001;
@@ -34,6 +34,9 @@ const ID_STARTUP: usize = 1004;
 const ID_CONFIG: usize = 1005;
 const ID_EXIT: usize = 1006;
 const ID_FOREGROUND: usize = 1007;
+const ID_REASONING: usize = 1008;
+const ID_PROJECT_NAMES: usize = 1009;
+const ID_FILE_NAMES: usize = 1010;
 
 #[derive(Debug, Clone)]
 pub struct TrayStatus {
@@ -41,6 +44,7 @@ pub struct TrayStatus {
     pub foreground_detection: bool,
     pub start_with_windows: bool,
     pub text: String,
+    pub privacy: PrivacySettings,
 }
 
 struct TrayGlobals {
@@ -208,6 +212,15 @@ unsafe extern "system" fn window_proc(
                     ID_CONFIG => {
                         let _ = globals.tx.send(WorkerEvent::OpenConfig);
                     }
+                    ID_REASONING => {
+                        let _ = globals.tx.send(WorkerEvent::ToggleReasoning);
+                    }
+                    ID_PROJECT_NAMES => {
+                        let _ = globals.tx.send(WorkerEvent::ToggleProjectNames);
+                    }
+                    ID_FILE_NAMES => {
+                        let _ = globals.tx.send(WorkerEvent::ToggleFileNames);
+                    }
                     ID_EXIT => {
                         let _ = globals.tx.send(WorkerEvent::Exit);
                         unsafe { PostQuitMessage(0) };
@@ -240,6 +253,7 @@ unsafe fn show_menu(hwnd: HWND) {
             foreground_detection: false,
             start_with_windows: false,
             text: "Unavailable".to_string(),
+            privacy: PrivacySettings::default(),
         });
     let Ok(menu) = (unsafe { CreatePopupMenu() }) else {
         return;
@@ -277,6 +291,27 @@ unsafe fn show_menu(hwnd: HWND) {
             ID_STARTUP,
             "Start with Windows",
             status.start_with_windows,
+            false,
+        );
+        append_item(
+            menu,
+            ID_REASONING,
+            "Share reasoning (may contain private text)",
+            status.privacy.share_reasoning,
+            false,
+        );
+        append_item(
+            menu,
+            ID_PROJECT_NAMES,
+            "Show project names",
+            status.privacy.show_project_names,
+            false,
+        );
+        append_item(
+            menu,
+            ID_FILE_NAMES,
+            "Show file names",
+            status.privacy.show_file_names,
             false,
         );
         append_item(menu, ID_CONFIG, "Open Config", false, false);

@@ -82,10 +82,7 @@ impl SessionState {
     fn finish_tool(&mut self, now_ms: i64) {
         if self.active {
             self.phase = Phase::Thinking;
-            self.activity = match &self.reasoning {
-                Some(r) => format!("Reasoning: {r}"),
-                None => "Reviewing tool results".to_string(),
-            };
+            self.activity = "Reviewing tool results".to_string();
             self.last_activity_ms = now_ms;
             self.terminal_deadline_ms = None;
         }
@@ -213,11 +210,9 @@ impl ActivityState {
                 }
                 session.phase = Phase::Thinking;
                 if let Some(r) = reasoning {
-                    session.activity = format!("Reasoning: {r}");
                     session.reasoning = Some(r);
-                } else if session.reasoning.is_none() {
-                    session.activity = "Thinking through changes".to_string();
                 }
+                session.activity = "Thinking through changes".to_string();
                 session.last_activity_ms = now_ms;
                 session.terminal_deadline_ms = None;
             }
@@ -625,10 +620,7 @@ mod tests {
             Some("Evaluating Request and Identity")
         );
         assert_eq!(presence.phase, Phase::Thinking);
-        assert_eq!(
-            presence.activity,
-            "Reasoning: Evaluating Request and Identity"
-        );
+        assert_eq!(presence.activity, "Thinking through changes");
     }
 
     #[test]

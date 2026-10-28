@@ -1,6 +1,6 @@
 use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
 
-use crate::{provider::Provider, state::Phase};
+use crate::{config::PrivacySettings, provider::Provider, state::Phase};
 
 const DISCODEX_LOGO_URL: &str =
     "https://raw.githubusercontent.com/braces157/discodex/main/assets/brand/discodex-512.png";
@@ -17,6 +17,25 @@ pub struct PresenceSnapshot {
     pub started_at_ms: i64,
     pub agent: Option<String>,
     pub reasoning: Option<String>,
+}
+
+impl PresenceSnapshot {
+    pub fn redacted(&self, privacy: &PrivacySettings) -> Self {
+        let mut snapshot = self.clone();
+        if !privacy.show_project_names {
+            snapshot.project = snapshot.provider.display_name().to_string();
+        }
+        if !privacy.show_file_names {
+            snapshot.current_file = None;
+        }
+        if !privacy.share_reasoning || !privacy.show_project_names || !privacy.show_file_names {
+            snapshot.reasoning = None;
+            if snapshot.activity.starts_with("Reasoning:") {
+                snapshot.activity = "Thinking through changes".to_string();
+            }
+        }
+        snapshot
+    }
 }
 
 pub struct DiscordPublisher {
@@ -42,7 +61,10 @@ impl DiscordPublisher {
         &mut self,
         desired: Option<&PresenceSnapshot>,
         force_refresh: bool,
+        privacy: &PrivacySettings,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let redacted = desired.map(|snapshot| snapshot.redacted(privacy));
+        let desired = redacted.as_ref();
         if self.application_id.trim().is_empty() {
             self.disconnect();
             return Ok(());
@@ -63,7 +85,7 @@ impl DiscordPublisher {
 
         match desired {
             Some(snapshot) if force_refresh || self.last_sent.as_ref() != Some(snapshot) => {
-                let activity = build_activity(snapshot);
+                let activity = build_activity(snapshot, privacy);
                 if let Err(error) = self.client.as_mut().unwrap().set_activity(activity) {
                     self.disconnect();
                     return Err(Box::new(error));
@@ -96,7 +118,11 @@ impl Drop for DiscordPublisher {
     }
 }
 
-pub(crate) fn build_activity(snapshot: &PresenceSnapshot) -> activity::Activity<'_> {
+pub(crate) fn build_activity(
+    snapshot: &PresenceSnapshot,
+    privacy: &PrivacySettings,
+) -> activity::Activity<'static> {
+    let snapshot = snapshot.redacted(privacy);
     let context = snapshot
         .current_language
         .as_deref()
@@ -180,6 +206,57 @@ mod tests {
     use super::*;
 
     #[test]
+    fn extracted_confidential_heading_requires_opt_in_in_every_payload() {
+        use crate::{events::ParsedEvent, state::ActivityState};
+        let mut state = ActivityState::default();
+        let path = std::path::Path::new("session.jsonl");
+        state.apply(
+            path,
+            Provider::Antigravity,
+            ParsedEvent::TaskStarted {
+                started_at_ms: 1234,
+            },
+            1234,
+        );
+        let line = r#"{"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","thinking":"**confidential-client acquisition**\nPRIVATE_BODY","tool_calls":[]}"#;
+        for event in crate::sources::parse_log_line(Provider::Antigravity, line) {
+            state.apply(path, Provider::Antigravity, event, 1235);
+        }
+        let mut snapshot = state.selected_presence().unwrap();
+        assert_eq!(
+            snapshot.reasoning.as_deref(),
+            Some("confidential-client acquisition")
+        );
+        snapshot.project = "SECRET_PROJECT".to_string();
+        snapshot.current_file = Some("SECRET_FILE.rs".to_string());
+        for phase in [Phase::Thinking, Phase::RunningTools] {
+            snapshot.phase = phase;
+            for share_reasoning in [false, true] {
+                for show_project_names in [false, true] {
+                    for show_file_names in [false, true] {
+                        let privacy = PrivacySettings {
+                            share_reasoning,
+                            show_project_names,
+                            show_file_names,
+                        };
+                        let payload =
+                            serde_json::to_value(build_activity(&snapshot, &privacy)).unwrap();
+                        let outgoing = payload.to_string();
+                        assert_eq!(
+                            outgoing.contains("confidential-client acquisition"),
+                            share_reasoning && show_project_names && show_file_names
+                        );
+                        assert_eq!(outgoing.contains("SECRET_PROJECT"), show_project_names);
+                        assert_eq!(outgoing.contains("SECRET_FILE.rs"), show_file_names);
+                        assert!(!outgoing.contains("PRIVATE_BODY"));
+                        assert_eq!(payload["timestamps"]["start"], 1234);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn snapshot_has_only_safe_presence_fields() {
         let snapshot = PresenceSnapshot {
             provider: Provider::Codex,
@@ -213,7 +290,8 @@ mod tests {
             agent: None,
             reasoning: None,
         };
-        let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
+        let value =
+            serde_json::to_value(build_activity(&snapshot, &PrivacySettings::default())).unwrap();
         assert_eq!(value["name"], "Claude Code");
         assert_eq!(value["details"], "Discodex • Rust");
         assert_eq!(value["state"], "discord.rs • Editing files");
@@ -239,7 +317,8 @@ mod tests {
             agent: None,
             reasoning: None,
         };
-        let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
+        let value =
+            serde_json::to_value(build_activity(&snapshot, &PrivacySettings::default())).unwrap();
         let large_image = value["assets"]["large_image"].as_str().unwrap();
         assert_eq!(large_image, Provider::Codex.logo_url());
         assert!(
@@ -264,7 +343,9 @@ mod tests {
                 agent: None,
                 reasoning: None,
             };
-            let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
+            let value =
+                serde_json::to_value(build_activity(&snapshot, &PrivacySettings::default()))
+                    .unwrap();
             let assets = &value["assets"];
             assert!(
                 assets.is_object(),
@@ -303,7 +384,14 @@ mod tests {
             agent: Some("DeepCoder".to_string()),
             reasoning: Some("Evaluating Request and Identity".to_string()),
         };
-        let value = serde_json::to_value(build_activity(&snapshot)).unwrap();
+        let value = serde_json::to_value(build_activity(
+            &snapshot,
+            &PrivacySettings {
+                share_reasoning: true,
+                ..PrivacySettings::default()
+            },
+        ))
+        .unwrap();
         assert_eq!(value["name"], "Google Antigravity");
         assert_eq!(value["details"], "DeepCoder • Discodex • Rust");
         assert_eq!(value["state"], "Evaluating Request and Identity");
@@ -329,7 +417,14 @@ mod tests {
             agent: Some("DeepCoder".to_string()),
             reasoning: Some("Evaluating Request and Identity".to_string()),
         };
-        let tool_value = serde_json::to_value(build_activity(&tool_snapshot)).unwrap();
+        let tool_value = serde_json::to_value(build_activity(
+            &tool_snapshot,
+            &PrivacySettings {
+                share_reasoning: true,
+                ..PrivacySettings::default()
+            },
+        ))
+        .unwrap();
         assert_eq!(tool_value["details"], "DeepCoder • Discodex • Rust");
         assert_eq!(
             tool_value["state"],

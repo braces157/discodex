@@ -840,8 +840,13 @@ mod tests {
                 1_789_189_714_000,
             );
             if let Some(snapshot) = state.selected_presence() {
-                payloads
-                    .push(serde_json::to_value(crate::discord::build_activity(&snapshot)).unwrap());
+                payloads.push(
+                    serde_json::to_value(crate::discord::build_activity(
+                        &snapshot,
+                        &crate::config::PrivacySettings::default(),
+                    ))
+                    .unwrap(),
+                );
             }
         }
         assert!(
