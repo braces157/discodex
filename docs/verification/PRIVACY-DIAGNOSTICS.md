@@ -75,6 +75,14 @@ File names: false
 
 ## Review and limits
 
+CodeRabbit identified that release Windows builds could discard standalone diagnostics output. The release executable reproduced this in a real parent console, with `parent_console_works: true`, `report_visible: false`, and exit code zero. Standalone diagnostics now attaches to the parent console only when stdout is missing. Existing output redirection is preserved. The same probe passed after the fix for both a real parent console and redirected stdout.
+
+Run `python tools/verify_release_diagnostics.py target/release/discodex.exe` after the release build. The check creates a hidden parent console, reads its actual screen buffer, and also checks redirected output. It uses an isolated configuration with presence disabled. The Windows CI workflow runs the same check after the release build.
+
+The before/after runs used copies of each build at the same isolated executable path. At the existing local development executable path, Windows returned `Access is denied` from console attachment even for the identical fixed binary. That path-specific result was excluded from the code acceptance gate.
+
+The review's disconnected-retry scenario assumes an empty effective application ID. `build.rs` embeds a validated configured ID or a nonempty default, and runtime configuration falls back to that embedded ID. Both production publisher constructors use the effective ID. Connection failures return errors and receive the existing five-second backoff. No scheduler change was needed.
+
 An independent GPT-6 Astra review found no actionable privacy, correctness, deslop, or comment issues. The review checked the source and verification records. The primary agent ran the commands above.
 
 Live tray interactions and Discord delivery were not exercised. An existing Discodex process was left running. Database access checks do not prove adapter schema compatibility. Document and database history uses the time Discodex observed it, which can differ from the provider's original event time.

@@ -33,3 +33,6 @@ jobs:
       - name: Build release
         run: cargo build --release
 
+      - name: Test release diagnostics output
+        run: python tools/verify_release_diagnostics.py target/release/discodex.exe
+

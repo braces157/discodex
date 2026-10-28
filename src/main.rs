@@ -105,6 +105,14 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().any(|arg| arg == "--diagnostics") {
+        use windows::Win32::System::Console::{
+            ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE,
+        };
+        unsafe {
+            if GetStdHandle(STD_OUTPUT_HANDLE).is_err() {
+                let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+            }
+        }
         let path = AppConfig::path()?;
         let config = if path.exists() {
             AppConfig::load(&path)?
