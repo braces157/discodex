@@ -8,7 +8,7 @@
 
 Discodex is a lightweight Windows tray application that mirrors AI activity into Discord Rich Presence. It combines privacy-conscious session tracking for supported coding agents with focused-app detection for popular AI apps and editors.
 
-It runs quietly in the notification area, reconnects to Discord automatically, and never sends prompts, responses, raw commands, full paths, tool output, or window titles to Discord.
+It runs quietly in the notification area and reconnects to Discord automatically. Normal activity excludes prompts, responses, raw commands, full paths, tool output, and window titles. Reasoning headings require explicit opt-in and can contain private information.
 
 ## Highlights
 
@@ -113,6 +113,9 @@ Right-click the Discodex tray icon to access:
 - **Test Presence** — publish a short test activity.
 - **Detect focused AI apps** — toggle the broad app/browser/IDE fallback detector.
 - **Start with Windows** — launch Discodex when you sign in.
+- **Share reasoning** opts in to publishing extracted reasoning headings. These headings can contain private text.
+- **Show project names** and **Show file names** control names in Discord, tray status, and presence logs.
+- **Diagnostics** opens a local snapshot of detected providers, session access, last activity, filesystem monitoring, and Discord connection state.
 - **Open Config** — edit the runtime TOML configuration.
 - **Exit** — stop Discodex and clear the current activity.
 
@@ -125,7 +128,18 @@ discord_application_id = ""
 enabled = true
 start_with_windows = false
 foreground_detection = true
+
+[privacy]
+share_reasoning = false
+show_project_names = true
+show_file_names = true
 ```
+
+Reasoning sharing is off by default, including when upgrading an existing configuration. Project and file names remain visible by default. Hiding either kind of name also suppresses reasoning because headings can repeat those names. Language, normalized tool activity, provider, and elapsed time remain visible.
+
+Diagnostics opens `%APPDATA%\Discodex\diagnostics.txt` in Notepad. It is a snapshot taken when you select the menu item. Reopen it to refresh. The report omits source paths and conversation content. A readable store does not prove that its schema is supported. The report distinguishes missing sources, access problems, and no recognized events.
+
+Run `cargo run -- --diagnostics` for a standalone diagnostic snapshot. This mode does not start the tray, change startup settings, or connect to Discord. Use the tray report to inspect the running Discord connection.
 
 The runtime `discord_application_id` overrides the application ID embedded at build time. Leave it empty to use the embedded default.
 
@@ -135,9 +149,9 @@ See [Configuration](docs/CONFIGURATION.md) for every setting and build-time beha
 
 Discodex is intentionally conservative about what reaches Discord.
 
-**May be sent:** provider name, final workspace folder name, inferred language/framework, current file basename, normalized activity label, phase, and task start time.
+**May be sent:** provider name, visible workspace and file names, inferred language/framework, normalized activity label, phase, and task start time. Reasoning headings are sent only after explicit opt-in and can contain private text.
 
-**Never sent:** prompts, assistant responses, full file paths, raw shell commands, tool arguments, tool output, session contents, or window titles.
+**Excluded from normal activity:** prompts, assistant responses, full file paths, raw shell commands, tool arguments, tool output, session contents, and window titles. Opted-in reasoning headings are provider-authored text and can repeat private information.
 
 Focused-app detection checks executable names and known product names in the active window title locally. The title itself is neither stored nor included in Rich Presence.
 
