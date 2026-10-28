@@ -99,7 +99,6 @@ pub enum Provider {
 }
 
 impl Provider {
-    #[cfg(test)]
     pub const ALL: [Self; 30] = [
         Self::Codex,
         Self::ClaudeCode,

@@ -15,6 +15,25 @@ pub struct AppConfig {
     pub enabled: bool,
     pub start_with_windows: bool,
     pub foreground_detection: bool,
+    pub privacy: PrivacySettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct PrivacySettings {
+    pub share_reasoning: bool,
+    pub show_project_names: bool,
+    pub show_file_names: bool,
+}
+
+impl Default for PrivacySettings {
+    fn default() -> Self {
+        Self {
+            share_reasoning: false,
+            show_project_names: true,
+            show_file_names: true,
+        }
+    }
 }
 
 impl Default for AppConfig {
@@ -24,6 +43,7 @@ impl Default for AppConfig {
             enabled: true,
             start_with_windows: false,
             foreground_detection: true,
+            privacy: PrivacySettings::default(),
         }
     }
 }
@@ -50,6 +70,28 @@ impl AppConfig {
     pub fn load(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         let text = fs::read_to_string(path)?;
         Ok(toml::from_str(&text)?)
+    }
+
+    pub fn reload(&self, path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+        self.with_updates(&fs::read_to_string(path)?)
+    }
+
+    fn with_updates(&self, text: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let updates: toml::Table = toml::from_str(text)?;
+        let mut merged = toml::Table::try_from(self)?;
+        for (key, value) in updates {
+            if key == "privacy"
+                && let Some(updates) = value.as_table()
+                && let Some(existing) = merged
+                    .get_mut("privacy")
+                    .and_then(toml::Value::as_table_mut)
+            {
+                existing.extend(updates.clone());
+            } else {
+                merged.insert(key, value);
+            }
+        }
+        Ok(merged.try_into()?)
     }
 
     pub fn save(&self, path: &std::path::Path) -> io::Result<()> {
@@ -121,6 +163,51 @@ mod tests {
         assert!(config.enabled);
         assert!(!config.start_with_windows);
         assert!(config.foreground_detection);
+        assert!(!config.privacy.share_reasoning);
+        assert!(config.privacy.show_project_names);
+        assert!(config.privacy.show_file_names);
+    }
+
+    #[test]
+    fn privacy_options_round_trip_and_partial_tables_keep_safe_defaults() {
+        let config: AppConfig = toml::from_str("[privacy]\nshow_file_names = false").unwrap();
+        assert!(!config.privacy.share_reasoning);
+        assert!(!config.privacy.show_file_names);
+        assert!(config.privacy.show_project_names);
+        let encoded = toml::to_string(&config).unwrap();
+        assert_eq!(toml::from_str::<AppConfig>(&encoded).unwrap(), config);
+    }
+
+    #[test]
+    fn partial_config_reloads_never_reset_existing_privacy_settings() {
+        let config = AppConfig {
+            enabled: false,
+            privacy: PrivacySettings {
+                share_reasoning: false,
+                show_project_names: false,
+                show_file_names: false,
+            },
+            ..AppConfig::default()
+        };
+        for text in [
+            "",
+            "[privacy]",
+            "enabled = false",
+            "[privacy]\nshare_reasoning = false",
+        ] {
+            assert_eq!(config.with_updates(text).unwrap(), config);
+        }
+        assert!(
+            config
+                .with_updates("[privacy]\nshow_project_names =")
+                .is_err()
+        );
+        let updated = config
+            .with_updates("[privacy]\nshow_file_names = true")
+            .unwrap();
+        assert!(updated.privacy.show_file_names);
+        assert!(!updated.privacy.show_project_names);
+        assert!(!updated.enabled);
     }
 
     #[test]

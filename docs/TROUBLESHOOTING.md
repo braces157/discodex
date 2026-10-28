@@ -16,6 +16,16 @@ Check these in order:
 4. If you rely on browser or IDE detection, confirm **Detect focused AI apps** is enabled.
 5. Exit and relaunch Discodex after a Discord update if the IPC connection appears stuck.
 
+## Inspect detection diagnostics
+
+Choose **Diagnostics** from the tray menu. Notepad opens `%APPDATA%\Discodex\diagnostics.txt`. Reopen the menu item to refresh the snapshot.
+
+Check the provider's session access, recognized events, activity observation time, and monitoring state. A missing directory means the configured source was not found. A readable store with no recognized events can be idle or use an unsupported format. Some providers require session activity and deliberately have no focused-app fallback. The report names that policy and shows the current Discord connection or last IPC error.
+
+Activity observation times can reflect history read during startup. They do not always mean the provider performed work at that time.
+
+For a standalone snapshot, run `cargo run -- --diagnostics`. It does not connect to Discord or inspect another running process's IPC connection. Use the tray report for that connection state.
+
 ## Codex or Claude Code is not detected
 
 Rich detection currently watches the standard per-user session locations:

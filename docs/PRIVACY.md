@@ -7,15 +7,19 @@ Discodex is designed around a narrow rule: Discord should receive activity metad
 Depending on the provider and detection mode, Discodex may publish:
 
 - AI provider name
-- Final workspace folder name
+- Final workspace folder name, unless **Show project names** is disabled
 - Inferred language or framework
-- Current file basename
+- Current file basename, unless **Show file names** is disabled
 - Normalized activity such as `Editing files` or `Running Rust tests`
 - High-level phase such as thinking/reasoning or running tools
 - Active agent or subagent role (e.g. `DeepCoder`, `DeepInvestigator`, `Planner`)
 - Selected model identifier and reasoning effort when available
-- High-level reasoning topic or step heading (e.g. `Evaluating Request and Identity`)
+- Extracted reasoning headings, only after **Share reasoning** is enabled and both kinds of names are visible
 - Task start timestamp for elapsed time
+
+Reasoning headings are provider-authored text and can contain confidential client names, project names, filenames, or other private information. Shortening a heading does not make it private. Sharing is off by default, including for existing configuration files.
+
+Hiding either project or file names suppresses reasoning as well. The final Discord activity builder applies these controls for every provider and test presence. Activity state keeps reasoning separate from normalized activity labels.
 
 ## Data intentionally excluded
 
@@ -32,7 +36,7 @@ Discodex does not publish:
 - Browser URLs
 - Account identifiers
 
-The parser converts recognized events into a small internal `PresenceSnapshot`; raw session lines and verbatim thought content are not sent to Discord.
+The parser converts recognized events into internal activity fields. The publisher applies privacy controls before serializing Discord activity. Opting in to reasoning sends extracted heading text verbatim, so the exclusions above do not guarantee that an opted-in heading contains no private information.
 
 ## Focused-window detection
 
@@ -45,6 +49,12 @@ foreground_detection = false
 ```
 
 Rich Codex, Claude Code, Google Antigravity, and DeepSeek Harness session tracking remains available when focused-app detection is disabled.
+
+## Local diagnostics and logs
+
+**Diagnostics** opens a local snapshot in Notepad. It reports provider detection, source access, recognized events, observation times, watch state, and Discord connection state. It omits source paths and conversation content and is not sent to Discord.
+
+Presence logs and tray status use the same privacy settings as outgoing activity. Changing settings does not remove older log entries or retract previously published information.
 
 ## Network behavior
 

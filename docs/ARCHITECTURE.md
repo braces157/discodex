@@ -12,13 +12,25 @@ Focused Windows app ────────┘
                                        └─> tray status
 ```
 
-The important boundary is normalization: raw provider data is reduced to a small set of activity fields before Discord publishing.
+Provider normalization reduces raw records to activity fields. The final publishing boundary then applies privacy controls to those fields before constructing Discord activity.
 
 ## Modules
 
 ### `src/main.rs`
 
-Owns application startup and the background worker loop. It coordinates configuration reloads, filesystem notifications, focused-app polling, session selection, Discord retries, and tray status. It also drives the two store paths that are not plain file events: the periodic re-read of rewritten session documents and the polling of the database-backed providers.
+Owns startup, configuration, filesystem subscriptions, tray commands, publishing, and status. One worker thread connects ingestion and scheduling.
+
+### `src/ingestion.rs`
+
+Owns provider sources, tail offsets, document deduplication, database cursors, bootstrap history, and polling. Read observations retain the source root and actual store path because registry-based providers can use databases outside their registry folder.
+
+### `src/scheduling.rs`
+
+Owns focused-provider dwell and hold, store and Aider polling deadlines, Discord retry and refresh deadlines, and test presence expiry. Session-only providers remain visible to diagnostics without receiving focused-app fallback presence.
+
+### `src/diagnostics.rs`
+
+Builds local text snapshots from ingestion observations, provider activity, filesystem access probes, watch status, and Discord state. A readable database does not prove adapter schema compatibility. Document and database history uses the time Discodex observed it.
 
 ### `src/provider.rs`
 
@@ -26,7 +38,7 @@ Defines supported AI providers, display names, executable/window recognition, th
 
 ### `src/sources/`
 
-One module per harness. Every module turns the records of that harness into normalized events and never forwards conversation content.
+One module per harness. Each adapter turns its records into normalized events. Shared parsers can extract reasoning headings, which remain private unless explicitly enabled at the publishing boundary.
 
 - `src/sources/mod.rs` dispatches to the module of a provider, opens provider databases for reading, and reads the columns of a row.
 - A module of an append-only harness implements `parse_line`.
@@ -53,7 +65,7 @@ DeepSeek Harness v4 logs can contain concatenated Zstandard frames. The tailer a
 
 ### `src/discord.rs`
 
-Owns Discord IPC connection lifecycle and converts the internal presence snapshot into Discord Rich Presence fields.
+Owns Discord IPC connection state and the last IPC error. It applies privacy settings before comparing cached presence and constructing the final Discord activity. The activity builder also enforces privacy independently for payload tests.
 
 ### `src/tray.rs`
 

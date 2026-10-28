@@ -15,6 +15,11 @@ discord_application_id = ""
 enabled = true
 start_with_windows = false
 foreground_detection = true
+
+[privacy]
+share_reasoning = false
+show_project_names = true
+show_file_names = true
 ```
 
 ## Settings
@@ -54,6 +59,20 @@ Controls the compatibility detector for AI apps, browser tabs, and IDE panels.
 - `false`: disable focused-app detection while keeping rich Codex and Claude Code session tracking active.
 
 No window title is stored or sent to Discord.
+
+### `[privacy]`
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `share_reasoning` | `false` | Opt in to publishing extracted reasoning headings. These headings can contain private text. |
+| `show_project_names` | `true` | Include the workspace folder name. |
+| `show_file_names` | `true` | Include the current file basename. |
+
+Hiding project or file names also suppresses reasoning, even when `share_reasoning` is enabled. A heading can repeat those names. Provider, language, normalized activity, and elapsed time remain visible.
+
+All three settings have tray controls. Changes apply to current presence, tray status, and new presence log entries. They do not erase older log entries or information previously published to Discord.
+
+During reload, omitted fields retain their current values. An empty or partially saved file cannot restore hidden names. To change a setting, set its value explicitly. On first launch, omitted fields use the defaults above.
 
 ## Build-time application ID
 
