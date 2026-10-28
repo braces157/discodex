@@ -96,7 +96,7 @@ impl Drop for DiscordPublisher {
     }
 }
 
-fn build_activity(snapshot: &PresenceSnapshot) -> activity::Activity<'_> {
+pub(crate) fn build_activity(snapshot: &PresenceSnapshot) -> activity::Activity<'_> {
     let context = snapshot
         .current_language
         .as_deref()

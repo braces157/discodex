@@ -829,21 +829,45 @@ mod tests {
 
         let mut seen = HashSet::new();
         let events = poll(&database, &mut seen);
-        let debug = format!("{events:?}");
-
-        for secret in [
-            "PRIVATE_PROMPT_TEXT",
-            "PRIVATE_REASONING",
-            "SECRET_OLD_BODY",
-            "SECRET_NEW_BODY",
-            "SECRET_FILE_BODY",
-            "SECRET_ANSWER_TEXT",
-            "example.invalid",
-            "curl",
-            "Documents",
-            "Discodex",
-        ] {
-            assert!(!debug.contains(secret), "leaked {secret} in {debug}");
+        let mut state = crate::state::ActivityState::default();
+        let mut payloads = Vec::new();
+        for event in &events {
+            let key = database.with_extension(&event.session);
+            state.apply(
+                &key,
+                crate::provider::Provider::Crush,
+                event.event.clone(),
+                1_789_189_714_000,
+            );
+            if let Some(snapshot) = state.selected_presence() {
+                payloads
+                    .push(serde_json::to_value(crate::discord::build_activity(&snapshot)).unwrap());
+            }
+        }
+        assert!(
+            !payloads.is_empty(),
+            "fixture must produce Discord activity"
+        );
+        assert!(
+            payloads
+                .iter()
+                .any(|payload| payload["state"].as_str().unwrap().contains("provider.rs"))
+        );
+        for payload in payloads {
+            let outgoing = payload.to_string();
+            for secret in [
+                "PRIVATE_PROMPT_TEXT",
+                "PRIVATE_REASONING",
+                "SECRET_OLD_BODY",
+                "SECRET_NEW_BODY",
+                "SECRET_FILE_BODY",
+                "SECRET_ANSWER_TEXT",
+                "example.invalid",
+                "curl",
+                "Documents",
+            ] {
+                assert!(!outgoing.contains(secret), "leaked {secret} in {outgoing}");
+            }
         }
 
         // The directory of an edited file never leaves the adapter, only the
