@@ -15,11 +15,20 @@ use crate::{
 const RECENT_DOCUMENTS: usize = 12;
 type DocumentState = (SystemTime, HashSet<String>);
 
+#[derive(Debug)]
+pub struct ReadObservation {
+    pub provider: Provider,
+    pub last_read_ms: i64,
+    pub result: Result<(), String>,
+    pub recognized_events: usize,
+}
+
 pub struct Ingestion {
     sources: Vec<SessionSource>,
     tailer: LogTailer,
     documents: HashMap<PathBuf, DocumentState>,
     databases: HashMap<PathBuf, HashSet<String>>,
+    pub observations: HashMap<(PathBuf, PathBuf), ReadObservation>,
 }
 
 impl Ingestion {
@@ -29,6 +38,7 @@ impl Ingestion {
             tailer: LogTailer::default(),
             documents: HashMap::new(),
             databases: HashMap::new(),
+            observations: HashMap::new(),
         }
     }
 
@@ -88,6 +98,24 @@ impl Ingestion {
         }
     }
 
+    fn observe(&mut self, path: &Path, source: &SessionSource, result: Result<usize, String>) {
+        let key = (source.root.clone(), path.to_path_buf());
+        let previous = self
+            .observations
+            .get(&key)
+            .map_or(0, |obs| obs.recognized_events);
+        let recognized_events = previous + result.as_ref().copied().unwrap_or_default();
+        self.observations.insert(
+            key,
+            ReadObservation {
+                provider: source.provider,
+                last_read_ms: now_ms(),
+                result: result.map(|_| ()),
+                recognized_events,
+            },
+        );
+    }
+
     fn read_log(
         &mut self,
         activity: &mut ActivityState,
@@ -113,11 +141,11 @@ impl Ingestion {
                     historical.is_some(),
                 )
             });
-        let _ = result;
+        self.observe(path, source, result);
     }
 
     fn read_document(&mut self, activity: &mut ActivityState, source: &SessionSource, path: &Path) {
-        let result: Result<usize, String> = (|| {
+        let result = (|| {
             let modified = std::fs::metadata(path)
                 .and_then(|meta| meta.modified())
                 .map_err(|error| format!("Session metadata unavailable ({:?})", error.kind()))?;
@@ -158,7 +186,7 @@ impl Ingestion {
             }
             Ok(count)
         })();
-        let _ = result;
+        self.observe(path, source, result);
     }
 
     fn poll_source(&mut self, activity: &mut ActivityState, source: &SessionSource) {
@@ -187,7 +215,7 @@ impl Ingestion {
                     }
                     count
                 });
-            let _ = result;
+            self.observe(&database, source, result);
         }
     }
 }
@@ -262,6 +290,8 @@ mod tests {
         let mut activity = ActivityState::default();
         ingestion.bootstrap(&mut activity);
         assert!(activity.selected_presence().is_none());
+        let key = (root.clone(), path.clone());
+        assert!(ingestion.observations[&key].result.is_err());
         std::fs::write(
             &path,
             r#"[{"ts":1792540721901,"type":"say","say":"api_req_started"}]"#,
@@ -269,10 +299,13 @@ mod tests {
         .unwrap();
         ingestion.poll_stores(&mut activity);
         assert!(activity.selected_presence().is_some());
+        assert!(ingestion.observations[&key].result.is_ok());
+        let count = ingestion.observations[&key].recognized_events;
         activity.discard_stale_active(now_ms() + 180_001, 180_000);
         assert!(activity.selected_presence().is_none());
         ingestion.poll_stores(&mut activity);
         assert!(activity.selected_presence().is_none());
+        assert_eq!(ingestion.observations[&key].recognized_events, count);
         std::fs::remove_dir_all(root).unwrap();
     }
 

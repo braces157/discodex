@@ -42,6 +42,7 @@ pub struct DiscordPublisher {
     application_id: String,
     client: Option<DiscordIpcClient>,
     last_sent: Option<PresenceSnapshot>,
+    last_error: Option<String>,
 }
 
 impl DiscordPublisher {
@@ -50,11 +51,24 @@ impl DiscordPublisher {
             application_id,
             client: None,
             last_sent: None,
+            last_error: None,
         }
     }
 
     pub fn is_connected(&self) -> bool {
         self.client.is_some()
+    }
+
+    pub fn diagnostic_status(&self) -> String {
+        if self.application_id.trim().is_empty() {
+            "Application ID missing".to_string()
+        } else if self.is_connected() {
+            "Connected".to_string()
+        } else if let Some(error) = &self.last_error {
+            format!("Disconnected. Last IPC error: {error}")
+        } else {
+            "Not connected. No presence has required a connection yet".to_string()
+        }
     }
 
     pub fn sync(
@@ -77,6 +91,7 @@ impl DiscordPublisher {
             let mut client = DiscordIpcClient::new(&self.application_id);
             if let Err(error) = client.connect() {
                 self.client = None;
+                self.last_error = Some(error.to_string());
                 return Err(Box::new(error));
             }
             self.client = Some(client);
@@ -87,13 +102,16 @@ impl DiscordPublisher {
             Some(snapshot) if force_refresh || self.last_sent.as_ref() != Some(snapshot) => {
                 let activity = build_activity(snapshot, privacy);
                 if let Err(error) = self.client.as_mut().unwrap().set_activity(activity) {
+                    self.last_error = Some(error.to_string());
                     self.disconnect();
                     return Err(Box::new(error));
                 }
                 self.last_sent = Some(snapshot.clone());
+                self.last_error = None;
             }
             None if self.last_sent.is_some() => {
                 if let Err(error) = self.client.as_mut().unwrap().clear_activity() {
+                    self.last_error = Some(error.to_string());
                     self.disconnect();
                     return Err(Box::new(error));
                 }

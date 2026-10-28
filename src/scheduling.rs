@@ -19,6 +19,7 @@ const AIDER_SCAN_MS: i64 = 15_000;
 
 #[derive(Debug, Default)]
 struct ForegroundState {
+    detected_provider: Option<Provider>,
     raw_provider: Option<Provider>,
     raw_since_ms: i64,
     established_provider: Option<Provider>,
@@ -28,6 +29,7 @@ struct ForegroundState {
 
 impl ForegroundState {
     fn refresh(&mut self, detected_provider: Option<Provider>, now_ms: i64) {
+        self.detected_provider = detected_provider;
         let current_raw = detected_provider.filter(|provider| !provider.has_session_tracking());
         if current_raw != self.raw_provider {
             self.raw_provider = current_raw;
@@ -168,6 +170,10 @@ impl Schedule {
         self.foreground.presence()
     }
 
+    pub fn detected_provider(&self) -> Option<Provider> {
+        self.foreground.detected_provider
+    }
+
     pub fn start_test(&mut self, now_ms: i64) {
         self.test_presence = Some((now_ms.saturating_add(TEST_PRESENCE_MS), now_ms));
     }
@@ -268,6 +274,7 @@ mod tests {
             let mut schedule = Schedule::new(&[]);
             schedule.advance(1_000, true, || Some(provider));
             schedule.advance(3_000, true, || Some(provider));
+            assert_eq!(schedule.detected_provider(), Some(provider));
             assert!(schedule.foreground_presence().is_none());
         }
     }
@@ -300,6 +307,7 @@ mod tests {
         schedule.advance(4_000, false, || {
             panic!("disabled detection must not read the focused window")
         });
+        assert_eq!(schedule.detected_provider(), None);
         assert!(schedule.foreground_presence().is_none());
         assert_eq!(
             schedule.timeout(4_000, &ActivityState::default(), false, false),

@@ -107,6 +107,14 @@ fn is_default_project(project: &str, provider: Provider) -> bool {
 }
 
 impl ActivityState {
+    pub fn provider_last_activity(&self, provider: Provider) -> Option<i64> {
+        self.sessions
+            .values()
+            .filter(|session| session.provider == provider && session.last_activity_ms > 0)
+            .map(|session| session.last_activity_ms)
+            .max()
+    }
+
     pub fn apply(&mut self, path: &Path, provider: Provider, event: ParsedEvent, now_ms: i64) {
         let session = self.sessions.entry(path.to_path_buf()).or_default();
         session.provider = provider;

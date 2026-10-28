@@ -37,6 +37,7 @@ const ID_FOREGROUND: usize = 1007;
 const ID_REASONING: usize = 1008;
 const ID_PROJECT_NAMES: usize = 1009;
 const ID_FILE_NAMES: usize = 1010;
+const ID_DIAGNOSTICS: usize = 1011;
 
 #[derive(Debug, Clone)]
 pub struct TrayStatus {
@@ -221,6 +222,9 @@ unsafe extern "system" fn window_proc(
                     ID_FILE_NAMES => {
                         let _ = globals.tx.send(WorkerEvent::ToggleFileNames);
                     }
+                    ID_DIAGNOSTICS => {
+                        let _ = globals.tx.send(WorkerEvent::OpenDiagnostics);
+                    }
                     ID_EXIT => {
                         let _ = globals.tx.send(WorkerEvent::Exit);
                         unsafe { PostQuitMessage(0) };
@@ -314,6 +318,7 @@ unsafe fn show_menu(hwnd: HWND) {
             status.privacy.show_file_names,
             false,
         );
+        append_item(menu, ID_DIAGNOSTICS, "Diagnostics", false, false);
         append_item(menu, ID_CONFIG, "Open Config", false, false);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         append_item(menu, ID_EXIT, "Exit", false, false);

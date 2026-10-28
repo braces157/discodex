@@ -4,6 +4,7 @@
 compile_error!("Discodex currently supports Windows only.");
 
 mod config;
+mod diagnostics;
 mod discord;
 mod events;
 mod foreground;
@@ -17,7 +18,7 @@ mod tray;
 mod watcher;
 
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
     thread,
@@ -42,6 +43,7 @@ enum WorkerEvent {
     ToggleReasoning,
     ToggleProjectNames,
     ToggleFileNames,
+    OpenDiagnostics,
     TestPresence,
     OpenConfig,
     Exit,
@@ -102,6 +104,28 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().any(|arg| arg == "--diagnostics") {
+        let path = AppConfig::path()?;
+        let config = if path.exists() {
+            AppConfig::load(&path)?
+        } else {
+            AppConfig::default()
+        };
+        let mut ingestion = Ingestion::new(provider::session_sources());
+        let mut activity = ActivityState::default();
+        ingestion.bootstrap(&mut activity);
+        let report = diagnostics::DiagnosticSnapshot {
+            ingestion: &ingestion,
+            activity: &activity,
+            config: &config,
+            focused: if config.foreground_detection { foreground::active_provider() } else { None },
+            discord: "Not probed. Standalone diagnostics do not connect to Discord; use tray Diagnostics for the running connection",
+            watches: &HashMap::new(),
+        }.render();
+        println!("{report}");
+        return Ok(());
+    }
+
     log_line("run() started, acquiring single instance...");
     let Some(_single_instance) = instance::SingleInstance::acquire()
         .map_err(|error| format!("Could not acquire the single-instance mutex: {error}"))?
@@ -198,7 +222,7 @@ fn worker_loop(
     )
     .ok();
 
-    let mut watched_roots = HashSet::new();
+    let mut watch_status = HashMap::new();
     if let Some(watcher) = fs_watcher.as_mut() {
         for source in ingestion.sources() {
             if source.provider == Provider::Aider {
@@ -207,13 +231,13 @@ fn worker_loop(
                 // the machine, so the transcript is polled instead.
                 continue;
             }
-            if source.root.exists()
-                && watcher
-                    .watch(&source.root, RecursiveMode::Recursive)
-                    .is_ok()
-            {
-                log_line(&format!("watching source root: {:?}", source.root));
-                watched_roots.insert(source.root.clone());
+            if source.root.exists() {
+                watch_status.insert(
+                    source.root.clone(),
+                    watcher
+                        .watch(&source.root, RecursiveMode::Recursive)
+                        .map_err(|_| "Could not subscribe to filesystem changes".to_string()),
+                );
             }
         }
         if let Some(parent) = config_path.parent() {
@@ -221,6 +245,14 @@ fn worker_loop(
         }
     }
 
+    if fs_watcher.is_none() {
+        for source in ingestion.sources() {
+            watch_status.insert(
+                source.root.clone(),
+                Err("Filesystem watcher unavailable".to_string()),
+            );
+        }
+    }
     let mut last_desired: Option<PresenceSnapshot> = None;
 
     loop {
@@ -238,17 +270,13 @@ fn worker_loop(
                 if source.provider == Provider::Aider {
                     continue;
                 }
-                if source.root.exists()
-                    && !watched_roots.contains(&source.root)
-                    && watcher
-                        .watch(&source.root, RecursiveMode::Recursive)
-                        .is_ok()
-                {
-                    log_line(&format!(
-                        "dynamically watching source root: {:?}",
-                        source.root
-                    ));
-                    watched_roots.insert(source.root.clone());
+                if source.root.exists() && !matches!(watch_status.get(&source.root), Some(Ok(()))) {
+                    watch_status.insert(
+                        source.root.clone(),
+                        watcher
+                            .watch(&source.root, RecursiveMode::Recursive)
+                            .map_err(|_| "Could not subscribe to filesystem changes".to_string()),
+                    );
                 }
             }
         }
@@ -384,6 +412,25 @@ fn worker_loop(
                 }
                 if let Err(error) = config.save(&config_path) {
                     log_line(&format!("Could not save privacy settings: {error}"));
+                }
+            }
+            WorkerEvent::OpenDiagnostics => {
+                let discord = publisher.diagnostic_status();
+                let report = diagnostics::DiagnosticSnapshot {
+                    ingestion: &ingestion,
+                    activity: &activity,
+                    config: &config,
+                    focused: schedule.detected_provider(),
+                    discord: &discord,
+                    watches: &watch_status,
+                }
+                .render();
+                let path = config_path.with_file_name("diagnostics.txt");
+                match std::fs::write(&path, report) {
+                    Ok(()) => {
+                        let _ = std::process::Command::new("notepad.exe").arg(path).spawn();
+                    }
+                    Err(error) => log_line(&format!("Could not write diagnostics: {error}")),
                 }
             }
             WorkerEvent::OpenConfig => {
