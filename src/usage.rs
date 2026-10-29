@@ -1261,6 +1261,32 @@ mod tests {
     }
 
     #[test]
+    fn copied_claude_response_is_counted_once_across_sessions() {
+        let fixture = Fixture::new();
+        let mut original = claude("shared-message", 30);
+        original["sessionId"] = json!("original-session");
+        original["requestId"] = json!("shared-request");
+        let mut copied = original.clone();
+        copied["sessionId"] = json!("resumed-session");
+        copied["timestamp"] = json!("2026-01-02T00:00:00Z");
+        fixture.write("original.jsonl", &[original]);
+        fixture.write("resumed.jsonl", &[copied]);
+        fs::write(fixture.0.join("rates.toml"), "[[rates]]\nprovider='claude-code'\nmodel='test-model'\ninput_per_million=2.0\ncached_input_per_million=0.5\ncache_write_per_million=3.0\noutput_per_million=10.0\n").unwrap();
+
+        let snapshot = fixture.scanner(Provider::ClaudeCode).scan();
+        assert_eq!(snapshot.rows.len(), 1);
+        let row = &snapshot.rows[0];
+        assert_eq!(row.input_tokens, Some(350));
+        assert_eq!(row.output_tokens, Some(30));
+        assert_eq!(row.requests, 1);
+        assert_eq!(row.sessions, 1);
+        assert!((row.estimated_cost_usd.unwrap() - 0.00075).abs() < 1e-12);
+        assert_eq!(snapshot.daily.len(), 1);
+        assert_eq!(snapshot.daily[0].date, "2026-01-01");
+        assert_eq!(snapshot.daily[0].requests, 1);
+    }
+
+    #[test]
     fn claude_message_revisions_replace_instead_of_add_and_normalize_cache_input() {
         let f = Fixture::new();
         f.write(
