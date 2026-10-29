@@ -444,6 +444,7 @@ impl Dashboard {
             Action::Info => self.info_open = !self.info_open,
             Action::Rates => {
                 if let Some(worker) = &self.worker {
+                    self.pinned = true;
                     worker.edit_rates();
                 }
             }

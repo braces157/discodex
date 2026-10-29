@@ -193,6 +193,7 @@ enum RecordKind {
     CodexBaseline(TokenUsage),
     ClaudeUsage {
         id: String,
+        request_id: Option<String>,
         usage: TokenUsage,
         write_1h: Option<u64>,
     },
@@ -212,6 +213,79 @@ struct Record {
     sequence: usize,
     forked: bool,
     kind: RecordKind,
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum ClaudeResponseId<'a> {
+    Request(&'a str, &'a str),
+    Session(&'a str, &'a str),
+}
+
+struct ClaudeResponse<'a> {
+    first: &'a Record,
+    revision: &'a Record,
+}
+
+impl<'a> ClaudeResponse<'a> {
+    fn observe(&mut self, record: &'a Record) {
+        if record.time > 0 && (self.first.time <= 0 || record.time < self.first.time) {
+            self.first = record;
+        }
+        let RecordKind::ClaudeUsage {
+            usage, write_1h, ..
+        } = &record.kind
+        else {
+            return;
+        };
+        let RecordKind::ClaudeUsage {
+            usage: previous,
+            write_1h: previous_write_1h,
+            ..
+        } = &self.revision.kind
+        else {
+            return;
+        };
+        let quality = |usage: TokenUsage, write_1h: Option<u64>| {
+            (
+                usage.any() && usage.valid(),
+                [
+                    usage.input_tokens,
+                    usage.cached_input_tokens,
+                    usage.cache_write_tokens,
+                    usage.output_tokens,
+                    usage.reasoning_tokens,
+                    write_1h,
+                ]
+                .iter()
+                .filter(|value| value.is_some())
+                .count(),
+            )
+        };
+        let current_quality = quality(*usage, *write_1h);
+        let previous_quality = quality(*previous, *previous_write_1h);
+        let order = current_quality.cmp(&previous_quality);
+        let replace = if current_quality.0 != previous_quality.0 {
+            current_quality.0
+        } else if usage.regresses(*previous) != previous.regresses(*usage) {
+            previous.regresses(*usage)
+        } else {
+            order.is_gt()
+                || (order.is_eq()
+                    && (record.time, record.sequence)
+                        > (self.revision.time, self.revision.sequence))
+        };
+        if replace {
+            self.revision = record;
+        }
+    }
+
+    fn canonical_record(self) -> Record {
+        Record {
+            session: self.first.session.clone(),
+            time: self.first.time,
+            ..self.revision.clone()
+        }
+    }
 }
 
 #[derive(Default)]
@@ -332,14 +406,39 @@ impl UsageScanner {
         }
         self.cache.retain(|key, _| retained.contains(key));
         let mut records = BTreeMap::<String, Vec<(&str, &Record)>>::new();
+        let mut claude = BTreeMap::<ClaudeResponseId<'_>, ClaudeResponse<'_>>::new();
         for ((provider, _), cached) in &self.cache {
             warnings.extend(cached.parsed.warnings.iter().cloned());
             for record in &cached.parsed.records {
+                if let RecordKind::ClaudeUsage { id, request_id, .. } = &record.kind {
+                    let identity = match request_id {
+                        Some(request) => ClaudeResponseId::Request(id, request),
+                        None => ClaudeResponseId::Session(&record.session, id),
+                    };
+                    claude
+                        .entry(identity)
+                        .or_insert(ClaudeResponse {
+                            first: record,
+                            revision: record,
+                        })
+                        .observe(record);
+                    continue;
+                }
                 records
                     .entry(format!("{provider}/{}", record.session))
                     .or_default()
                     .push((provider, record));
             }
+        }
+        let claude: Vec<Record> = claude
+            .into_values()
+            .map(ClaudeResponse::canonical_record)
+            .collect();
+        for record in &claude {
+            records
+                .entry(format!("claude-code/{}", record.session))
+                .or_default()
+                .push(("claude-code", record));
         }
         let rates = load_rates(&self.rates_path, &mut warnings);
         let mut totals = Totals {
@@ -632,6 +731,7 @@ fn parse_file(path: &Path, provider: &str) -> io::Result<ParsedFile> {
                             });
                         Some(RecordKind::ClaudeUsage {
                             id,
+                            request_id: identity(&value["requestId"]),
                             usage,
                             write_1h,
                         })
@@ -764,7 +864,6 @@ fn aggregate_session(
     let mut previous = None;
     let mut seen_totals = BTreeSet::new();
     let mut seen_last = BTreeSet::new();
-    let mut claude = BTreeMap::new();
     let mut pending = HashMap::<String, &Record>::new();
     let mut seen_tasks = BTreeSet::new();
     for &(provider, record) in records {
@@ -804,11 +903,11 @@ fn aggregate_session(
                 previous = Some(*total);
             }
             RecordKind::ClaudeUsage {
-                id,
-                usage,
-                write_1h,
+                usage, write_1h, ..
             } => {
-                claude.insert(id, (provider, record, *usage, *write_1h));
+                add_usage(
+                    totals, provider, session, record, *usage, *write_1h, warnings,
+                );
             }
             RecordKind::Start { id } => {
                 if record.time > 0
@@ -845,9 +944,6 @@ fn aggregate_session(
     }
     if !pending.is_empty() {
         warnings.insert("Incomplete task/turn intervals were excluded from task time.".to_owned());
-    }
-    for (_, (provider, record, usage, write_1h)) in claude {
-        add_usage(totals, provider, session, record, usage, write_1h, warnings);
     }
 }
 
@@ -1284,6 +1380,139 @@ mod tests {
         assert_eq!(snapshot.daily.len(), 1);
         assert_eq!(snapshot.daily[0].date, "2026-01-01");
         assert_eq!(snapshot.daily[0].requests, 1);
+    }
+
+    #[test]
+    fn copied_claude_revisions_retain_final_usage_and_cache_lifetimes() {
+        let f = Fixture::new();
+        let mut partial = claude("message-a", 1);
+        partial["requestId"] = json!("request-a");
+        partial["message"]["model"] = json!("claude-sonnet-4-6");
+        let mut final_revision = partial.clone();
+        final_revision["timestamp"] = json!("2026-01-01T00:00:01Z");
+        final_revision["message"]["usage"]["output_tokens"] = json!(30);
+        final_revision["message"]["usage"]["cache_creation"] =
+            json!({"ephemeral_5m_input_tokens":20,"ephemeral_1h_input_tokens":30});
+        let mut copied_partial = partial.clone();
+        copied_partial["sessionId"] = json!("resumed-session");
+        copied_partial["timestamp"] = json!("2026-01-02T00:00:00Z");
+        let mut copied_stale = final_revision.clone();
+        copied_stale["sessionId"] = json!("resumed-session");
+        copied_stale["timestamp"] = json!("2026-01-02T00:00:01Z");
+        copied_stale["message"]["usage"]["output_tokens"] = json!(1);
+        f.write("original.jsonl", &[partial, final_revision]);
+        f.write("resumed.jsonl", &[copied_partial, copied_stale]);
+
+        let mut scanner = f.scanner(Provider::ClaudeCode);
+        for snapshot in [scanner.scan(), scanner.scan()] {
+            let row = &snapshot.rows[0];
+            assert_eq!(row.input_tokens, Some(350));
+            assert_eq!(row.output_tokens, Some(30));
+            assert_eq!(row.requests, 1);
+            assert_eq!(row.sessions, 1);
+            assert!((row.estimated_cost_usd.unwrap() - 0.001065).abs() < 1e-12);
+            assert_eq!(snapshot.daily.len(), 1);
+            assert_eq!(snapshot.daily[0].date, "2026-01-01");
+        }
+    }
+
+    #[test]
+    fn claude_cache_details_do_not_outweigh_final_output_usage() {
+        for reverse in [false, true] {
+            let f = Fixture::new();
+            let mut final_revision = claude("message-a", 30);
+            final_revision["requestId"] = json!("request-a");
+            let mut partial = final_revision.clone();
+            partial["timestamp"] = json!("2026-01-02T00:00:00Z");
+            partial["message"]["usage"]["output_tokens"] = json!(1);
+            partial["message"]["usage"]["cache_creation"] =
+                json!({"ephemeral_5m_input_tokens":20,"ephemeral_1h_input_tokens":30});
+            let records = if reverse {
+                [partial, final_revision]
+            } else {
+                [final_revision, partial]
+            };
+            f.write("one.jsonl", &records);
+
+            let snapshot = f.scanner(Provider::ClaudeCode).scan();
+            assert_eq!(snapshot.rows[0].output_tokens, Some(30));
+            assert_eq!(snapshot.rows[0].requests, 1);
+        }
+    }
+
+    #[test]
+    fn claude_distinct_requests_can_share_a_message_id_in_one_session() {
+        let f = Fixture::new();
+        let mut first = claude("shared-message", 20);
+        first["requestId"] = json!("first-request");
+        let mut second = claude("shared-message", 30);
+        second["requestId"] = json!("second-request");
+        f.write("one.jsonl", &[first, second]);
+
+        let snapshot = f.scanner(Provider::ClaudeCode).scan();
+        assert_eq!(snapshot.rows[0].input_tokens, Some(700));
+        assert_eq!(snapshot.rows[0].output_tokens, Some(50));
+        assert_eq!(snapshot.rows[0].requests, 2);
+        assert_eq!(snapshot.rows[0].sessions, 1);
+    }
+
+    #[test]
+    fn claude_without_request_ids_deduplicates_messages_only_within_a_session() {
+        let f = Fixture::new();
+        let first = claude("shared-message", 20);
+        let revision = claude("shared-message", 30);
+        let mut another_session = revision.clone();
+        another_session["sessionId"] = json!("another-session");
+        f.write("one.jsonl", &[first, revision]);
+        f.write("two.jsonl", &[another_session]);
+
+        let snapshot = f.scanner(Provider::ClaudeCode).scan();
+        assert_eq!(snapshot.rows[0].input_tokens, Some(700));
+        assert_eq!(snapshot.rows[0].output_tokens, Some(60));
+        assert_eq!(snapshot.rows[0].requests, 2);
+        assert_eq!(snapshot.rows[0].sessions, 2);
+    }
+
+    #[test]
+    fn copied_claude_response_uses_its_original_session_and_day_before_period_filtering() {
+        let f = Fixture::new();
+        let mut original = at_ms(claude("shared-message", 1), local_ms(2026, 1, 1, 12, 0));
+        original["requestId"] = json!("shared-request");
+        let mut copied = original.clone();
+        copied["sessionId"] = json!("resumed-session");
+        copied["timestamp"] = json!(local_ms(2026, 1, 2, 12, 0));
+        copied["message"]["usage"]["output_tokens"] = json!(30);
+        let original_session_only = at_ms(claude("other-message", 10), local_ms(2026, 1, 1, 13, 0));
+        f.write("original.jsonl", &[original, original_session_only]);
+        f.write("resumed.jsonl", &[copied]);
+
+        let mut scanner = f.scanner(Provider::ClaudeCode);
+        let all = scanner.scan();
+        assert_eq!(all.rows[0].input_tokens, Some(700));
+        assert_eq!(all.rows[0].output_tokens, Some(40));
+        assert_eq!(all.rows[0].requests, 2);
+        assert_eq!(all.rows[0].sessions, 1);
+        assert_eq!(all.daily.len(), 1);
+        assert_eq!(all.daily[0].date, "2026-01-01");
+        assert_eq!(all.daily[0].output_tokens, Some(40));
+        let today = scanner.scan_at(UsagePeriod::Today, local_ms(2026, 1, 2, 13, 0));
+        assert!(today.rows.is_empty());
+        assert!(today.daily.is_empty());
+    }
+
+    #[test]
+    fn invalid_claude_revisions_do_not_replace_valid_usage() {
+        let f = Fixture::new();
+        let mut valid = claude("message-a", 30);
+        valid["requestId"] = json!("request-a");
+        let mut invalid = valid.clone();
+        invalid["timestamp"] = json!("2026-01-02T00:00:00Z");
+        invalid["message"]["usage"]["reasoning_output_tokens"] = json!(31);
+        f.write("one.jsonl", &[valid, invalid]);
+
+        let snapshot = f.scanner(Provider::ClaudeCode).scan();
+        assert_eq!(snapshot.rows[0].output_tokens, Some(30));
+        assert_eq!(snapshot.rows[0].requests, 1);
     }
 
     #[test]

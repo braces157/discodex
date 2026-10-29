@@ -32,7 +32,7 @@ Newer API models can charge separate cache-write premiums. Available write count
 
 ## Override rates
 
-The pricing action opens `%APPDATA%\Discodex\usage-rates.toml`. Save custom rates and refresh the popup to override the bundled catalog for that exact provider and model.
+The pricing action pins the popup and opens `%APPDATA%\Discodex\usage-rates.toml`. Save custom rates and refresh the popup to override the bundled catalog for that exact provider and model.
 
 Each `[[rates]]` entry uses `provider`, `model`, `input_per_million`, `cached_input_per_million`, `output_per_million`, and optional `cache_write_per_million`. Prices are USD per million tokens and must be finite and nonnegative. Provider values are `codex` and `claude-code`.
 
@@ -49,3 +49,5 @@ Snapshots contain model identifiers, effort, numeric usage, timestamps, and pric
 ## Build the GPUI window
 
 Windows release builds require the Windows SDK shader compiler `fxc.exe`. Make it available on PATH or set `GPUI_FXC_PATH` to its full path before building. GPUI uses Direct3D for the native popup.
+
+If `where.exe fxc.exe` returns more than one path, set `GPUI_FXC_PATH` to one full executable path. GPUI 0.2.2 does not choose a single compiler from multiple PATH matches.

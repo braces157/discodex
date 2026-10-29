@@ -89,6 +89,8 @@ Requirements:
 - Windows SDK shader compiler `fxc.exe`, available on `PATH` or through `GPUI_FXC_PATH`
 - Discord Desktop for Rich Presence output
 
+If `where.exe fxc.exe` returns multiple paths, set `GPUI_FXC_PATH` to the full path of one compiler. GPUI 0.2.2 otherwise treats the combined paths as one executable.
+
 ```powershell
 git clone https://github.com/braces157/discodex.git
 cd discodex
