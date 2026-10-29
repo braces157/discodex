@@ -8,7 +8,8 @@ use windows::{
             HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext},
             Shell::{
                 ExtractIconExW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
-                NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
+                NIM_SETVERSION, NIN_SELECT, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
+                Shell_NotifyIconW,
             },
             WindowsAndMessaging::{
                 AppendMenuW, CW_USEDEFAULT, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
@@ -16,8 +17,8 @@ use windows::{
                 HMENU, IDI_APPLICATION, LoadIconW, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING,
                 MSG, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow,
                 TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WINDOW_EX_STYLE, WM_APP,
-                WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDBLCLK, WM_RBUTTONUP, WNDCLASSW,
-                WS_OVERLAPPED,
+                WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP,
+                WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
             },
         },
     },
@@ -27,6 +28,7 @@ use windows::{
 use crate::{WorkerEvent, config::PrivacySettings};
 
 const WM_TRAYICON: u32 = WM_APP + 1;
+const KEYBOARD_SELECT: u32 = NIN_SELECT | 1;
 const ID_TOGGLE_ENABLED: usize = 1001;
 const ID_STATUS: usize = 1002;
 const ID_TEST: usize = 1003;
@@ -38,6 +40,7 @@ const ID_REASONING: usize = 1008;
 const ID_PROJECT_NAMES: usize = 1009;
 const ID_FILE_NAMES: usize = 1010;
 const ID_DIAGNOSTICS: usize = 1011;
+const ID_USAGE: usize = 1012;
 
 #[derive(Debug, Clone)]
 pub struct TrayStatus {
@@ -130,6 +133,7 @@ pub fn run(
                 continue;
             }
             if message.message == windows::Win32::UI::WindowsAndMessaging::WM_TIMER
+                && message.hwnd == hwnd
                 && message.wParam == windows::Win32::Foundation::WPARAM(1)
             {
                 if !tray_added && add_tray_icon(&mut nid) {
@@ -189,7 +193,14 @@ unsafe extern "system" fn window_proc(
         WM_TRAYICON => {
             // With NOTIFYICON_VERSION_4, the notification code is stored in LOWORD(lParam).
             let event = (lparam.0 as u32) & 0xffff;
-            if event == WM_RBUTTONUP || event == WM_CONTEXTMENU || event == WM_LBUTTONDBLCLK {
+            if matches!(
+                event,
+                WM_LBUTTONUP | WM_LBUTTONDBLCLK | NIN_SELECT | KEYBOARD_SELECT
+            ) {
+                if let Err(error) = crate::dashboard::show() {
+                    crate::log_line(&format!("Could not open usage popup: {error}"));
+                }
+            } else if event == WM_RBUTTONUP || event == WM_CONTEXTMENU {
                 unsafe { show_menu(hwnd) };
             }
             LRESULT(0)
@@ -198,6 +209,11 @@ unsafe extern "system" fn window_proc(
             let id = wparam.0 & 0xffff;
             if let Some(globals) = GLOBALS.get() {
                 match id {
+                    ID_USAGE => {
+                        if let Err(error) = crate::dashboard::show() {
+                            crate::log_line(&format!("Could not open usage dashboard: {error}"));
+                        }
+                    }
                     ID_TOGGLE_ENABLED => {
                         let _ = globals.tx.send(WorkerEvent::ToggleEnabled);
                     }
@@ -282,6 +298,7 @@ unsafe fn show_menu(hwnd: HWND) {
             true,
         );
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+        append_item(menu, ID_USAGE, "Usage Dashboard", false, false);
         append_item(menu, ID_TEST, "Test Presence", false, false);
         append_item(
             menu,

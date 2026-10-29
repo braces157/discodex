@@ -24,6 +24,15 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+      - name: Locate Windows shader compiler
+        shell: pwsh
+        run: |
+          $compiler = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\fxc.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $compiler) { throw "Windows SDK shader compiler fxc.exe was not found" }
+          "GPUI_FXC_PATH=$compiler" >> $env:GITHUB_ENV
+
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 

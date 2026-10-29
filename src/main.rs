@@ -4,6 +4,7 @@
 compile_error!("Discodex currently supports Windows only.");
 
 mod config;
+mod dashboard;
 mod diagnostics;
 mod discord;
 mod events;
@@ -15,6 +16,7 @@ mod scheduling;
 mod sources;
 mod state;
 mod tray;
+mod usage;
 mod watcher;
 
 use std::{
@@ -104,6 +106,10 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().any(|arg| arg == "--usage") {
+        return dashboard::run_standalone();
+    }
+
     if std::env::args().any(|arg| arg == "--diagnostics") {
         use windows::Win32::System::Console::{
             ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE,

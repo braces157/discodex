@@ -5,6 +5,7 @@ const DEFAULT_APPLICATION_ID: &str = "1548194622251999232";
 fn main() {
     println!("cargo:rerun-if-env-changed=DISCODEX_DISCORD_APPLICATION_ID");
     println!("cargo:rerun-if-changed=assets/discodex.ico");
+    println!("cargo:rerun-if-changed=assets/discodex.manifest");
 
     let application_id = env::var("DISCODEX_DISCORD_APPLICATION_ID")
         .ok()
@@ -17,6 +18,7 @@ fn main() {
     if cfg!(windows) && PathBuf::from("assets/discodex.ico").exists() {
         let mut resource = winresource::WindowsResource::new();
         resource.set_icon("assets/discodex.ico");
+        resource.set_manifest(include_str!("assets/discodex.manifest"));
         resource.compile().expect("failed to embed Discodex icon");
     }
 }

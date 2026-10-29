@@ -2,6 +2,7 @@
 name = "discodex"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.89"
 description = "Discord Rich Presence for popular AI coding tools and assistants on Windows"
 repository = "https://github.com/braces157/discodex"
 homepage = "https://github.com/braces157/discodex"
@@ -13,6 +14,7 @@ categories = ["development-tools"]
 chrono = "0.4.45"
 dirs = "7.0.0"
 discord-rich-presence = "1.1.0"
+gpui = { version = "0.2.2", default-features = false }
 notify = "8.2.0"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
