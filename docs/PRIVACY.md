@@ -58,6 +58,8 @@ Presence logs and tray status use the same privacy settings as outgoing activity
 
 ## Network behavior
 
+The native Usage Dashboard reads Codex and Claude Code numeric usage metadata separately from presence detection. Its in-memory rows contain model identifiers, reasoning effort labels, tokens, task durations, and timestamps. It excludes conversation text, project names, and full paths. Usage totals are not added to Discord presence. Local pricing rates are stored in `%APPDATA%\Discodex\usage-rates.toml`. The dashboard opens no network listener. See [Track model usage](USAGE.md) for coverage and cost limitations.
+
 Discodex publishes Rich Presence through Discord's local IPC connection. It does not run its own telemetry service or require a Discodex account.
 
 Provider activity is discovered from local files and local Windows foreground-process information.

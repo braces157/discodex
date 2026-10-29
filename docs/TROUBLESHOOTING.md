@@ -72,5 +72,5 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Discodex uses Rust edition 2024 and requires Rust 1.85 or newer.
+Discodex uses Rust edition 2024 and requires Rust 1.89 or newer. GPUI release builds also require the Windows SDK shader compiler `fxc.exe` on `PATH`, or its full path in `GPUI_FXC_PATH`.
 

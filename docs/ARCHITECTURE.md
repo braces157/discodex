@@ -2,6 +2,14 @@
 
 Discodex is a small native Rust application with an event-driven worker and a Windows tray UI.
 
+## Native usage dashboard
+
+`src/dashboard.rs` renders a compact GPUI popup in a separate `--usage` process. The existing Win32 tray and presence worker retain their event loop. The tray launcher focuses an existing popup or starts one. A separate usage mutex prevents duplicate standalone popups. Closing the GPUI window leaves the tray running.
+
+`src/usage.rs` reads numeric Codex and Claude Code session metadata on a dedicated dashboard thread. It aggregates by exact provider, model, and reasoning effort. This reader is separate from transient presence state, which intentionally retains only recent activity. The scanner rebuilds from local logs and caches unchanged files in memory. It does not increment saved totals or retain history after source deletion.
+
+The UI consumes immutable snapshots through channels. Transcript scans and rate-file operations stay off the UI and presence workers. Period selection applies to timestamped usage contributions after cumulative reconciliation, and the selected contributions produce model totals and daily chart buckets. A bundled official price catalog supplies base-rate estimates, with exact custom provider/model overrides. See [Track model usage](USAGE.md) for accounting semantics, coverage, and pricing limitations.
+
 ## Data flow
 
 ```text

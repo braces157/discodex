@@ -85,8 +85,11 @@ No installer is required. Only one Discodex process runs per Windows session.
 Requirements:
 
 - Windows 10 or Windows 11
-- Rust 1.85 or newer
+- Rust 1.89 or newer
+- Windows SDK shader compiler `fxc.exe`, available on `PATH` or through `GPUI_FXC_PATH`
 - Discord Desktop for Rich Presence output
+
+If `where.exe fxc.exe` returns multiple paths, set `GPUI_FXC_PATH` to the full path of one compiler. GPUI 0.2.2 otherwise treats the combined paths as one executable.
 
 ```powershell
 git clone https://github.com/braces157/discodex.git
@@ -116,8 +119,13 @@ Right-click the Discodex tray icon to access:
 - **Share reasoning** opts in to publishing extracted reasoning headings. These headings can contain private text.
 - **Show project names** and **Show file names** control names in Discord, tray status, and presence logs.
 - **Diagnostics** opens a local snapshot of detected providers, session access, last activity, filesystem monitoring, and Discord connection state.
+- **Usage Dashboard** opens the GPUI popup for model usage and API cost estimates.
 - **Open Config** — edit the runtime TOML configuration.
 - **Exit** — stop Discodex and clear the current activity.
+
+## Usage dashboard
+
+Click the tray icon for a compact GPUI popup with Codex and Claude Code model usage, reasoning effort, tokens, task time, and automatic API price estimates. It includes time-period filters, charts, and model rows. Run `cargo run --release -- --usage` to open it independently of Discord presence. See [Track model usage](docs/USAGE.md) for pricing sources, coverage, custom rates, and Windows SDK build requirements.
 
 ## Configuration
 
