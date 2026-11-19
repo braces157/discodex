@@ -3,6 +3,7 @@
 # Claude default cache writes are 5 minutes. The 1-hour rate applies only to recorded TTL breakdowns.
 # Gemini and DeepSeek models have no separate cache-write fee in standard pricing.
 # Qwen standard international rates source: https://www.alibabacloud.com/help/en/model-studio/model-pricing
+# Qwen default cache writes use the standard 5-minute TTL rate when logs do not record TTL.
 # Context, speed/service-tier, time-of-day, region and unrecorded write premiums are excluded.
 # Snapshot aliases below were individually verified. Unknown IDs are never matched by prefix.
 checked_at = "2026-11-19"
@@ -449,6 +450,7 @@ model = "qwen4-max"
 input_per_million = 1.5
 cached_input_per_million = 0.075
 output_per_million = 4.5
+cache_write_per_million = 1.875
 
 [[rates]]
 provider = "qwen-code"

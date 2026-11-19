@@ -22,7 +22,7 @@ Task wall time uses matched task start and completion timestamps (for example in
 
 ## Automatic prices
 
-Discodex bundles an official rate catalog checked on November 19, 2026. Known exact OpenAI, Claude, Google Gemini, and DeepSeek model identifiers receive estimates automatically across harnesses. Unknown identifiers remain unpriced.
+Discodex bundles an official rate catalog checked on November 19, 2026. Known exact OpenAI, Claude, Google Gemini, DeepSeek, and Qwen model identifiers receive estimates automatically across harnesses when the required token categories (input, cached input, and output) are recorded. Unknown identifiers or records missing required token categories remain unpriced.
 
 Sources are [OpenAI API pricing](https://developers.openai.com/api/docs/pricing), [Claude API pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Gemini Developer API pricing](https://ai.google.dev/gemini-api/docs/pricing), and [DeepSeek API pricing](https://api-docs.deepseek.com/quick_start/pricing). The catalog retains its source URLs and verification date. It is a bundled snapshot, not a live network request on every refresh.
 

@@ -1,5 +1,5 @@
 use crate::provider::{Provider, SessionSource, SessionStore};
-use chrono::{Days, Local, NaiveDateTime, TimeZone};
+use chrono::{Days, Local, TimeZone};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -198,6 +198,12 @@ enum RecordKind {
         last: Option<TokenUsage>,
     },
     CodexBaseline(TokenUsage),
+    ClaudeUsage {
+        id: String,
+        request_id: Option<String>,
+        usage: TokenUsage,
+        write_1h: Option<u64>,
+    },
     MessageUsage {
         id: String,
         usage: TokenUsage,
@@ -209,6 +215,79 @@ enum RecordKind {
     Complete {
         id: String,
     },
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum ClaudeResponseId<'a> {
+    Request(&'a str, &'a str),
+    Session(&'a str, &'a str),
+}
+
+struct ClaudeResponse<'a> {
+    first: &'a Record,
+    revision: &'a Record,
+}
+
+impl<'a> ClaudeResponse<'a> {
+    fn observe(&mut self, record: &'a Record) {
+        if record.time > 0 && (self.first.time <= 0 || record.time < self.first.time) {
+            self.first = record;
+        }
+        let RecordKind::ClaudeUsage {
+            usage, write_1h, ..
+        } = &record.kind
+        else {
+            return;
+        };
+        let RecordKind::ClaudeUsage {
+            usage: previous,
+            write_1h: previous_write_1h,
+            ..
+        } = &self.revision.kind
+        else {
+            return;
+        };
+        let quality = |usage: TokenUsage, write_1h: Option<u64>| {
+            (
+                usage.any() && usage.valid(),
+                [
+                    usage.input_tokens,
+                    usage.cached_input_tokens,
+                    usage.cache_write_tokens,
+                    usage.output_tokens,
+                    usage.reasoning_tokens,
+                    write_1h,
+                ]
+                .iter()
+                .filter(|value| value.is_some())
+                .count(),
+            )
+        };
+        let current_quality = quality(*usage, *write_1h);
+        let previous_quality = quality(*previous, *previous_write_1h);
+        let order = current_quality.cmp(&previous_quality);
+        let replace = if current_quality.0 != previous_quality.0 {
+            current_quality.0
+        } else if usage.regresses(*previous) != previous.regresses(*usage) {
+            previous.regresses(*usage)
+        } else {
+            order.is_gt()
+                || (order.is_eq()
+                    && (record.time, record.sequence)
+                        > (self.revision.time, self.revision.sequence))
+        };
+        if replace {
+            self.revision = record;
+        }
+    }
+
+    fn canonical_record(self) -> Record {
+        Record {
+            session: self.first.session.clone(),
+            time: self.first.time,
+            ..self.revision.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -342,14 +421,39 @@ impl UsageScanner {
         }
         self.cache.retain(|key, _| retained.contains(key));
         let mut records = BTreeMap::<String, Vec<(&str, &Record)>>::new();
+        let mut claude = BTreeMap::<ClaudeResponseId<'_>, ClaudeResponse<'_>>::new();
         for ((provider, _), cached) in &self.cache {
             warnings.extend(cached.parsed.warnings.iter().cloned());
             for record in &cached.parsed.records {
+                if let RecordKind::ClaudeUsage { id, request_id, .. } = &record.kind {
+                    let identity = match request_id {
+                        Some(request) => ClaudeResponseId::Request(id, request),
+                        None => ClaudeResponseId::Session(&record.session, id),
+                    };
+                    claude
+                        .entry(identity)
+                        .or_insert(ClaudeResponse {
+                            first: record,
+                            revision: record,
+                        })
+                        .observe(record);
+                    continue;
+                }
                 records
                     .entry(format!("{provider}/{}", record.session))
                     .or_default()
                     .push((provider, record));
             }
+        }
+        let claude: Vec<Record> = claude
+            .into_values()
+            .map(ClaudeResponse::canonical_record)
+            .collect();
+        for record in &claude {
+            records
+                .entry(format!("claude-code/{}", record.session))
+                .or_default()
+                .push(("claude-code", record));
         }
         let (pricing_checked_at, rates) = load_rates(&self.rates_path, &mut warnings);
         let mut totals = Totals {
@@ -488,8 +592,15 @@ fn collect_source(
     entries: &mut usize,
     warnings: &mut BTreeSet<String>,
 ) {
-    if !source.root.exists() {
-        return;
+    match fs::metadata(&source.root) {
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return,
+        Err(_) => {
+            warnings.insert(format!(
+                "Some {provider} session roots could not be read; coverage may be incomplete."
+            ));
+            return;
+        }
     }
     if source.store == SessionStore::Sqlite {
         for db in crate::sources::databases(source.provider, &source.root) {
@@ -758,6 +869,34 @@ fn read_zstd_bytes(
     let mut offset = 0usize;
     while offset < compressed.len() {
         let remaining = &compressed[offset..];
+        if remaining.len() >= 4
+            && remaining[1..4] == [0x2a, 0x4d, 0x18]
+            && (0x50..=0x5f).contains(&remaining[0])
+        {
+            if remaining.len() < 8 {
+                warnings.insert(format!(
+                    "{provider} unfinished compressed frame was skipped; coverage may be incomplete."
+                ));
+                break;
+            }
+            let payload_len =
+                u32::from_le_bytes([remaining[4], remaining[5], remaining[6], remaining[7]])
+                    as usize;
+            let Some(frame_len) = 8usize.checked_add(payload_len) else {
+                warnings.insert(format!(
+                    "{provider} malformed compressed frame was skipped; coverage is incomplete."
+                ));
+                break;
+            };
+            if frame_len > remaining.len() {
+                warnings.insert(format!(
+                    "{provider} unfinished compressed frame was skipped; coverage may be incomplete."
+                ));
+                break;
+            }
+            offset += frame_len;
+            continue;
+        }
         if remaining.len() >= 4 && remaining[..4] != [0x28, 0xb5, 0x2f, 0xfd] {
             warnings.insert(format!(
                 "{provider} malformed compressed frame was skipped; coverage is incomplete."
@@ -1059,8 +1198,9 @@ fn parse_claude_file(path: &Path) -> io::Result<ParsedFile> {
                                 time,
                                 sequence,
                                 forked: false,
-                                kind: RecordKind::MessageUsage {
+                                kind: RecordKind::ClaudeUsage {
                                     id,
+                                    request_id: identity(&value["requestId"]),
                                     usage,
                                     write_1h,
                                 },
@@ -1466,12 +1606,14 @@ fn parse_qwen_file(path: &Path) -> io::Result<ParsedFile> {
                 let id = identity(&ui["response_id"])
                     .or_else(|| identity(&value["uuid"]))
                     .unwrap_or_else(|| format!("line:{sequence}"));
+                let thoughts = number(ui, "thoughts_token_count");
+                let raw_out = number(ui, "output_token_count");
                 let usage = TokenUsage {
                     input_tokens: number(ui, "input_token_count"),
                     cached_input_tokens: number(ui, "cached_content_token_count"),
                     cache_write_tokens: None,
-                    output_tokens: number(ui, "output_token_count"),
-                    reasoning_tokens: number(ui, "thoughts_token_count"),
+                    output_tokens: raw_out.and_then(|o| o.checked_add(thoughts.unwrap_or(0))),
+                    reasoning_tokens: thoughts,
                 };
                 telemetry.push(Record {
                     session: sess.clone(),
@@ -1507,12 +1649,14 @@ fn parse_qwen_file(path: &Path) -> io::Result<ParsedFile> {
                             128,
                         );
                     }
+                    let thoughts = number(um, "thoughtsTokenCount");
+                    let raw_out = number(um, "candidatesTokenCount");
                     let usage = TokenUsage {
                         input_tokens: number(um, "promptTokenCount"),
                         cached_input_tokens: number(um, "cachedContentTokenCount"),
                         cache_write_tokens: None,
-                        output_tokens: number(um, "candidatesTokenCount"),
-                        reasoning_tokens: number(um, "thoughtsTokenCount"),
+                        output_tokens: raw_out.and_then(|o| o.checked_add(thoughts.unwrap_or(0))),
+                        reasoning_tokens: thoughts,
                     };
                     fallback.push(Record {
                         session: sess.clone(),
@@ -1575,13 +1719,19 @@ fn parse_opencode_db(path: &Path, provider: &str) -> io::Result<ParsedFile> {
         let Ok(mut rows) = stmt.query([]) else {
             continue;
         };
-        while let Ok(Some(row)) = rows.next() {
+        while let Some(row) = rows
+            .next()
+            .map_err(|_| io::Error::other("sqlite row read failed"))?
+        {
             let Some(msg_id) = crate::sources::column_text_opt(row, "id")
                 .map(|s| s.trim().to_owned())
                 .filter(|s| !s.is_empty() && s.len() <= 256)
             else {
                 continue;
             };
+            if seen_ids.contains(&msg_id) {
+                continue;
+            }
             let Some(data_str) = crate::sources::column_text_opt(row, "data") else {
                 continue;
             };
@@ -1589,9 +1739,6 @@ fn parse_opencode_db(path: &Path, provider: &str) -> io::Result<ParsedFile> {
                 continue;
             };
             if !is_v2 && data["role"].as_str() != Some("assistant") {
-                continue;
-            }
-            if !seen_ids.insert(msg_id.clone()) {
                 continue;
             }
             let session_id = crate::sources::column_text_opt(row, "session_id")
@@ -1633,6 +1780,10 @@ fn parse_opencode_db(path: &Path, provider: &str) -> io::Result<ParsedFile> {
                 output_tokens: output,
                 reasoning_tokens: reasoning,
             };
+            if !usage.any() || !usage.valid() {
+                continue;
+            }
+            seen_ids.insert(msg_id.clone());
             let model = if is_v2 {
                 label(data.pointer("/model/id").unwrap_or(&Value::Null), 128)
             } else {
@@ -2204,10 +2355,13 @@ fn parse_cline_like_file(path: &Path, provider: &str) -> io::Result<ParsedFile> 
 fn zed_decode_snapshot(data_type: Option<&str>, data: &[u8]) -> Option<Value> {
     let kind = data_type.unwrap_or("").trim().to_ascii_lowercase();
     match kind.as_str() {
-        "json" => serde_json::from_slice(data).ok(),
+        "json" => (data.len() <= MAX_ZED_BLOB_BYTES)
+            .then(|| serde_json::from_slice(data).ok())
+            .flatten(),
         "zstd" => zed_decode_zstd(data),
-        "" => serde_json::from_slice(data)
-            .ok()
+        "" => (data.len() <= MAX_ZED_BLOB_BYTES)
+            .then(|| serde_json::from_slice(data).ok())
+            .flatten()
             .or_else(|| zed_decode_zstd(data)),
         _ => None,
     }
@@ -2275,7 +2429,10 @@ fn parse_zed_db(path: &Path) -> io::Result<ParsedFile> {
         return Ok(parsed);
     };
     let mut sequence = 0usize;
-    while let Ok(Some(row)) = rows.next() {
+    while let Some(row) = rows
+        .next()
+        .map_err(|_| io::Error::other("sqlite row read failed"))?
+    {
         let Some(session) = crate::sources::column_text_opt(row, "id")
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty() && s.len() <= 256)
@@ -2294,10 +2451,6 @@ fn parse_zed_db(path: &Path) -> io::Result<ParsedFile> {
         let Some(snapshot) = zed_decode_snapshot(data_type.as_deref(), data) else {
             continue;
         };
-        let time = crate::sources::column_text_opt(row, "updated_at")
-            .or_else(|| crate::sources::column_text_opt(row, "created_at"))
-            .and_then(|s| parse_flexible_timestamp(&s))
-            .unwrap_or(0);
         let model = zed_model_from_snapshot(&snapshot);
         if let Some(req_map) = snapshot
             .get("request_token_usage")
@@ -2309,6 +2462,11 @@ fn parse_zed_db(path: &Path) -> io::Result<ParsedFile> {
                 if !usage.any() {
                     continue;
                 }
+                let time = u
+                    .get("timestamp")
+                    .or_else(|| u.get("created_at"))
+                    .and_then(timestamp_ms)
+                    .unwrap_or(0);
                 let id = identity(&Value::String(msg_id.clone()))
                     .unwrap_or_else(|| format!("msg:{sequence}"));
                 sequence += 1;
@@ -2350,7 +2508,7 @@ fn parse_zed_db(path: &Path) -> io::Result<ParsedFile> {
                             model,
                             effort: String::new(),
                         },
-                        time,
+                        time: 0,
                         sequence,
                         forked: false,
                         kind: RecordKind::MessageUsage {
@@ -2372,19 +2530,29 @@ fn parse_crush_db(path: &Path) -> io::Result<ParsedFile> {
     let conn = crate::sources::open_database(path)
         .map_err(|_| io::Error::other("sqlite database open failed"))?;
     let mut parsed = ParsedFile::default();
-    let mut session_models = HashMap::<String, String>::new();
+    let mut session_models = HashMap::<String, Option<String>>::new();
     if let Ok(mut stmt) = conn
         .prepare("SELECT session_id, model FROM messages WHERE role = 'assistant' ORDER BY created_at ASC, rowid ASC")
         .or_else(|_| conn.prepare("SELECT session_id, model FROM messages WHERE role = 'assistant'"))
         && let Ok(mut rows) = stmt.query([])
     {
-        while let Ok(Some(row)) = rows.next() {
+        while let Some(row) = rows
+            .next()
+            .map_err(|_| io::Error::other("sqlite row read failed"))?
+        {
             if let Some(sid) = crate::sources::column_text_opt(row, "session_id")
                 && let Some(model) = crate::sources::column_text_opt(row, "model")
             {
                 let m = label(&Value::String(model), 128);
                 if !m.is_empty() {
-                    session_models.insert(sid, m);
+                    session_models
+                        .entry(sid)
+                        .and_modify(|existing| {
+                            if existing.as_deref() != Some(m.as_str()) {
+                                *existing = None;
+                            }
+                        })
+                        .or_insert(Some(m));
                 }
             }
         }
@@ -2396,7 +2564,10 @@ fn parse_crush_db(path: &Path) -> io::Result<ParsedFile> {
         return Ok(parsed);
     };
     let mut sequence = 0usize;
-    while let Ok(Some(row)) = rows.next() {
+    while let Some(row) = rows
+        .next()
+        .map_err(|_| io::Error::other("sqlite row read failed"))?
+    {
         let Some(session) = crate::sources::column_text_opt(row, "id")
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty() && s.len() <= 256)
@@ -2414,7 +2585,10 @@ fn parse_crush_db(path: &Path) -> io::Result<ParsedFile> {
             .or_else(|| crate::sources::column_text_opt(row, "created_at"))
             .and_then(|s| parse_flexible_timestamp(&s))
             .unwrap_or(0);
-        let model = session_models.get(&session).cloned().unwrap_or_default();
+        let model = session_models
+            .get(&session)
+            .and_then(|opt| opt.clone())
+            .unwrap_or_default();
         sequence += 1;
         if !push_record(
             &mut parsed,
@@ -2456,14 +2630,6 @@ fn fnv1a_64(bytes: &[u8]) -> u64 {
     hash
 }
 
-fn parse_aider_header_time(rest: &str) -> Option<i64> {
-    let naive = NaiveDateTime::parse_from_str(rest.trim(), "%Y-%m-%d %H:%M:%S").ok()?;
-    Local
-        .from_local_datetime(&naive)
-        .earliest()
-        .map(|dt| dt.timestamp_millis())
-}
-
 fn parse_aider_count(text: &str) -> Option<u64> {
     let cleaned = text.trim().replace(',', "");
     if cleaned.is_empty() {
@@ -2485,16 +2651,22 @@ fn parse_aider_count(text: &str) -> Option<u64> {
 
 fn parse_aider_tokens_line(rest: &str) -> Option<TokenUsage> {
     let prefix = rest.split(" Cost:").next().unwrap_or(rest);
+    if prefix.len() > 512 {
+        return None;
+    }
     let mut sent = None;
     let mut received = None;
     let mut cache_read = None;
     let mut cache_write = None;
     let mut current = String::new();
     for raw_part in prefix.split(',') {
-        if !current.is_empty() {
+        let part_trimmed = raw_part.trim();
+        if current.is_empty() {
+            current.push_str(part_trimmed);
+        } else {
             current.push(',');
+            current.push_str(part_trimmed);
         }
-        current.push_str(raw_part);
         let p = current.trim().trim_end_matches('.').trim();
         let lower = p.to_ascii_lowercase();
         if let Some(num) = lower.strip_suffix(" sent") {
@@ -2506,6 +2678,8 @@ fn parse_aider_tokens_line(rest: &str) -> Option<TokenUsage> {
         } else if let Some(num) = lower
             .strip_suffix(" cache reads")
             .or_else(|| lower.strip_suffix(" cache read"))
+            .or_else(|| lower.strip_suffix(" cache hits"))
+            .or_else(|| lower.strip_suffix(" cache hit"))
         {
             cache_read = parse_aider_count(num);
             current.clear();
@@ -2515,6 +2689,14 @@ fn parse_aider_tokens_line(rest: &str) -> Option<TokenUsage> {
         {
             cache_write = parse_aider_count(num);
             current.clear();
+        } else {
+            // Only keep `current` across a comma if it is a pure numeric thousands prefix (e.g. "5" before "244 sent").
+            let is_numeric_prefix = !p.is_empty()
+                && p.len() <= 24
+                && p.bytes().all(|b| b.is_ascii_digit() || b == b',');
+            if !is_numeric_prefix {
+                current.clear();
+            }
         }
     }
     if sent.is_none() && received.is_none() {
@@ -2556,16 +2738,12 @@ fn parse_aider_file(path: &Path) -> io::Result<ParsedFile> {
     let path_hash = fnv1a_64(path.to_string_lossy().as_bytes());
     let mut session_idx = 0usize;
     let mut session = format!("aider-{path_hash:016x}-0");
-    let mut time = 0i64;
     let mut model = String::new();
     for (idx, raw_line) in text.lines().enumerate() {
         let line = raw_line.trim_end();
-        if let Some(rest) = line.strip_prefix("# aider chat started at ")
-            && let Some(ts) = parse_aider_header_time(rest)
-        {
+        if line.starts_with("# aider chat started at ") {
             session_idx += 1;
             session = format!("aider-{path_hash:016x}-{session_idx}");
-            time = ts;
         } else if let Some(rest) = line.strip_prefix("> Main model: ") {
             if let Some(tok) = rest.split_whitespace().next() {
                 let m = label(&Value::String(tok.to_owned()), 128);
@@ -2586,7 +2764,7 @@ fn parse_aider_file(path: &Path) -> io::Result<ParsedFile> {
                         model: model.clone(),
                         effort: String::new(),
                     },
-                    time,
+                    time: 0,
                     sequence,
                     forked: false,
                     kind: RecordKind::MessageUsage {
@@ -2716,6 +2894,13 @@ fn aggregate_session(
             }
             RecordKind::CodexBaseline(total) => {
                 previous = Some(*total);
+            }
+            RecordKind::ClaudeUsage {
+                usage, write_1h, ..
+            } => {
+                add_usage(
+                    totals, provider, session, record, *usage, *write_1h, warnings,
+                );
             }
             RecordKind::MessageUsage {
                 id,
@@ -4064,7 +4249,7 @@ mod tests {
         assert_eq!(row.provider, "qwen-code");
         assert_eq!(row.input_tokens, Some(800));
         assert_eq!(row.cached_input_tokens, Some(300));
-        assert_eq!(row.output_tokens, Some(100));
+        assert_eq!(row.output_tokens, Some(115));
         assert_eq!(row.reasoning_tokens, Some(15));
         assert_eq!(row.requests, 2);
         assert_eq!(row.sessions, 2);
@@ -4133,7 +4318,8 @@ mod tests {
         assert_eq!(snap1.rows[0].requests, 1);
         assert!(snap1.rows[0].estimated_cost_usd.is_some());
 
-        // Write a new message without checkpointing WAL; cache must notice -wal changes.
+        // Write a new message without checkpointing WAL; cache must notice -wal changes while writer is open.
+        let main_meta_before = fs::metadata(&db_path).unwrap();
         let v2_more = json!({
             "time": {"created": 1_793_044_700_000i64},
             "model": {"id": "claude-sonnet-4-5", "variant": "medium"},
@@ -4144,10 +4330,12 @@ mod tests {
             rusqlite::params!["m-2", "ses-1", 1_793_044_700_000i64, v2_more.to_string()],
         )
         .unwrap();
-        drop(conn);
+        let main_meta_after = fs::metadata(&db_path).unwrap();
+        assert_eq!(main_meta_before.len(), main_meta_after.len());
         let snap2 = scanner.scan();
         assert_eq!(snap2.rows[0].requests, 2);
         assert_eq!(snap2.rows[0].input_tokens, Some(500));
+        drop(conn);
 
         // Kilo Code shares the same DB format.
         fs::copy(&db_path, f.0.join("kilo.db")).unwrap();
@@ -4384,6 +4572,204 @@ mod tests {
         assert!((gem_row.estimated_cost_usd.unwrap() - 10.0).abs() < 1e-12);
         assert_eq!(snap.daily_by_provider["opencode"].len(), 1);
         assert_eq!(snap.daily_by_provider["gemini-cli"].len(), 1);
+    }
+
+    #[test]
+    fn claude_without_request_ids_deduplicates_messages_only_within_a_session() {
+        let f = Fixture::new();
+        let first = claude("shared-message", 20);
+        let revision = claude("shared-message", 30);
+        let mut another_session = revision.clone();
+        another_session["sessionId"] = json!("another-session");
+        f.write("one.jsonl", &[first, revision]);
+        f.write("two.jsonl", &[another_session]);
+
+        let snapshot = f.scanner(Provider::ClaudeCode).scan();
+        assert_eq!(snapshot.rows[0].input_tokens, Some(700));
+        assert_eq!(snapshot.rows[0].output_tokens, Some(60));
+        assert_eq!(snapshot.rows[0].requests, 2);
+        assert_eq!(snapshot.rows[0].sessions, 2);
+    }
+
+    #[test]
+    fn copied_claude_response_uses_its_original_session_and_day_before_period_filtering() {
+        let f = Fixture::new();
+        let mut original = at_ms(claude("shared-message", 1), local_ms(2026, 1, 1, 12, 0));
+        original["requestId"] = json!("shared-request");
+        let mut copied = original.clone();
+        copied["sessionId"] = json!("resumed-session");
+        copied["timestamp"] = json!(local_ms(2026, 1, 2, 12, 0));
+        copied["message"]["usage"]["output_tokens"] = json!(30);
+        let original_session_only = at_ms(claude("other-message", 10), local_ms(2026, 1, 1, 13, 0));
+        f.write("original.jsonl", &[original, original_session_only]);
+        f.write("resumed.jsonl", &[copied]);
+
+        let mut scanner = f.scanner(Provider::ClaudeCode);
+        let all = scanner.scan();
+        assert_eq!(all.rows[0].input_tokens, Some(700));
+        assert_eq!(all.rows[0].output_tokens, Some(40));
+        assert_eq!(all.rows[0].requests, 2);
+        assert_eq!(all.rows[0].sessions, 1);
+        assert_eq!(all.daily.len(), 1);
+        assert_eq!(all.daily[0].date, "2026-01-01");
+        assert_eq!(all.daily[0].output_tokens, Some(40));
+        let today = scanner.scan_at(UsagePeriod::Today, local_ms(2026, 1, 2, 13, 0));
+        assert!(today.rows.is_empty());
+        assert!(today.daily.is_empty());
+    }
+
+    #[test]
+    fn claude_distinct_request_ids_with_same_message_id_and_invalid_revisions() {
+        let f = Fixture::new();
+        let mut req_a = claude("message-a", 30);
+        req_a["requestId"] = json!("request-a");
+        let mut req_a_invalid = req_a.clone();
+        req_a_invalid["timestamp"] = json!("2026-01-02T00:00:00Z");
+        req_a_invalid["message"]["usage"]["reasoning_output_tokens"] = json!(31);
+        let mut req_b = claude("message-a", 15);
+        req_b["requestId"] = json!("request-b");
+        f.write("one.jsonl", &[req_a, req_a_invalid, req_b]);
+
+        let snapshot = f.scanner(Provider::ClaudeCode).scan();
+        assert_eq!(snapshot.rows[0].output_tokens, Some(45));
+        assert_eq!(snapshot.rows[0].requests, 2);
+    }
+
+    #[test]
+    fn zstd_skippable_frame_resumes_decoding() {
+        let f = Fixture::new();
+        let mut bytes = Vec::new();
+        // Valid Zstandard skippable frame (magic 0x184D2A50 + 4-byte payload).
+        bytes.extend_from_slice(&[0x50, 0x2a, 0x4d, 0x18]);
+        bytes.extend_from_slice(&4u32.to_le_bytes());
+        bytes.extend_from_slice(b"meta");
+        let payload = format!(
+            "{}\n{}\n{}\n",
+            meta(),
+            context("gpt-5.4", "medium"),
+            total("2026-10-30T10:00:00Z", 1000, 100)
+        );
+        let data_frame = zstd::stream::encode_all(payload.as_bytes(), 0).unwrap();
+        bytes.extend_from_slice(&data_frame);
+        let path = f.0.join("skippable.jsonl.zst");
+        fs::write(&path, bytes).unwrap();
+
+        let snap = f.scanner(Provider::Codex).scan();
+        assert_eq!(snap.rows.len(), 1);
+        assert_eq!(snap.rows[0].input_tokens, Some(1000));
+        assert!(!snap.warnings.iter().any(|w| w.contains("compressed frame")));
+    }
+
+    #[test]
+    fn opencode_zero_v2_falls_back_to_usable_v1_and_qwen4_max_cache_write_prices() {
+        let f = Fixture::new();
+        let db_path = f.0.join("opencode.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, type TEXT, time_created INTEGER, data TEXT);
+             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);",
+        )
+        .unwrap();
+        let zero_v2 = json!({
+            "time": {"created": 1_793_044_661_000i64},
+            "model": {"id": "qwen4-max"},
+            "tokens": {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}}
+        });
+        let usable_v1 = json!({
+            "role": "assistant",
+            "time": {"created": 1_793_044_661_000i64},
+            "modelID": "qwen4-max",
+            "tokens": {"input": 100, "output": 50, "reasoning": 0, "cache": {"read": 200, "write": 100}}
+        });
+        conn.execute(
+            "INSERT INTO session_message VALUES ('m-1', 's-1', 'assistant', 1793044661000, ?1)",
+            rusqlite::params![zero_v2.to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO message VALUES ('m-1', 's-1', 1793044661000, ?1)",
+            rusqlite::params![usable_v1.to_string()],
+        )
+        .unwrap();
+        drop(conn);
+
+        let snap = f
+            .scanner_store(Provider::OpenCode, SessionStore::Sqlite)
+            .scan();
+        assert_eq!(snap.rows.len(), 1);
+        assert_eq!(snap.rows[0].input_tokens, Some(400));
+        assert_eq!(snap.rows[0].cache_write_tokens, Some(100));
+        assert!(snap.rows[0].estimated_cost_usd.is_some());
+    }
+
+    #[test]
+    fn crush_mixed_models_and_zed_undated_and_aider_cache_hit_and_overlong_lines() {
+        // Crush multi-model session leaves model unknown rather than attributing all tokens to the last model.
+        let f_crush = Fixture::new();
+        let crush_db = f_crush.0.join("crush.db");
+        let cconn = rusqlite::Connection::open(&crush_db).unwrap();
+        cconn
+            .execute_batch(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at INTEGER, updated_at INTEGER, prompt_tokens INTEGER, completion_tokens INTEGER);
+                 CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, model TEXT, created_at INTEGER);
+                 INSERT INTO sessions VALUES ('c1', 1789189700, 1789189720, 420, 80);
+                 INSERT INTO messages VALUES ('m1', 'c1', 'assistant', 'gpt-5.4', 1789189710);
+                 INSERT INTO messages VALUES ('m2', 'c1', 'assistant', 'claude-sonnet-4-5', 1789189715);",
+            )
+            .unwrap();
+        drop(cconn);
+        let crush_snap = f_crush
+            .scanner_store(Provider::Crush, SessionStore::Sqlite)
+            .scan();
+        assert_eq!(crush_snap.rows.len(), 1);
+        assert_eq!(crush_snap.rows[0].model, "");
+
+        // Zed request_token_usage without per-request timestamps stays in All totals without distorting daily charts.
+        let f_zed = Fixture::new();
+        let zed_db = f_zed.0.join("threads.db");
+        let zconn = rusqlite::Connection::open(&zed_db).unwrap();
+        zconn
+            .execute_batch(
+                "CREATE TABLE threads (id TEXT PRIMARY KEY, updated_at TEXT, created_at TEXT, data_type TEXT, data BLOB);",
+            )
+            .unwrap();
+        let zed_blob = json!({
+            "model": {"model": "claude-sonnet-4-5"},
+            "request_token_usage": {
+                "msg-1": {"input_tokens": 50, "output_tokens": 25, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+            }
+        });
+        zconn
+            .execute(
+                "INSERT INTO threads VALUES ('th-1', '2026-10-21T07:12:33Z', '2026-10-20T07:12:00Z', 'json', ?1)",
+                rusqlite::params![zed_blob.to_string()],
+            )
+            .unwrap();
+        drop(zconn);
+        let zed_snap = f_zed
+            .scanner_store(Provider::Zed, SessionStore::Sqlite)
+            .scan();
+        assert_eq!(zed_snap.rows.len(), 1);
+        assert!(zed_snap.daily.is_empty());
+
+        // Aider: cache hit before received, overlong malformed line ignored, and undated (daily empty).
+        let f_aider = Fixture::new();
+        let malformed = format!("> Tokens: {}\n", "foo,".repeat(200));
+        f_aider.write_text(
+            "repo/.aider.chat.history.md",
+            &format!(
+                "# aider chat started at 2026-10-21 08:13:45\n\
+                 > Main model: gpt-5.4\n\
+                 > Tokens: 100 sent, 20 cache hit, 5 received.\n\
+                 {malformed}"
+            ),
+        );
+        let aider_snap = f_aider.scanner(Provider::Aider).scan();
+        assert_eq!(aider_snap.rows.len(), 1);
+        assert_eq!(aider_snap.rows[0].input_tokens, Some(100));
+        assert_eq!(aider_snap.rows[0].cached_input_tokens, Some(20));
+        assert_eq!(aider_snap.rows[0].output_tokens, Some(5));
+        assert!(aider_snap.daily.is_empty());
     }
 
     #[test]

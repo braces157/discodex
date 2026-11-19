@@ -602,6 +602,7 @@ impl Dashboard {
             Action::Close => cx.quit(),
             Action::Info => self.info_open = !self.info_open,
             Action::Rates => {
+                self.pinned = true;
                 if let Some(worker) = &self.worker {
                     worker.edit_rates();
                 }
