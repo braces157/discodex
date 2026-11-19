@@ -124,7 +124,7 @@ Right-click the Discodex tray icon to access:
 - **Restart** — cleanly restart Discodex.
 - **Exit** — stop Discodex and clear the current activity.
 
-From a terminal, you can also run `discodex --quit` (or `--stop`), `discodex --restart` (or `--replace`), or manage installation, Start Menu / `PATH` setup, and local deploys with `tools/discodex.ps1` (`start | stop | restart | status | deploy | install`).
+From a terminal, you can also run `discodex --quit` (or `--stop`), `discodex --restart` (or `--replace`), or manage the app with `tools/discodex.ps1` (`start | stop | restart | status`, `deploy` to build and install from a checkout, and `install` to configure Start Menu and `PATH` integration for a binary already present in the install directory).
 
 ## Usage dashboard
 

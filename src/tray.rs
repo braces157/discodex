@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     sync::{Arc, Mutex, OnceLock, mpsc::Sender},
+    time::{Duration, Instant},
 };
 
 use windows::{
@@ -10,7 +11,10 @@ use windows::{
         },
         System::{
             LibraryLoader::GetModuleHandleW,
-            Threading::{INFINITE, OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
+            Threading::{
+                CreateEventW, INFINITE, OpenProcess, PROCESS_SYNCHRONIZE, SetEvent,
+                WaitForSingleObject,
+            },
         },
         UI::{
             HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext},
@@ -98,14 +102,85 @@ thread_local! {
     static TRAY_WINDOW: RefCell<Option<TrayWindowState>> = const { RefCell::new(None) };
 }
 
-pub fn request_running_instance_exit(timeout: std::time::Duration) -> bool {
-    if crate::instance::signal_quit_and_wait(timeout) {
-        return true;
+pub fn request_running_instance_exit(timeout: Duration) -> crate::instance::QuitOutcome {
+    use crate::instance::{QuitOutcome, is_running, read_tray_pid, signal_pid_quit_and_wait};
+
+    if !is_running() {
+        return QuitOutcome::NotRunning;
     }
-    request_window_exit(TRAY_WINDOW_CLASS, TRAY_WINDOW_TITLE, timeout)
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        if !is_running() {
+            return QuitOutcome::Stopped;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+
+        if let Some(pid) = read_tray_pid()
+            && let Some(stopped) = signal_pid_quit_and_wait(pid, remaining)
+        {
+            return if stopped {
+                QuitOutcome::Stopped
+            } else {
+                QuitOutcome::TimedOut
+            };
+        }
+
+        if let Some(window_pid) = find_window_pid(TRAY_WINDOW_CLASS, TRAY_WINDOW_TITLE) {
+            if let Some(stopped) = signal_pid_quit_and_wait(window_pid, remaining) {
+                return if stopped {
+                    QuitOutcome::Stopped
+                } else {
+                    QuitOutcome::TimedOut
+                };
+            }
+            // Fallback only for legacy instances without a per-PID quit event.
+            return if request_window_exit_for_pid(
+                TRAY_WINDOW_CLASS,
+                TRAY_WINDOW_TITLE,
+                Some(window_pid),
+                remaining,
+            ) {
+                QuitOutcome::Stopped
+            } else {
+                QuitOutcome::TimedOut
+            };
+        }
+
+        if Instant::now() >= deadline {
+            return QuitOutcome::TimedOut;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
-fn request_window_exit(class_name: PCWSTR, title: PCWSTR, timeout: std::time::Duration) -> bool {
+fn find_window_pid(class_name: PCWSTR, title: PCWSTR) -> Option<u32> {
+    unsafe {
+        let hwnd = FindWindowW(class_name, title).ok()?;
+        if hwnd.is_invalid() {
+            return None;
+        }
+        let mut pid = 0_u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid != 0 && pid != std::process::id() {
+            Some(pid)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+fn request_window_exit(class_name: PCWSTR, title: PCWSTR, timeout: Duration) -> bool {
+    request_window_exit_for_pid(class_name, title, None, timeout)
+}
+
+fn request_window_exit_for_pid(
+    class_name: PCWSTR,
+    title: PCWSTR,
+    expected_pid: Option<u32>,
+    timeout: Duration,
+) -> bool {
     unsafe {
         let Ok(hwnd) = FindWindowW(class_name, title) else {
             return false;
@@ -116,6 +191,11 @@ fn request_window_exit(class_name: PCWSTR, title: PCWSTR, timeout: std::time::Du
 
         let mut pid = 0_u32;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if let Some(expected) = expected_pid
+            && pid != expected
+        {
+            return false;
+        }
         let process = if pid != 0 && pid != std::process::id() {
             OpenProcess(PROCESS_SYNCHRONIZE, false, pid).ok()
         } else {
@@ -238,7 +318,17 @@ pub fn run(
         });
         re_add_tray_icon(hwnd, false);
 
+        let ready_wide = crate::instance::tray_ready_event_name_for_pid(std::process::id());
+        let ready_event = CreateEventW(None, true, true, PCWSTR(ready_wide.as_ptr())).ok();
+        if let Some(ev) = ready_event {
+            let _ = SetEvent(ev);
+        }
+
         run_message_loop(quit_event);
+
+        if let Some(ev) = ready_event {
+            let _ = CloseHandle(ev);
+        }
 
         let state = TRAY_WINDOW.with(|cell| cell.borrow_mut().take());
         let _ = KillTimer(Some(hwnd), RETRY_TIMER_ID);
@@ -570,9 +660,8 @@ fn copy_wide<const N: usize>(target: &mut [u16; N], value: &str) {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use windows::Win32::{
-        System::Threading::{CreateEventW, SetEvent},
-        UI::WindowsAndMessaging::{GetMessageW, SendNotifyMessageW, UnregisterClassW},
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetMessageW, SendMessageW, SendNotifyMessageW, UnregisterClassW,
     };
 
     use super::*;
@@ -690,10 +779,25 @@ mod tests {
 
         CALLS.store(0, Ordering::SeqCst);
         let final_added = run_tray_window_test(true, mock_add_icon, |hwnd, taskbar_msg| unsafe {
-            SendNotifyMessageW(hwnd, taskbar_msg, WPARAM(0), LPARAM(0)).unwrap();
-            PostMessageW(Some(hwnd), WM_TIMER, WPARAM(99), LPARAM(0)).unwrap();
-            PostMessageW(Some(hwnd), WM_TIMER, WPARAM(RETRY_TIMER_ID), LPARAM(0)).unwrap();
-            PostMessageW(Some(hwnd), WM_TIMER, WPARAM(RETRY_TIMER_ID), LPARAM(0)).unwrap();
+            assert_eq!(CALLS.load(Ordering::SeqCst), 0);
+            SendMessageW(hwnd, taskbar_msg, Some(WPARAM(0)), Some(LPARAM(0)));
+            assert_eq!(CALLS.load(Ordering::SeqCst), 1);
+            SendMessageW(hwnd, WM_TIMER, Some(WPARAM(99)), Some(LPARAM(0)));
+            assert_eq!(CALLS.load(Ordering::SeqCst), 1);
+            SendMessageW(
+                hwnd,
+                WM_TIMER,
+                Some(WPARAM(RETRY_TIMER_ID)),
+                Some(LPARAM(0)),
+            );
+            assert_eq!(CALLS.load(Ordering::SeqCst), 2);
+            SendMessageW(
+                hwnd,
+                WM_TIMER,
+                Some(WPARAM(RETRY_TIMER_ID)),
+                Some(LPARAM(0)),
+            );
+            assert_eq!(CALLS.load(Ordering::SeqCst), 2);
         });
 
         assert_eq!(CALLS.load(Ordering::SeqCst), 2);

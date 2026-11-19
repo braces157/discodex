@@ -1032,21 +1032,49 @@ fn extract_reasoning_from_value(val: &Value) -> Option<String> {
     }
 }
 
+fn strip_user_request_blocks(content: &str) -> (String, bool) {
+    const REQ_OPEN: &str = "<USER_REQUEST>";
+    const REQ_CLOSE: &str = "</USER_REQUEST>";
+
+    let mut out = String::with_capacity(content.len());
+    let mut cursor = 0;
+    let mut saw_request = false;
+    while let Some(rel_start) = content[cursor..].find(REQ_OPEN) {
+        saw_request = true;
+        let req_start = cursor + rel_start;
+        out.push_str(&content[cursor..req_start]);
+        let body_start = req_start + REQ_OPEN.len();
+        if let Some(rel_end) = content[body_start..].find(REQ_CLOSE) {
+            cursor = body_start + rel_end + REQ_CLOSE.len();
+        } else {
+            cursor = content.len();
+            break;
+        }
+    }
+    if cursor < content.len() {
+        out.push_str(&content[cursor..]);
+    }
+    (out, saw_request)
+}
+
 fn extract_model_selection(content: &str) -> Option<String> {
     const OPEN_TAG: &str = "<USER_SETTINGS_CHANGE>";
     const CLOSE_TAG: &str = "</USER_SETTINGS_CHANGE>";
 
-    if content.contains(OPEN_TAG) {
+    let (outside_request, had_request) = strip_user_request_blocks(content);
+    let scope = outside_request.as_str();
+
+    if scope.contains(OPEN_TAG) {
         let mut cursor = 0;
         let mut latest = None;
-        while let Some(rel_start) = content[cursor..].find(OPEN_TAG) {
+        while let Some(rel_start) = scope[cursor..].find(OPEN_TAG) {
             let block_start = cursor + rel_start + OPEN_TAG.len();
-            let (block, next_cursor) = match content[block_start..].find(CLOSE_TAG) {
+            let (block, next_cursor) = match scope[block_start..].find(CLOSE_TAG) {
                 Some(rel_end) => (
-                    &content[block_start..block_start + rel_end],
+                    &scope[block_start..block_start + rel_end],
                     block_start + rel_end + CLOSE_TAG.len(),
                 ),
-                None => (&content[block_start..], content.len()),
+                None => (&scope[block_start..], scope.len()),
             };
             if let Some(model) = extract_model_selection_from_slice(block) {
                 latest = Some(model);
@@ -1056,11 +1084,11 @@ fn extract_model_selection(content: &str) -> Option<String> {
         return latest;
     }
 
-    if content.contains("<USER_REQUEST>") {
+    if had_request {
         return None;
     }
 
-    extract_model_selection_from_slice(content)
+    extract_model_selection_from_slice(scope)
 }
 
 fn extract_model_selection_from_slice(scope: &str) -> Option<String> {
@@ -1784,7 +1812,7 @@ mod tests {
             "type": "USER_INPUT",
             "status": "DONE",
             "created_at": "2026-11-19T07:30:12Z",
-            "content": "<USER_REQUEST>\nThe user changed setting `Model Selection` from None to FakeModel (Neon).\n</USER_REQUEST>"
+            "content": "<USER_REQUEST>\nThe user changed setting `Model Selection` from None to FakeModel (Neon).\n<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to FakeTagModel (Neon).\n</USER_SETTINGS_CHANGE>\n</USER_REQUEST>"
         })
         .to_string();
         let events = parse_line_for(Provider::Antigravity, &spoofed);
@@ -1794,6 +1822,23 @@ mod tests {
                 .any(|e| matches!(e, ParsedEvent::AgentDetected { .. })),
             "prompt text must not spoof AgentDetected: {events:?}"
         );
+
+        let quoted_plus_real = serde_json::json!({
+            "step_index": 0,
+            "source": "USER_EXPLICIT",
+            "type": "USER_INPUT",
+            "status": "DONE",
+            "created_at": "2026-11-19T07:30:12Z",
+            "content": "<USER_REQUEST>\n<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to FakeQuotedModel (Neon).\n</USER_SETTINGS_CHANGE>\n</USER_REQUEST>\n<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Orchestrator (Neon).\n</USER_SETTINGS_CHANGE>"
+        })
+        .to_string();
+        let events = parse_line_for(Provider::Antigravity, &quoted_plus_real);
+        assert!(events.contains(&ParsedEvent::AgentDetected {
+            agent: "Orchestrator (Neon)".to_string(),
+        }));
+        assert!(!events.contains(&ParsedEvent::AgentDetected {
+            agent: "FakeQuotedModel (Neon)".to_string(),
+        }));
     }
 
     #[test]

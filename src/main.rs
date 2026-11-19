@@ -83,26 +83,31 @@ fn log_line(msg: &str) {
     }
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     std::panic::set_hook(Box::new(|info| {
         log_line(&format!("PANIC OCCURRED: {:?}", info));
     }));
     log_line("main() started");
-    if let Err(error) = run() {
-        log_line(&format!("run() error: {error}"));
-        let message = format!("Discodex could not start:\n\n{error}\0");
-        let wide: Vec<u16> = message.encode_utf16().collect();
-        let title: Vec<u16> = "Discodex\0".encode_utf16().collect();
-        unsafe {
-            let _ = windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
-                None,
-                windows::core::PCWSTR(wide.as_ptr()),
-                windows::core::PCWSTR(title.as_ptr()),
-                windows::Win32::UI::WindowsAndMessaging::MB_ICONERROR,
-            );
+    let code = match run() {
+        Ok(code) => code,
+        Err(error) => {
+            log_line(&format!("run() error: {error}"));
+            let message = format!("Discodex could not start:\n\n{error}\0");
+            let wide: Vec<u16> = message.encode_utf16().collect();
+            let title: Vec<u16> = "Discodex\0".encode_utf16().collect();
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
+                    None,
+                    windows::core::PCWSTR(wide.as_ptr()),
+                    windows::core::PCWSTR(title.as_ptr()),
+                    windows::Win32::UI::WindowsAndMessaging::MB_ICONERROR,
+                );
+            }
+            std::process::ExitCode::FAILURE
         }
-    }
+    };
     log_line("main() finished");
+    code
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,8 +145,8 @@ fn acquire_single_instance(
     replace: bool,
 ) -> Result<Option<instance::SingleInstance>, Box<dyn std::error::Error>> {
     if replace {
-        let closed = tray::request_running_instance_exit(std::time::Duration::from_secs(5));
-        log_line(&format!("replace requested existing exit: {closed}"));
+        let outcome = tray::request_running_instance_exit(std::time::Duration::from_secs(5));
+        log_line(&format!("replace requested existing exit: {outcome:?}"));
     }
 
     for attempt in 0..=20 {
@@ -162,10 +167,13 @@ fn acquire_single_instance(
     Ok(None)
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     let action = parse_cli_action(std::env::args().skip(1));
     match action {
-        CliAction::Usage => return dashboard::run_standalone(),
+        CliAction::Usage => {
+            dashboard::run_standalone()?;
+            return Ok(std::process::ExitCode::SUCCESS);
+        }
         CliAction::Diagnostics => {
             use windows::Win32::System::Console::{
                 ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE,
@@ -198,13 +206,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             .render();
             println!("{report}");
-            return Ok(());
+            return Ok(std::process::ExitCode::SUCCESS);
         }
         CliAction::Quit => {
             log_line("quit requested via CLI");
-            let closed = tray::request_running_instance_exit(std::time::Duration::from_secs(5));
-            log_line(&format!("quit request completed: closed={closed}"));
-            return Ok(());
+            let outcome = tray::request_running_instance_exit(std::time::Duration::from_secs(5));
+            log_line(&format!("quit request completed: outcome={outcome:?}"));
+            return Ok(match outcome {
+                instance::QuitOutcome::NotRunning | instance::QuitOutcome::Stopped => {
+                    std::process::ExitCode::SUCCESS
+                }
+                instance::QuitOutcome::TimedOut => std::process::ExitCode::FAILURE,
+            });
         }
         CliAction::Run { .. } => {}
     }
@@ -213,7 +226,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     log_line("run() started, acquiring single instance...");
     let Some(_single_instance) = acquire_single_instance(replace)? else {
         log_line("single instance mutex already locked! exiting.");
-        return Ok(());
+        return Ok(std::process::ExitCode::SUCCESS);
     };
     log_line("single instance acquired.");
 
@@ -267,7 +280,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             log_line(&format!("could not spawn restarted instance: {error}"));
         }
     }
-    Ok(())
+    Ok(std::process::ExitCode::SUCCESS)
 }
 
 fn sync_start_with_windows(enabled: bool) {

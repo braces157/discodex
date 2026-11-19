@@ -144,7 +144,7 @@ impl Ingestion {
                 );
                 if source.provider == Provider::Antigravity
                     && count > 0
-                    && !activity.has_project(path)
+                    && !activity.has_direct_project(path)
                     && !self.antigravity_workspace_checked.contains(path)
                 {
                     match lookup_antigravity_workspace(path) {
@@ -307,26 +307,36 @@ fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
 fn extract_antigravity_db_and_id(path: &Path) -> Option<(PathBuf, String)> {
     use std::path::Component;
 
-    let mut root = PathBuf::new();
-    let mut components = path.components();
-    while let Some(component) = components.next() {
-        if let Component::Normal(segment) = component
-            && segment.to_string_lossy().eq_ignore_ascii_case("brain")
-        {
-            if root.as_os_str().is_empty() {
-                return None;
-            }
-            let Some(Component::Normal(id_os)) = components.next() else {
-                return None;
-            };
-            let id = id_os.to_str()?;
-            if id.is_empty() || id.starts_with('.') {
-                return None;
-            }
-            let db_path = strip_verbatim_prefix(root.join("conversation_summaries.db"));
-            return Some((db_path, id.to_string()));
+    let components: Vec<Component<'_>> = path.components().collect();
+    for i in (1..components.len()).rev() {
+        let Component::Normal(seg) = components[i] else {
+            continue;
+        };
+        if !seg.to_string_lossy().eq_ignore_ascii_case("brain") {
+            continue;
         }
-        root.push(component);
+        let Component::Normal(parent) = components[i - 1] else {
+            continue;
+        };
+        if !parent.to_string_lossy().eq_ignore_ascii_case("antigravity") {
+            continue;
+        }
+        let Some(Component::Normal(id_os)) = components.get(i + 1) else {
+            continue;
+        };
+        let id = id_os.to_str()?;
+        if id.is_empty() || id.starts_with('.') {
+            return None;
+        }
+        let mut root = PathBuf::new();
+        for component in &components[..i] {
+            root.push(component);
+        }
+        if root.as_os_str().is_empty() {
+            return None;
+        }
+        let db_path = strip_verbatim_prefix(root.join("conversation_summaries.db"));
+        return Some((db_path, id.to_string()));
     }
     None
 }
@@ -465,6 +475,28 @@ mod tests {
 
         let hidden = Path::new(r"C:\Users\PC\.gemini\antigravity\brain\.hidden\transcript.jsonl");
         assert_eq!(extract_antigravity_db_and_id(hidden), None);
+
+        let account_named_brain = Path::new(
+            r"C:\Users\brain\.gemini\antigravity\brain\conv-123\.system_generated\logs\transcript.jsonl",
+        );
+        assert_eq!(
+            extract_antigravity_db_and_id(account_named_brain),
+            Some((
+                PathBuf::from(r"C:\Users\brain\.gemini\antigravity\conversation_summaries.db"),
+                "conv-123".to_string(),
+            ))
+        );
+
+        let verbatim_account_brain = Path::new(
+            r"\\?\C:\Users\brain\.gemini\antigravity\brain\conv-123\.system_generated\logs\transcript.jsonl",
+        );
+        assert_eq!(
+            extract_antigravity_db_and_id(verbatim_account_brain),
+            Some((
+                PathBuf::from(r"C:\Users\brain\.gemini\antigravity\conversation_summaries.db"),
+                "conv-123".to_string(),
+            ))
+        );
     }
 
     #[test]
@@ -595,6 +627,94 @@ mod tests {
                 .antigravity_workspace_checked
                 .contains(&transcript)
         );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn antigravity_replaces_inherited_project_with_own_summary_workspace() {
+        let root = std::env::temp_dir().join(format!(
+            "discodex-ingestion-agy-inherit-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let agy_root = root.join("antigravity");
+        let conv_a = "conv-a";
+        let conv_b = "conv-b";
+        let dir_a = agy_root
+            .join("brain")
+            .join(conv_a)
+            .join(".system_generated")
+            .join("logs");
+        let dir_b = agy_root
+            .join("brain")
+            .join(conv_b)
+            .join(".system_generated")
+            .join("logs");
+        std::fs::create_dir_all(&dir_a).unwrap();
+        std::fs::create_dir_all(&dir_b).unwrap();
+
+        let db_path = agy_root.join("conversation_summaries.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute(
+            "CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, workspace_uris TEXT NOT NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO conversation_summaries (conversation_id, workspace_uris) VALUES (?1, ?2)",
+            rusqlite::params![conv_b, r#"["file:///Z:/nonexistent/ProjectB"]"#],
+        )
+        .unwrap();
+        drop(conn);
+
+        let transcript_b = dir_b.join("transcript.jsonl");
+        let b_start = serde_json::json!({
+            "step_index": 0,
+            "source": "USER_EXPLICIT",
+            "type": "USER_INPUT",
+            "status": "DONE",
+            "created_at": "2026-11-19T07:30:10Z",
+            "content": "<USER_REQUEST>\nhi\n</USER_REQUEST>"
+        })
+        .to_string();
+        std::fs::write(&transcript_b, format!("{b_start}\n")).unwrap();
+
+        let mut ingestion = Ingestion::new(vec![SessionSource {
+            provider: Provider::Antigravity,
+            root: agy_root.join("brain"),
+            store: SessionStore::LogFiles,
+        }]);
+        let mut activity = ActivityState::default();
+
+        // Seed transcript B before DB row is visible or with an inherited project from A.
+        activity.apply(
+            &transcript_b,
+            Provider::Antigravity,
+            events::ParsedEvent::TaskStarted {
+                started_at_ms: 1_000,
+            },
+            1_000,
+        );
+        let transcript_a = dir_a.join("transcript.jsonl");
+        activity.apply(
+            &transcript_a,
+            Provider::Antigravity,
+            events::ParsedEvent::SessionMetadata {
+                project: "ProjectA".to_string(),
+                cwd: r"Z:\nonexistent\ProjectA".to_string(),
+            },
+            1_000,
+        );
+        // Transcript B temporarily inherited ProjectA from A.
+        assert_eq!(activity.selected_presence().unwrap().project, "ProjectA");
+        assert!(!activity.has_direct_project(&transcript_b));
+
+        // Now B receives a log line and resolves its own workspace ProjectB from the DB.
+        ingestion.handle_path(&mut activity, &transcript_b);
+        let presence = activity.selected_presence().unwrap();
+        assert_eq!(presence.project, "ProjectB");
+        assert!(activity.has_direct_project(&transcript_b));
 
         std::fs::remove_dir_all(root).unwrap();
     }

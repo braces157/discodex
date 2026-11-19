@@ -1088,22 +1088,17 @@ impl Dashboard {
 
     fn telemetry_strip(&self, rows: &[UsageRow]) -> impl IntoElement {
         let calls = compact(rows.iter().map(|r| r.requests).fold(0, u64::saturating_add));
-        let input = sum_field(rows, |r| r.input_tokens);
-        let cached = sum_field(rows, |r| r.cached_input_tokens);
-        let partial_cache = cached.1 || input.1;
-        let (cache_text, cache_color) = match (cached.0, input.0) {
-            (Some(c), Some(i)) if i > 0 => {
-                let pct = c as f64 / i as f64 * 100.;
-                (
-                    format!("{:.0}%{}", pct, if partial_cache { "*" } else { "" }),
-                    if pct >= 50. {
-                        ACCENT_LIME
-                    } else {
-                        TEXT_PRIMARY
-                    },
-                )
-            }
-            _ => ("—".into(), TEXT_MUTED),
+        let (cache_pct, partial_cache) = cache_hit_ratio(rows);
+        let (cache_text, cache_color) = match cache_pct {
+            Some(pct) => (
+                format!("{:.0}%{}", pct, if partial_cache { "*" } else { "" }),
+                if pct >= 50. {
+                    ACCENT_LIME
+                } else {
+                    TEXT_PRIMARY
+                },
+            ),
+            None => ("—".into(), TEXT_MUTED),
         };
 
         let task_time_raw = sum_field(rows, |r| r.task_time_ms);
@@ -2055,9 +2050,9 @@ impl Render for Dashboard {
                                 this.child(self.telemetry_strip(&rows))
                                     .child(self.chart(cx))
                                     .child(self.models_section(&rows, cx))
-                                    .when(!warnings.is_empty(), |inner| {
-                                        inner.child(self.notice_pill(&warnings, cx))
-                                    })
+                            })
+                            .when(!is_loading && !warnings.is_empty(), |this| {
+                                this.child(self.notice_pill(&warnings, cx))
                             })
                             .when_some(self.rates_message.clone(), |this, message| {
                                 this.child(
@@ -2133,6 +2128,26 @@ fn token_composition(rows: &[UsageRow]) -> Option<(f32, f32, f32)> {
         cached as f32 / denom,
         output as f32 / denom,
     ))
+}
+
+fn cache_hit_ratio(rows: &[UsageRow]) -> (Option<f64>, bool) {
+    let mut cached_total = 0u64;
+    let mut input_total = 0u64;
+    let mut matched = 0usize;
+    for row in rows {
+        if let (Some(cached), Some(input)) = (row.cached_input_tokens, row.input_tokens) {
+            cached_total = cached_total.saturating_add(cached);
+            input_total = input_total.saturating_add(input);
+            matched += 1;
+        }
+    }
+    let partial = matched < rows.len();
+    let ratio = if matched > 0 && input_total > 0 {
+        Some(cached_total as f64 / input_total as f64 * 100.)
+    } else {
+        None
+    };
+    (ratio, partial)
 }
 
 fn sum_field<T>(rows: &[T], field: impl Fn(&T) -> Option<u64>) -> (Option<u64>, bool) {
@@ -2382,5 +2397,45 @@ mod tests {
         assert_eq!(share_ratio(0, 0), 0.0);
         assert_eq!(share_ratio(50, 200), 0.25);
         assert_eq!(share_ratio(300, 200), 1.0);
+    }
+
+    #[test]
+    fn cache_hit_ratio_sums_only_rows_with_both_values_present() {
+        let rows = vec![
+            UsageRow {
+                input_tokens: Some(100),
+                cached_input_tokens: None,
+                ..Default::default()
+            },
+            UsageRow {
+                input_tokens: None,
+                cached_input_tokens: Some(500),
+                ..Default::default()
+            },
+            UsageRow {
+                input_tokens: Some(200),
+                cached_input_tokens: Some(50),
+                ..Default::default()
+            },
+        ];
+        let (ratio, partial) = cache_hit_ratio(&rows);
+        assert!(partial);
+        assert!((ratio.unwrap() - 25.0).abs() < 1e-6);
+
+        let disjoint = vec![
+            UsageRow {
+                input_tokens: Some(100),
+                cached_input_tokens: None,
+                ..Default::default()
+            },
+            UsageRow {
+                input_tokens: None,
+                cached_input_tokens: Some(100),
+                ..Default::default()
+            },
+        ];
+        let (ratio, partial) = cache_hit_ratio(&disjoint);
+        assert!(partial);
+        assert!(ratio.is_none());
     }
 }
