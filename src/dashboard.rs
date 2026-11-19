@@ -82,34 +82,67 @@ const PANEL_HEIGHT: f32 = 620.0;
 
 struct Assets {
     brand: Arc<Image>,
-    codex: Arc<Image>,
-    claude: Arc<Image>,
+    providers: BTreeMap<&'static str, Arc<Image>>,
 }
 
 impl Assets {
     fn load() -> Self {
+        let icons: [(&'static str, &[u8]); 16] = [
+            ("codex", include_bytes!("../assets/logos/codex.png")),
+            (
+                "claude-code",
+                include_bytes!("../assets/logos/claude-code.png"),
+            ),
+            (
+                "antigravity",
+                include_bytes!("../assets/logos/antigravity.png"),
+            ),
+            (
+                "deepseek-harness",
+                include_bytes!("../assets/logos/deepseek-harness.png"),
+            ),
+            (
+                "gemini-cli",
+                include_bytes!("../assets/logos/gemini-cli.png"),
+            ),
+            ("qwen-code", include_bytes!("../assets/logos/qwen-code.png")),
+            ("opencode", include_bytes!("../assets/logos/opencode.png")),
+            ("kilo-code", include_bytes!("../assets/logos/kilo-code.png")),
+            (
+                "factory-droid",
+                include_bytes!("../assets/logos/factory-droid.png"),
+            ),
+            (
+                "copilot-cli",
+                include_bytes!("../assets/logos/copilot-cli.png"),
+            ),
+            ("junie", include_bytes!("../assets/logos/junie.png")),
+            ("cline", include_bytes!("../assets/logos/cline.png")),
+            ("roo-code", include_bytes!("../assets/logos/roo-code.png")),
+            ("zed", include_bytes!("../assets/logos/zed.png")),
+            ("crush", include_bytes!("../assets/logos/crush.png")),
+            ("aider", include_bytes!("../assets/logos/aider.png")),
+        ];
+        let mut providers = BTreeMap::new();
+        for (slug, bytes) in icons {
+            providers.insert(
+                slug,
+                Arc::new(Image::from_bytes(ImageFormat::Png, bytes.to_vec())),
+            );
+        }
         Self {
             brand: Arc::new(Image::from_bytes(
                 ImageFormat::Png,
                 include_bytes!("../assets/brand/discodex-64.png").to_vec(),
             )),
-            codex: Arc::new(Image::from_bytes(
-                ImageFormat::Png,
-                include_bytes!("../assets/logos/codex.png").to_vec(),
-            )),
-            claude: Arc::new(Image::from_bytes(
-                ImageFormat::Png,
-                include_bytes!("../assets/logos/claude-code.png").to_vec(),
-            )),
+            providers,
         }
     }
 
     fn provider_icon(&self, provider: &str) -> Option<Arc<Image>> {
-        match provider.trim().to_ascii_lowercase().as_str() {
-            "codex" => Some(self.codex.clone()),
-            "claude-code" => Some(self.claude.clone()),
-            _ => None,
-        }
+        self.providers
+            .get(provider.trim().to_ascii_lowercase().as_str())
+            .cloned()
     }
 }
 
@@ -563,13 +596,13 @@ impl Dashboard {
             }
             Action::ProviderFilter(provider) => {
                 self.provider_filter = provider;
+                self.hovered_day = None;
             }
             Action::Refresh => self.refresh(),
             Action::Close => cx.quit(),
             Action::Info => self.info_open = !self.info_open,
             Action::Rates => {
                 if let Some(worker) = &self.worker {
-                    self.pinned = true;
                     worker.edit_rates();
                 }
             }
@@ -1153,11 +1186,11 @@ impl Dashboard {
             .child(cell("TASK TIME", task_time, time_color))
     }
 
-    fn chart(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn chart(&self, daily: &[UsageDay], cx: &mut Context<Self>) -> impl IntoElement {
         let (visible, truncated) = self
             .snapshot
             .as_ref()
-            .map(|snapshot| chart_days(&snapshot.daily, self.period, snapshot.refreshed_at_ms))
+            .map(|snapshot| chart_days(daily, self.period, snapshot.refreshed_at_ms))
             .unwrap_or_default();
         let values: Vec<Option<f64>> = visible
             .iter()
@@ -1403,29 +1436,40 @@ impl Dashboard {
             })
     }
 
-    fn models_section(&self, all_rows: &[UsageRow], cx: &mut Context<Self>) -> impl IntoElement {
-        let mut provider_totals: BTreeMap<&str, u64> = BTreeMap::new();
-        for row in all_rows {
-            let tok = row
-                .input_tokens
-                .unwrap_or_default()
-                .saturating_add(row.output_tokens.unwrap_or_default());
-            *provider_totals.entry(row.provider.as_str()).or_default() += tok;
+    fn provider_filter_bar(
+        &self,
+        distinct_providers: &[String],
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let mut filter_chips = Vec::with_capacity(distinct_providers.len());
+        for (idx, provider) in distinct_providers.iter().enumerate() {
+            let selected = self.provider_filter.as_deref() == Some(provider.as_str());
+            let label = provider_display(provider);
+            filter_chips.push(self.chip_button(
+                ("provider-filter", idx),
+                label,
+                selected,
+                Action::ProviderFilter(Some(provider.clone())),
+                cx,
+            ));
         }
-        let mut distinct_providers: Vec<String> =
-            provider_totals.keys().map(|s| (*s).to_string()).collect();
-        distinct_providers.sort_by_key(|p| {
-            std::cmp::Reverse(provider_totals.get(p.as_str()).copied().unwrap_or_default())
-        });
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(4.))
+            .child(self.chip_button(
+                "provider-all",
+                "All",
+                self.provider_filter.is_none(),
+                Action::ProviderFilter(None),
+                cx,
+            ))
+            .children(filter_chips)
+    }
 
-        let mut visible_rows: Vec<&UsageRow> = all_rows
-            .iter()
-            .filter(|row| {
-                self.provider_filter
-                    .as_ref()
-                    .is_none_or(|filter| &row.provider == filter)
-            })
-            .collect();
+    fn models_section(&self, rows: &[UsageRow], show_provider_name: bool) -> impl IntoElement {
+        let mut visible_rows: Vec<&UsageRow> = rows.iter().collect();
         visible_rows.sort_by_key(|row| {
             std::cmp::Reverse(
                 row.input_tokens
@@ -1476,38 +1520,14 @@ impl Dashboard {
                                     .child(visible_rows.len().to_string()),
                             ),
                     )
-                    .child(if distinct_providers.len() > 1 {
-                        let mut filter_chips = Vec::with_capacity(distinct_providers.len());
-                        for (idx, provider) in distinct_providers.into_iter().enumerate() {
-                            let selected =
-                                self.provider_filter.as_deref() == Some(provider.as_str());
-                            let label = provider_display(&provider);
-                            filter_chips.push(self.chip_button(
-                                ("provider-filter", idx),
-                                label,
-                                selected,
-                                Action::ProviderFilter(Some(provider)),
-                                cx,
-                            ));
-                        }
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(4.))
-                            .child(self.chip_button(
-                                "provider-all",
-                                "All",
-                                self.provider_filter.is_none(),
-                                Action::ProviderFilter(None),
-                                cx,
-                            ))
-                            .children(filter_chips)
-                    } else {
-                        div()
-                            .text_size(px(10.5))
-                            .text_color(rgb(TEXT_MUTED))
-                            .child("By tokens")
-                    }),
+                    .child(
+                        div().text_size(px(10.5)).text_color(rgb(TEXT_MUTED)).child(
+                            self.provider_filter
+                                .as_deref()
+                                .map(provider_display)
+                                .unwrap_or_else(|| "By tokens".into()),
+                        ),
+                    ),
             )
             .child(
                 div()
@@ -1539,8 +1559,13 @@ impl Dashboard {
                             }
                             _ => String::new(),
                         };
+                        let prefix = if show_provider_name {
+                            format!("{} · ", provider_display(&row.provider))
+                        } else {
+                            String::new()
+                        };
                         let left_meta = format!(
-                            "{} tok · {} {calls_label}{cache_note}",
+                            "{prefix}{} tok · {} {calls_label}{cache_note}",
                             format_count(tokens),
                             compact(row.requests),
                         );
@@ -1740,7 +1765,7 @@ impl Dashboard {
                     .text_size(px(11.5))
                     .text_color(rgb(TEXT_MUTED))
                     .text_center()
-                    .child("Codex and Claude Code sessions appear here automatically."),
+                    .child("Supported local coding agent sessions appear here automatically."),
             )
             .when(!suggestions.is_empty(), |this| {
                 let mut jump_chips = Vec::with_capacity(suggestions.len());
@@ -1849,7 +1874,7 @@ impl Dashboard {
                     .font_family(FONT_MONO)
                     .text_size(px(10.))
                     .text_color(rgb(TEXT_MUTED))
-                    .child("developers.openai.com/api/docs/pricing · platform.claude.com/docs/en/about-claude/pricing"),
+                    .child("developers.openai.com/api/docs/pricing · platform.claude.com/docs/en/about-claude/pricing · ai.google.dev/gemini-api/docs/pricing · api-docs.deepseek.com/quick_start/pricing"),
             )
             .child(
                 div()
@@ -1918,15 +1943,41 @@ impl Dashboard {
 
 impl Render for Dashboard {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows: Vec<UsageRow> = self
+        let all_rows: Vec<UsageRow> = self
             .snapshot
             .as_ref()
             .map(|s| s.rows.clone())
             .unwrap_or_default();
+        let mut provider_totals: BTreeMap<&str, u64> = BTreeMap::new();
+        for row in &all_rows {
+            let tok = row
+                .input_tokens
+                .unwrap_or_default()
+                .saturating_add(row.output_tokens.unwrap_or_default());
+            *provider_totals.entry(row.provider.as_str()).or_default() += tok;
+        }
+        let mut distinct_providers: Vec<String> =
+            provider_totals.keys().map(|s| (*s).to_string()).collect();
+        distinct_providers.sort_by_key(|p| {
+            std::cmp::Reverse(provider_totals.get(p.as_str()).copied().unwrap_or_default())
+        });
+
+        let rows: Vec<UsageRow> = all_rows
+            .iter()
+            .filter(|row| {
+                self.provider_filter
+                    .as_ref()
+                    .is_none_or(|filter| &row.provider == filter)
+            })
+            .cloned()
+            .collect();
         let daily: Vec<UsageDay> = self
             .snapshot
             .as_ref()
-            .map(|s| s.daily.clone())
+            .map(|s| match &self.provider_filter {
+                Some(filter) => s.daily_by_provider.get(filter).cloned().unwrap_or_default(),
+                None => s.daily.clone(),
+            })
             .unwrap_or_default();
         let warnings = self
             .snapshot
@@ -1953,7 +2004,9 @@ impl Render for Dashboard {
             .unwrap_or_default();
 
         let is_loading = self.snapshot.is_none() && self.error.is_none();
-        let is_empty = self.snapshot.is_some() && rows.is_empty();
+        let is_empty = self.snapshot.is_some() && all_rows.is_empty();
+        let show_provider_filter = !is_loading && !is_empty && distinct_providers.len() > 1;
+        let show_provider_name = show_provider_filter && self.provider_filter.is_none();
 
         div()
             .size_full()
@@ -2027,6 +2080,9 @@ impl Render for Dashboard {
                                         )),
                                 )
                             })
+                            .when(show_provider_filter, |this| {
+                                this.child(self.provider_filter_bar(&distinct_providers, cx))
+                            })
                             .child(self.hero_bento(&rows, &daily))
                             .when(is_loading, |this| {
                                 this.child(
@@ -2048,8 +2104,8 @@ impl Render for Dashboard {
                             .when(is_empty, |this| this.child(self.empty_state(cx)))
                             .when(!is_loading && !is_empty, |this| {
                                 this.child(self.telemetry_strip(&rows))
-                                    .child(self.chart(cx))
-                                    .child(self.models_section(&rows, cx))
+                                    .child(self.chart(&daily, cx))
+                                    .child(self.models_section(&rows, show_provider_name))
                             })
                             .when(!is_loading && !warnings.is_empty(), |this| {
                                 this.child(self.notice_pill(&warnings, cx))
@@ -2089,6 +2145,20 @@ fn provider_display(provider: &str) -> String {
     match provider.trim().to_ascii_lowercase().as_str() {
         "codex" => "Codex".into(),
         "claude-code" => "Claude Code".into(),
+        "antigravity" => "Antigravity".into(),
+        "deepseek-harness" => "DeepSeek".into(),
+        "gemini-cli" => "Gemini CLI".into(),
+        "qwen-code" => "Qwen Code".into(),
+        "opencode" => "OpenCode".into(),
+        "kilo-code" => "Kilo Code".into(),
+        "factory-droid" => "Factory Droid".into(),
+        "copilot-cli" => "Copilot CLI".into(),
+        "junie" => "Junie".into(),
+        "cline" => "Cline".into(),
+        "roo-code" => "Roo Code".into(),
+        "zed" => "Zed".into(),
+        "crush" => "Crush".into(),
+        "aider" => "Aider".into(),
         "" => "Unknown".into(),
         _ => provider.into(),
     }
@@ -2098,6 +2168,20 @@ fn provider_color(provider: &str) -> u32 {
     match provider.trim().to_ascii_lowercase().as_str() {
         "codex" => ACCENT_LIME,
         "claude-code" => ACCENT_CLAUDE,
+        "antigravity" => 0x7DD3FC,
+        "deepseek-harness" => 0x818CF8,
+        "gemini-cli" => 0x60A5FA,
+        "qwen-code" => 0xA78BFA,
+        "opencode" => 0x6EE7B7,
+        "kilo-code" => 0xF472B6,
+        "factory-droid" => 0xFBBF24,
+        "copilot-cli" => 0x38BDF8,
+        "junie" => 0x34D399,
+        "cline" => 0xFB923C,
+        "roo-code" => 0xC084FC,
+        "zed" => 0x93C5FD,
+        "crush" => 0xF87171,
+        "aider" => 0xA3E635,
         _ => ACCENT_CALLS,
     }
 }
@@ -2391,8 +2475,47 @@ mod tests {
     fn provider_display_and_share_ratio_handle_edge_cases() {
         assert_eq!(provider_display("codex"), "Codex");
         assert_eq!(provider_display("claude-code"), "Claude Code");
+        assert_eq!(provider_display("antigravity"), "Antigravity");
+        assert_eq!(provider_display("deepseek-harness"), "DeepSeek");
+        assert_eq!(provider_display("gemini-cli"), "Gemini CLI");
+        assert_eq!(provider_display("qwen-code"), "Qwen Code");
+        assert_eq!(provider_display("opencode"), "OpenCode");
+        assert_eq!(provider_display("kilo-code"), "Kilo Code");
+        assert_eq!(provider_display("factory-droid"), "Factory Droid");
+        assert_eq!(provider_display("copilot-cli"), "Copilot CLI");
+        assert_eq!(provider_display("junie"), "Junie");
+        assert_eq!(provider_display("cline"), "Cline");
+        assert_eq!(provider_display("roo-code"), "Roo Code");
+        assert_eq!(provider_display("zed"), "Zed");
+        assert_eq!(provider_display("crush"), "Crush");
+        assert_eq!(provider_display("aider"), "Aider");
         assert_eq!(provider_display("  "), "Unknown");
         assert_eq!(provider_display("custom"), "custom");
+
+        let assets = Assets::load();
+        for slug in [
+            "codex",
+            "claude-code",
+            "antigravity",
+            "deepseek-harness",
+            "gemini-cli",
+            "qwen-code",
+            "opencode",
+            "kilo-code",
+            "factory-droid",
+            "copilot-cli",
+            "junie",
+            "cline",
+            "roo-code",
+            "zed",
+            "crush",
+            "aider",
+        ] {
+            assert!(
+                assets.provider_icon(slug).is_some(),
+                "missing icon for {slug}"
+            );
+        }
 
         assert_eq!(share_ratio(0, 0), 0.0);
         assert_eq!(share_ratio(50, 200), 0.25);
