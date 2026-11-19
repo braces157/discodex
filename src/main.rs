@@ -105,45 +105,113 @@ fn main() {
     log_line("main() finished");
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::args().any(|arg| arg == "--usage") {
-        return dashboard::run_standalone();
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CliAction {
+    Run { replace: bool },
+    Quit,
+    Usage,
+    Diagnostics,
+}
 
-    if std::env::args().any(|arg| arg == "--diagnostics") {
-        use windows::Win32::System::Console::{
-            ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE,
-        };
-        unsafe {
-            if GetStdHandle(STD_OUTPUT_HANDLE).is_err() {
-                let _ = AttachConsole(ATTACH_PARENT_PROCESS);
-            }
+fn parse_cli_action<I, S>(args: I) -> CliAction
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut replace = false;
+    let mut quit = false;
+    for arg in args {
+        match arg.as_ref() {
+            "--usage" => return CliAction::Usage,
+            "--diagnostics" => return CliAction::Diagnostics,
+            "--quit" | "--stop" => quit = true,
+            "--replace" | "--restart" => replace = true,
+            _ => {}
         }
-        let path = AppConfig::path()?;
-        let config = if path.exists() {
-            AppConfig::load(&path)?
-        } else {
-            AppConfig::default()
-        };
-        let mut ingestion = Ingestion::new(provider::session_sources());
-        let mut activity = ActivityState::default();
-        ingestion.bootstrap(&mut activity);
-        let report = diagnostics::DiagnosticSnapshot {
-            ingestion: &ingestion,
-            activity: &activity,
-            config: &config,
-            focused: if config.foreground_detection { foreground::active_provider() } else { None },
-            discord: "Not probed. Standalone diagnostics do not connect to Discord; use tray Diagnostics for the running connection",
-            watches: &HashMap::new(),
-        }.render();
-        println!("{report}");
-        return Ok(());
+    }
+    if quit {
+        CliAction::Quit
+    } else {
+        CliAction::Run { replace }
+    }
+}
+
+fn acquire_single_instance(
+    replace: bool,
+) -> Result<Option<instance::SingleInstance>, Box<dyn std::error::Error>> {
+    if replace {
+        let closed = tray::request_running_instance_exit(std::time::Duration::from_secs(5));
+        log_line(&format!("replace requested existing exit: {closed}"));
     }
 
+    for attempt in 0..=20 {
+        if let Some(guard) = instance::SingleInstance::acquire()
+            .map_err(|error| format!("Could not acquire the single-instance mutex: {error}"))?
+        {
+            return Ok(Some(guard));
+        }
+        if !replace || attempt == 20 {
+            return Ok(None);
+        }
+        if attempt == 1 || attempt == 5 {
+            let _ = tray::request_running_instance_exit(std::time::Duration::from_millis(500));
+        }
+        thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    Ok(None)
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let action = parse_cli_action(std::env::args().skip(1));
+    match action {
+        CliAction::Usage => return dashboard::run_standalone(),
+        CliAction::Diagnostics => {
+            use windows::Win32::System::Console::{
+                ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_OUTPUT_HANDLE,
+            };
+            unsafe {
+                if GetStdHandle(STD_OUTPUT_HANDLE).is_err() {
+                    let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+                }
+            }
+            let path = AppConfig::path()?;
+            let config = if path.exists() {
+                AppConfig::load(&path)?
+            } else {
+                AppConfig::default()
+            };
+            let mut ingestion = Ingestion::new(provider::session_sources());
+            let mut activity = ActivityState::default();
+            ingestion.bootstrap(&mut activity);
+            let report = diagnostics::DiagnosticSnapshot {
+                ingestion: &ingestion,
+                activity: &activity,
+                config: &config,
+                focused: if config.foreground_detection {
+                    foreground::active_provider()
+                } else {
+                    None
+                },
+                discord: "Not probed. Standalone diagnostics do not connect to Discord; use tray Diagnostics for the running connection",
+                watches: &HashMap::new(),
+            }
+            .render();
+            println!("{report}");
+            return Ok(());
+        }
+        CliAction::Quit => {
+            log_line("quit requested via CLI");
+            let closed = tray::request_running_instance_exit(std::time::Duration::from_secs(5));
+            log_line(&format!("quit request completed: closed={closed}"));
+            return Ok(());
+        }
+        CliAction::Run { .. } => {}
+    }
+
+    let replace = matches!(action, CliAction::Run { replace: true });
     log_line("run() started, acquiring single instance...");
-    let Some(_single_instance) = instance::SingleInstance::acquire()
-        .map_err(|error| format!("Could not acquire the single-instance mutex: {error}"))?
-    else {
+    let Some(_single_instance) = acquire_single_instance(replace)? else {
         log_line("single instance mutex already locked! exiting.");
         return Ok(());
     };
@@ -183,11 +251,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     log_line("starting tray::run...");
-    let res = tray::run(tx, status);
+    let res = tray::run(tx, status, _single_instance.quit_event_handle());
     log_line(&format!("tray::run returned: {:?}", res));
-    res.map_err(|error| format!("Could not create the notification-area tray: {error}"))?;
+    let exit_action =
+        res.map_err(|error| format!("Could not create the notification-area tray: {error}"))?;
 
     let _ = worker.join();
+    drop(_single_instance);
+
+    if exit_action == tray::TrayExitAction::Restart
+        && let Ok(exe) = std::env::current_exe()
+    {
+        log_line("spawning restarted instance...");
+        if let Err(error) = std::process::Command::new(exe).arg("--replace").spawn() {
+            log_line(&format!("could not spawn restarted instance: {error}"));
+        }
+    }
     Ok(())
 }
 
@@ -615,5 +694,25 @@ mod tests {
             started,
         );
         assert!(activity.selected_presence().is_none());
+    }
+
+    #[test]
+    fn parses_cli_actions() {
+        assert_eq!(
+            parse_cli_action(Vec::<&str>::new()),
+            CliAction::Run { replace: false }
+        );
+        assert_eq!(parse_cli_action(["--quit"]), CliAction::Quit);
+        assert_eq!(parse_cli_action(["--stop"]), CliAction::Quit);
+        assert_eq!(
+            parse_cli_action(["--replace"]),
+            CliAction::Run { replace: true }
+        );
+        assert_eq!(
+            parse_cli_action(["--restart"]),
+            CliAction::Run { replace: true }
+        );
+        assert_eq!(parse_cli_action(["--usage"]), CliAction::Usage);
+        assert_eq!(parse_cli_action(["--diagnostics"]), CliAction::Diagnostics);
     }
 }
