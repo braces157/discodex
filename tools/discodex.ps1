@@ -142,7 +142,7 @@ function Get-DiscodexTrayProcesses {
         }
     }
 
-    return ,$results.ToArray()
+    return $results.ToArray()
 }
 
 function Test-TrayReady {
@@ -432,10 +432,7 @@ function Deploy-Discodex {
     $repoReleaseDir = Join-Path $RepoRoot 'target\release'
     $repoReleaseExe = Join-Path $repoReleaseDir 'discodex.exe'
     try {
-        if (-not (Test-Path -LiteralPath $repoReleaseDir -PathType Container)) {
-            New-Item -ItemType Directory -Force -Path $repoReleaseDir | Out-Null
-        }
-        Copy-Item -LiteralPath $builtExe -Destination $repoReleaseExe -Force
+        Copy-IfDifferent -Source $builtExe -Destination $repoReleaseExe
     } catch {
         Write-Verbose "Skipped updating repo target\release\discodex.exe: $($_.Exception.Message)"
     }
