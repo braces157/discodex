@@ -12,37 +12,55 @@ The popup closes with Escape, its close button, or a click outside it. Pin keeps
 
 Select Today, 7 days, 30 days, or All. Periods start at local midnight. The scanner reconciles cumulative counters before selecting timestamped usage, so a recent model does not bring its older token totals into the selected period.
 
-Summary cards show recorded tokens, logged usage calls, a base-rate API cost estimate, and cache hit rate. The chart switches between tokens, cost, and calls. Model rows show model and reasoning effort with their available usage and task time.
+Summary cards show recorded tokens, logged usage calls, a base-rate API cost estimate, and cache hit rate. The chart switches between tokens, cost, and calls. When multiple providers have usage, a filter bar lets you view all providers together or filter the cards, chart, and model rows to a single provider. Model rows show model and reasoning effort (when recorded) with their available usage and task time.
 
 Calls count distinct logged usage observations. They are not unique sessions, network requests, or failed attempts that left no usage record. Missing fields stay unknown. Charts use the dated records available locally.
 
-Cached input is already part of input tokens. Reasoning output is already part of output tokens. Claude cache creation is included once in normalized input. Do not add these subsets to the totals again.
+Cached input is already part of input tokens. Reasoning output is already part of output tokens. Providers that store uncached input or non-reasoning output separately (such as Claude Code, Antigravity, DeepSeek Harness, Factory Droid, Cline, Roo Code, Zed, OpenCode, and Kilo Code) are normalized to inclusive totals once so categories are never double-counted.
 
-Task wall time uses matched task start and completion timestamps and includes tools and waits. Concurrent task durations can overlap. Claude messages do not establish complete task intervals, so their task time remains unknown.
+Task wall time uses matched task start and completion timestamps (for example in Codex, DeepSeek Harness, and GitHub Copilot CLI) and includes tools and waits. Concurrent task durations can overlap. Message-only stores do not establish complete task intervals, so their task time remains unknown.
 
 ## Automatic prices
 
-Discodex bundles an official rate catalog checked on October 29, 2026. Known exact OpenAI and Claude model identifiers receive estimates automatically. Unknown identifiers remain unpriced.
+Discodex bundles an official rate catalog checked on November 19, 2026. Known exact OpenAI, Claude, Google Gemini, and DeepSeek model identifiers receive estimates automatically across harnesses. Unknown identifiers remain unpriced.
 
-Sources are [OpenAI API pricing](https://developers.openai.com/api/docs/pricing) and [Claude API pricing](https://platform.claude.com/docs/en/about-claude/pricing). The catalog retains its source URLs and verification date. It is a bundled snapshot, not a live network request on every refresh.
+Sources are [OpenAI API pricing](https://developers.openai.com/api/docs/pricing), [Claude API pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Gemini Developer API pricing](https://ai.google.dev/gemini-api/docs/pricing), and [DeepSeek API pricing](https://api-docs.deepseek.com/quick_start/pricing). The catalog retains its source URLs and verification date. It is a bundled snapshot, not a live network request on every refresh.
 
 Displayed costs are approximate Standard API base-rate equivalents. They do not represent subscription charges, Codex credit billing, historical invoices, or taxes. Current catalog rates apply to selected historical usage.
 
-Newer API models can charge separate cache-write premiums. Available write counts use the catalog's default write price. Missing write counts, longer write lifetimes, long-context, speed-tier, regional, and tool charges can make the estimate incomplete. The popup marks estimates as approximate and reports these assumptions. Reasoning tokens do not incur a second output charge.
+Newer API models can charge separate cache-write premiums, and some providers vary rates by time of day. Available write counts use the catalog's default write price. Missing write counts, longer write lifetimes, long-context, speed-tier, time-of-day, regional, and tool charges can make the estimate incomplete. The popup marks estimates as approximate and reports these assumptions. Reasoning tokens do not incur a second output charge.
 
 ## Override rates
 
-The pricing action pins the popup and opens `%APPDATA%\Discodex\usage-rates.toml`. Save custom rates and refresh the popup to override the bundled catalog for that exact provider and model.
+The pricing action opens `%APPDATA%\Discodex\usage-rates.toml`. Save custom rates and refresh the popup to override the bundled catalog for that exact provider and model.
 
-Each `[[rates]]` entry uses `provider`, `model`, `input_per_million`, `cached_input_per_million`, `output_per_million`, and optional `cache_write_per_million`. Prices are USD per million tokens and must be finite and nonnegative. Provider values are `codex` and `claude-code`.
+Each `[[rates]]` entry uses `provider`, `model`, `input_per_million`, `cached_input_per_million`, `output_per_million`, and optional `cache_write_per_million`. Prices are USD per million tokens and must be finite and nonnegative. Supported `provider` values are `codex`, `claude-code`, `antigravity`, `deepseek-harness`, `gemini-cli`, `qwen-code`, `opencode`, `kilo-code`, `factory-droid`, `copilot-cli`, `junie`, `cline`, `roo-code`, `zed`, `crush`, and `aider`.
 
 A configured cache-write rate is an effective price. Choose a value appropriate to your agreement and cache lifetime. Malformed or duplicate overrides produce a visible warning.
 
 ## Coverage and privacy
 
-Only local Codex sessions and archives and Claude Code project logs are supported initially. `CODEX_HOME` and `CLAUDE_CONFIG_DIR` override their standard roots. Focused-window detection cannot supply token usage.
+Supported local stores include:
 
-The scanner caches unchanged files and reconstructs totals from source records. Refreshes and restarts do not add to a saved counter. Deleting source logs removes their contribution. Limits on scanned files, bytes, lines, and metadata records produce coverage warnings.
+- **OpenAI Codex** (`codex`) — plain `.jsonl` and compressed `.jsonl.zst` / `.jsonl.zstd` sessions and archives (`CODEX_HOME` supported)
+- **Claude Code** (`claude-code`) — project `.jsonl` logs (`CLAUDE_CONFIG_DIR` supported)
+- **Google Antigravity** (`antigravity`) — `transcript.jsonl` conversation logs
+- **DeepSeek Harness** (`deepseek-harness`) — `session.v4.jsonl` and compressed `session.v4.jsonl.zstd` logs
+- **Gemini CLI** (`gemini-cli`) — `chats/*.json` and `chats/*.jsonl` transcripts
+- **Qwen Code** (`qwen-code`) — `chats/*.jsonl` telemetry and assistant logs
+- **OpenCode** (`opencode`) — SQLite `opencode*.db` message tables (deduplicated across v1/v2 tables)
+- **Kilo Code** (`kilo-code`) — SQLite `kilo*.db` message tables
+- **Factory Droid** (`factory-droid`) — session-level `*.settings.json` totals
+- **GitHub Copilot CLI** (`copilot-cli`) — `events.jsonl` / session `.jsonl` usage events
+- **Junie** (`junie`) — `events.jsonl` LLM response metadata
+- **Cline** (`cline`) and **Roo Code** (`roo-code`) — task `ui_messages.json` API request entries
+- **Zed** (`zed`) — SQLite `threads.db` thread token usage
+- **Crush** (`crush`) — SQLite `crush.db` session token columns when present
+- **Aider** (`aider`) — `.aider.chat.history.md` token reports (bounded shallow scan)
+
+Missing local directories for harnesses you have not installed are skipped silently. Focused-window-only apps (such as web ChatGPT, Claude web, Gemini web, Perplexity, or Poe) and harnesses that do not record local token counts cannot supply token usage.
+
+The scanner caches unchanged files and databases (including SQLite `-wal` sidecars) and reconstructs totals from source records. Refreshes and restarts do not add to a saved counter. Deleting source logs removes their contribution. Limits on scanned files, bytes, lines, and metadata records produce coverage warnings.
 
 Snapshots contain model identifiers, effort, numeric usage, timestamps, and pricing metadata. They exclude prompts, responses, reasoning prose, tool arguments, project names, and absolute paths. The popup opens no network listener and adds no usage totals to Discord.
 

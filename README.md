@@ -128,7 +128,7 @@ From a terminal, you can also run `discodex --quit` (or `--stop`), `discodex --r
 
 ## Usage dashboard
 
-Click the tray icon for a compact GPUI popup with Codex and Claude Code model usage, reasoning effort, tokens, task time, and automatic API price estimates. It includes time-period filters, charts, and model rows. Run `cargo run --release -- --usage` to open it independently of Discord presence. See [Track model usage](docs/USAGE.md) for pricing sources, coverage, custom rates, and Windows SDK build requirements.
+Click the tray icon for a compact GPUI popup tracking local model usage, reasoning effort, tokens, task time, and automatic API price estimates across Codex (including `.jsonl.zst` archives), Claude Code, Google Antigravity, DeepSeek Harness, Gemini CLI, Qwen Code, OpenCode, Kilo Code, Factory Droid, Copilot CLI, Junie, Cline, Roo Code, Zed, Crush, and Aider. It includes real time-period filters, provider filters, charts, and model rows. Run `cargo run --release -- --usage` to open it independently of Discord presence. See [Track model usage](docs/USAGE.md) for pricing sources, coverage, custom rates, and Windows SDK build requirements.
 
 ## Configuration
 

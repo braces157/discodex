@@ -168,15 +168,15 @@
           </article>
 
           <article class="feature-side depth-card reveal" style="--delay: .08s">
-            <div class="feature-copy"><span class="feature-number">02</span><h3>Always there.<br>Never in the way.</h3><p>No dashboard to check. No Electron app to keep open. Just a quiet tray icon and controls when you need them.</p></div>
+            <div class="feature-copy"><span class="feature-number">02</span><h3>Always there.<br>Usage one click away.</h3><p>No Electron app to keep open. Just a quiet tray icon with a native GPUI usage popup across 16 AI tools whenever you click it.</p></div>
             <div class="tray-demo">
               <div class="tray-window">
                 <div class="tray-title"><img src="assets/discodex-256.png" alt="" width="23" height="23"><strong>Discodex</strong><span class="tray-active"><span class="status-dot"></span>Active</span></div>
                 <div class="tray-row"><span>Presence enabled</span><span class="switch on"></span></div>
                 <div class="tray-row"><span>Detect focused AI apps</span><span class="switch on"></span></div>
-                <div class="tray-row"><span>Start with Windows</span><span class="switch"></span></div>
+                <div class="tray-row"><span>Usage dashboard</span><span class="mono">16 TOOLS</span></div>
                 <div class="tray-row tray-divider"><span>Status</span><span class="mono">CODEX · DISCODEX</span></div>
-                <div class="tray-row"><span>Open configuration</span><svg class="icon"><use href="#i-arrow-up"/></svg></div>
+                <div class="tray-row"><span>Diagnostics &amp; config</span><svg class="icon"><use href="#i-arrow-up"/></svg></div>
               </div>
               <div class="taskbar"><span class="taskbar-start"></span><span class="taskbar-search"></span><span class="taskbar-app"></span><span class="taskbar-app"></span><div class="taskbar-right"><span>^</span><img src="assets/discodex-256.png" alt="" width="18" height="18"><span>11:32</span></div></div>
             </div>
@@ -185,9 +185,9 @@
         </div>
 
         <div class="feature-footnotes reveal">
-          <div><span class="footnote-icon"><svg class="icon"><use href="#i-windows"/></svg></span><span><strong>Native by nature</strong><small>One .exe. Windows 10 & 11.</small></span></div>
-          <div><span class="footnote-icon"><svg class="icon"><use href="#i-code"/></svg></span><span><strong>Reads four formats</strong><small>JSONL, JSON, Markdown, SQLite.</small></span></div>
-          <div><span class="footnote-icon reconnect-icon"><svg class="icon"><use href="#i-arrow"/></svg></span><span><strong>Picks up where you left off</strong><small>Automatic Discord reconnection.</small></span></div>
+          <div><span class="footnote-icon"><svg class="icon"><use href="#i-windows"/></svg></span><span><strong>Native by nature</strong><small>One .exe. Native GPUI popup.</small></span></div>
+          <div><span class="footnote-icon"><svg class="icon"><use href="#i-code"/></svg></span><span><strong>Reads local logs</strong><small>JSONL, Zstd, JSON, Markdown, SQLite.</small></span></div>
+          <div><span class="footnote-icon reconnect-icon"><svg class="icon"><use href="#i-arrow"/></svg></span><span><strong>Local usage &amp; cost</strong><small>16 harnesses, period &amp; provider filters.</small></span></div>
         </div>
       </div>
     </section>
@@ -260,7 +260,7 @@
 
     <section class="section privacy" id="privacy">
       <div class="wrap privacy-grid">
-        <div class="privacy-heading reveal"><span class="section-index">03 / Privacy by design</span><h2>Your status<br>is public.<br><span class="muted">Your work isn’t.</span></h2><p>Discodex shares a short activity summary over local Discord IPC. Everything else stays where it belongs: with you.</p><a class="text-link" href="https://github.com/braces157/discodex/blob/main/docs/PRIVACY.md" target="_blank" rel="noopener">Read the full privacy model<svg class="icon arrow-up"><use href="#i-arrow-up"/></svg></a></div>
+        <div class="privacy-heading reveal"><span class="section-index">03 / Privacy by design</span><h2>Your status<br>is public.<br><span class="muted">Your work isn’t.</span></h2><p>Discodex shares a short activity summary over local Discord IPC. Everything else—including local usage and cost snapshots—stays where it belongs: with you.</p><a class="text-link" href="https://github.com/braces157/discodex/blob/main/docs/PRIVACY.md" target="_blank" rel="noopener">Read the full privacy model<svg class="icon arrow-up"><use href="#i-arrow-up"/></svg></a></div>
         <div class="privacy-boundary depth-card reveal" style="--delay: .08s">
           <div class="boundary-top"><span class="mono">THE DATA BOUNDARY</span><span class="local-only"><span class="status-dot"></span>Local by default</span></div>
           <div class="boundary-columns">
@@ -286,7 +286,7 @@
             <div class="download-panel-top"><img src="assets/discodex-256.png" alt="" width="52" height="52"><div><strong>Discodex for Windows</strong><span>Version 0.2.0 · Free & open source</span></div><span class="release-tag">LATEST</span></div>
             <a class="button button-accent download-button" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">Download discodex.exe<span class="button-icon"><svg class="icon"><use href="#i-download"/></svg></span></a>
             <div class="requirements"><span><svg class="icon"><use href="#i-check"/></svg>Windows 10 or 11</span><span><svg class="icon"><use href="#i-check"/></svg>Discord Desktop</span><span><svg class="icon"><use href="#i-check"/></svg>No installer</span></div>
-            <details class="build-details"><summary>Prefer to build from source?<span>+</span></summary><div class="build-content"><p>You’ll need Rust 1.85 or newer.</p><div class="code-block"><button id="copyButton" class="copy-button" type="button" aria-label="Copy build commands"><svg class="icon"><use href="#i-copy"/></svg><span>Copy</span></button><pre id="buildCommands">git clone https://github.com/braces157/discodex.git
+            <details class="build-details"><summary>Prefer to build from source?<span>+</span></summary><div class="build-content"><p>You’ll need Rust 1.89 or newer and Windows SDK <code>fxc.exe</code>.</p><div class="code-block"><button id="copyButton" class="copy-button" type="button" aria-label="Copy build commands"><svg class="icon"><use href="#i-copy"/></svg><span>Copy</span></button><pre id="buildCommands">git clone https://github.com/braces157/discodex.git
 cd discodex
 cargo test
 cargo build --release</pre></div></div></details>
@@ -299,7 +299,7 @@ cargo build --release</pre></div></div></details>
 
   <footer class="footer">
     <div class="wrap footer-top"><a class="brand" href="#top"><img src="assets/discodex-256.png" alt="" width="34" height="34"><span>discodex<span class="brand-period">.</span></span></a><p>For the builders, the tinkerers,<br>and the “one more commit” crowd.</p><a class="back-top" href="#top">Back to top<svg class="icon"><use href="#i-arrow-up"/></svg></a></div>
-    <div class="wrap footer-bottom"><span>© <span id="year">2026</span> braces157 · Independent & open source</span><div><a href="https://github.com/braces157/discodex" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">Releases</a><a href="https://github.com/braces157/discodex/blob/main/docs/PRIVACY.md" target="_blank" rel="noopener">Privacy</a><a href="https://github.com/braces157/discodex/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a></div><span>Not affiliated with Discord or any listed provider.</span></div>
+    <div class="wrap footer-bottom"><span>© <span id="year">2026</span> braces157 · Independent & open source</span><div><a href="https://github.com/braces157/discodex" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">Releases</a><a href="https://github.com/braces157/discodex/blob/main/docs/USAGE.md" target="_blank" rel="noopener">Usage</a><a href="https://github.com/braces157/discodex/blob/main/docs/PRIVACY.md" target="_blank" rel="noopener">Privacy</a><a href="https://github.com/braces157/discodex/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a></div><span>Not affiliated with Discord or any listed provider.</span></div>
   </footer>
 
   <script src="script.js"></script>
