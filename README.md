@@ -121,7 +121,10 @@ Right-click the Discodex tray icon to access:
 - **Diagnostics** opens a local snapshot of detected providers, session access, last activity, filesystem monitoring, and Discord connection state.
 - **Usage Dashboard** opens the GPUI popup for model usage and API cost estimates.
 - **Open Config** — edit the runtime TOML configuration.
+- **Restart** — cleanly restart Discodex.
 - **Exit** — stop Discodex and clear the current activity.
+
+From a terminal, you can also run `discodex --quit` (or `--stop`), `discodex --restart` (or `--replace`), or manage the app with `tools/discodex.ps1` (`start | stop | restart | status`, `deploy` to build and install from a checkout, and `install` to configure Start Menu and `PATH` integration for a binary already present in the install directory).
 
 ## Usage dashboard
 

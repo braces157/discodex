@@ -30,6 +30,7 @@ impl Phase {
 struct SessionState {
     provider: Provider,
     project: String,
+    project_inherited: bool,
     project_stack: Option<String>,
     current_file: Option<String>,
     current_language: Option<String>,
@@ -49,6 +50,7 @@ impl Default for SessionState {
         Self {
             provider: Provider::Codex,
             project: "AI session".to_string(),
+            project_inherited: false,
             project_stack: None,
             current_file: None,
             current_language: None,
@@ -107,6 +109,12 @@ fn is_default_project(project: &str, provider: Provider) -> bool {
 }
 
 impl ActivityState {
+    pub fn has_direct_project(&self, path: &Path) -> bool {
+        self.sessions.get(path).is_some_and(|session| {
+            !is_default_project(&session.project, session.provider) && !session.project_inherited
+        })
+    }
+
     pub fn provider_last_activity(&self, provider: Provider) -> Option<i64> {
         self.sessions
             .values()
@@ -129,6 +137,7 @@ impl ActivityState {
                     && let Some(proj) = &meta.project
                 {
                     session.project = proj.clone();
+                    session.project_inherited = true;
                     session.project_stack = meta.project_stack.clone();
                 }
                 break;
@@ -176,6 +185,7 @@ impl ActivityState {
                             && let Some(proj) = &meta.project
                         {
                             sess.project = proj.clone();
+                            sess.project_inherited = true;
                             sess.project_stack = meta.project_stack.clone();
                         }
                     }
@@ -184,6 +194,7 @@ impl ActivityState {
             ParsedEvent::SessionMetadata { project, cwd } => {
                 let stack = detect_project_stack(Path::new(&cwd));
                 session.project = project.clone();
+                session.project_inherited = false;
                 session.project_stack = stack.clone();
 
                 for meta in self.subagents.values_mut() {
@@ -196,6 +207,7 @@ impl ActivityState {
                     if sess.provider == provider && is_default_project(&sess.project, sess.provider)
                     {
                         sess.project = project.clone();
+                        sess.project_inherited = true;
                         sess.project_stack = stack.clone();
                     }
                 }
