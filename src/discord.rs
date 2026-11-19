@@ -202,7 +202,8 @@ pub(crate) fn build_activity(
             .large_image(snapshot.provider.logo_url())
             .large_text(large_text)
             .small_image(DISCODEX_LOGO_URL)
-            .small_text("Discodex"),
+            .small_text("Discodex")
+            .small_url(env!("CARGO_PKG_HOMEPAGE")),
     );
 
     activity
@@ -385,6 +386,7 @@ mod tests {
                 "Provider {provider:?} missing the Discodex badge"
             );
             assert_eq!(assets["small_text"], "Discodex");
+            assert_eq!(assets["small_url"], "https://braces157.github.io/discodex/");
         }
     }
 

@@ -4,6 +4,7 @@
   var root = document.documentElement;
   var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (/[?&]static(=|&|$)/.test(window.location.search)) root.classList.add("static");
+  var motion = root.classList.contains("motion");
 
   var scrollProgress = document.getElementById("scrollProgress");
   var progressFrame = 0;
@@ -202,25 +203,84 @@
   var providerImage = document.getElementById("providerImage");
   var providerName = document.getElementById("providerName");
   var activityPhase = document.getElementById("activityPhase");
+  var activityFile = document.getElementById("activityFile");
+  var providerSwitcher = document.querySelector(".provider-switcher");
   var providerSwapTimer = 0;
+  var typeTimer = 0;
+  function typePhase(text) {
+    window.clearInterval(typeTimer);
+    if (!motion) {
+      activityPhase.textContent = text;
+      return;
+    }
+    var shown = 0;
+    activityPhase.textContent = "";
+    activityPhase.classList.add("typing");
+    typeTimer = window.setInterval(function () {
+      shown += 1;
+      activityPhase.textContent = text.slice(0, shown);
+      if (shown >= text.length) {
+        window.clearInterval(typeTimer);
+        window.setTimeout(function () { activityPhase.classList.remove("typing"); }, 900);
+      }
+    }, 34);
+  }
+  function selectProvider(choice) {
+    providerChoices.forEach(function (item) {
+      item.classList.toggle("selected", item === choice);
+      item.setAttribute("aria-pressed", String(item === choice));
+    });
+    providerImage.src = "assets/logos/" + choice.dataset.provider + ".png";
+    providerName.textContent = choice.dataset.name;
+    if (choice.dataset.file) activityFile.textContent = choice.dataset.file;
+    typePhase(choice.dataset.phase);
+    if (motion) {
+      window.clearTimeout(providerSwapTimer);
+      presenceCard.classList.remove("switching");
+      void presenceCard.offsetWidth;
+      presenceCard.classList.add("switching");
+      providerSwapTimer = window.setTimeout(function () { presenceCard.classList.remove("switching"); }, 600);
+    }
+  }
+
+  // Cycles the preview until the visitor picks a provider themselves.
+  var autoplayMs = 4800;
+  var autoplayTimer = 0;
+  var autoplayStopped = !motion;
+  var heroVisible = true;
+  function scheduleAutoplay() {
+    window.clearTimeout(autoplayTimer);
+    providerSwitcher.classList.remove("autoplaying");
+    if (autoplayStopped || !heroVisible || document.hidden) return;
+    void providerSwitcher.offsetWidth;
+    providerSwitcher.classList.add("autoplaying");
+    autoplayTimer = window.setTimeout(function () {
+      var list = Array.prototype.slice.call(providerChoices);
+      var current = list.findIndex(function (item) { return item.classList.contains("selected"); });
+      selectProvider(list[(current + 1) % list.length]);
+      scheduleAutoplay();
+    }, autoplayMs);
+  }
+  function stopAutoplay() {
+    autoplayStopped = true;
+    window.clearTimeout(autoplayTimer);
+    providerSwitcher.classList.remove("autoplaying");
+  }
+  providerSwitcher.style.setProperty("--autoplay-ms", autoplayMs + "ms");
   providerChoices.forEach(function (choice) {
     choice.addEventListener("click", function () {
-      providerChoices.forEach(function (item) {
-        item.classList.toggle("selected", item === choice);
-        item.setAttribute("aria-pressed", String(item === choice));
-      });
-      providerImage.src = "assets/logos/" + choice.dataset.provider + ".png";
-      providerName.textContent = choice.dataset.name;
-      activityPhase.textContent = choice.dataset.phase;
-      if (!reducedMotion && !root.classList.contains("static")) {
-        window.clearTimeout(providerSwapTimer);
-        presenceCard.classList.remove("switching");
-        void presenceCard.offsetWidth;
-        presenceCard.classList.add("switching");
-        providerSwapTimer = window.setTimeout(function () { presenceCard.classList.remove("switching"); }, 600);
-      }
+      stopAutoplay();
+      selectProvider(choice);
     });
   });
+  providerSwitcher.addEventListener("focusin", stopAutoplay);
+  if (motion && "IntersectionObserver" in window) {
+    new IntersectionObserver(function (entries) {
+      heroVisible = entries[0].isIntersecting;
+      scheduleAutoplay();
+    }, { threshold: 0.25 }).observe(document.getElementById("sceneStage"));
+    document.addEventListener("visibilitychange", scheduleAutoplay);
+  }
 
   var search = document.getElementById("providerSearch");
   var providers = Array.prototype.slice.call(document.querySelectorAll("#providerList li"));
@@ -228,6 +288,8 @@
   var count = document.getElementById("providerCount");
   var empty = document.getElementById("providerEmpty");
   var activeFilter = "all";
+  var filtersReady = false;
+  var providerList = document.getElementById("providerList");
   function filterProviders() {
     var query = search.value.trim().toLocaleLowerCase();
     var visible = 0;
@@ -237,8 +299,17 @@
       provider.hidden = !(matchesFilter && matchesQuery);
       if (!provider.hidden) visible += 1;
     });
-    count.textContent = "Showing " + visible + " of 39 provider targets";
+    count.textContent = "Showing " + visible + " of " + providers.length + " provider targets";
     empty.hidden = visible !== 0;
+    if (motion && filtersReady) {
+      var order = 0;
+      providers.forEach(function (provider) {
+        provider.classList.remove("pop");
+        if (!provider.hidden) provider.style.setProperty("--i", String(Math.min(order++, 16)));
+      });
+      void providerList.offsetWidth;
+      providers.forEach(function (provider) { if (!provider.hidden) provider.classList.add("pop"); });
+    }
   }
   filters.forEach(function (filter) {
     filter.addEventListener("click", function () {
@@ -269,7 +340,120 @@
     search.focus();
   });
   filterProviders();
+  filtersReady = true;
 
+  var nav = document.getElementById("nav");
+  var navStuck = false;
+  function updateNav() {
+    var stuck = window.scrollY > 160;
+    if (stuck !== navStuck) {
+      navStuck = stuck;
+      nav.classList.toggle("is-stuck", stuck);
+    }
+  }
+  window.addEventListener("scroll", updateNav, { passive: true });
+  updateNav();
+
+  var hero = document.querySelector(".hero");
+  var heroGlow = document.querySelector(".hero-glow");
+  if (motion && finePointer.matches && hero && heroGlow) {
+    var glowFrame = 0;
+    var glowX = 0;
+    var glowY = 0;
+    hero.addEventListener("pointermove", function (event) {
+      var bounds = hero.getBoundingClientRect();
+      glowX = event.clientX - bounds.left;
+      glowY = event.clientY - bounds.top;
+      if (!glowFrame) glowFrame = window.requestAnimationFrame(function () {
+        heroGlow.style.setProperty("--glow-x", glowX + "px");
+        heroGlow.style.setProperty("--glow-y", glowY + "px");
+        glowFrame = 0;
+      });
+      hero.classList.add("glowing");
+    }, { passive: true });
+    hero.addEventListener("pointerleave", function () { hero.classList.remove("glowing"); }, { passive: true });
+  }
+
+  if (motion && finePointer.matches) {
+    document.querySelectorAll(".button-accent, .nav .button-ink").forEach(function (button) {
+      button.classList.add("magnetic");
+      button.addEventListener("pointermove", function (event) {
+        var bounds = button.getBoundingClientRect();
+        var dx = (event.clientX - bounds.left - bounds.width / 2) / bounds.width;
+        var dy = (event.clientY - bounds.top - bounds.height / 2) / bounds.height;
+        button.classList.add("pulling");
+        button.style.translate = (dx * 10).toFixed(1) + "px " + (dy * 8).toFixed(1) + "px";
+      }, { passive: true });
+      button.addEventListener("pointerleave", function () {
+        button.classList.remove("pulling");
+        button.style.translate = "";
+      }, { passive: true });
+    });
+  }
+
+  var heroMarks = document.querySelector(".hero-marks");
+  if (motion && heroMarks) {
+    var seen = {};
+    var track = document.createElement("div");
+    track.className = "marquee-track";
+    providers.forEach(function (provider) {
+      var img = provider.querySelector("img");
+      var src = img.getAttribute("src");
+      if (seen[src]) return;
+      seen[src] = true;
+      var item = document.createElement("span");
+      var mark = document.createElement("img");
+      mark.src = src;
+      mark.alt = "";
+      mark.width = 20;
+      mark.height = 20;
+      item.appendChild(mark);
+      item.appendChild(document.createTextNode(provider.querySelector("span").textContent));
+      track.appendChild(item);
+    });
+    var echo = track.cloneNode(true);
+    echo.setAttribute("aria-hidden", "true");
+    heroMarks.textContent = "";
+    heroMarks.classList.add("marquee");
+    heroMarks.setAttribute("aria-label", "Supported providers: " + Object.keys(seen).length + " tools");
+    heroMarks.appendChild(track);
+    heroMarks.appendChild(echo);
+    window.requestAnimationFrame(function () {
+      heroMarks.style.setProperty("--marquee-duration", Math.max(30, track.scrollWidth / 45).toFixed(1) + "s");
+    });
+  }
+
+  var ticker = document.getElementById("sessionTicker");
+  if (motion && ticker && "IntersectionObserver" in window) {
+    var tickerLines = ["Watching local session", "Reading session.jsonl", "Phase: running tests", "Presence updated"];
+    var tickerIndex = 0;
+    var tickerTimer = 0;
+    new IntersectionObserver(function (entries) {
+      window.clearInterval(tickerTimer);
+      if (!entries[0].isIntersecting) return;
+      tickerTimer = window.setInterval(function () {
+        tickerIndex = (tickerIndex + 1) % tickerLines.length;
+        ticker.textContent = tickerLines[tickerIndex];
+        ticker.classList.remove("swap");
+        void ticker.offsetWidth;
+        ticker.classList.add("swap");
+      }, 2600);
+    }).observe(ticker);
+  }
+
+  var steps = document.querySelectorAll(".install-steps li");
+  if (motion && "IntersectionObserver" in window) {
+    var stepObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add("lit");
+        stepObserver.unobserve(entry.target);
+      });
+    }, { rootMargin: "0px 0px -35% 0px" });
+    steps.forEach(function (step) { stepObserver.observe(step); });
+  } else {
+    steps.forEach(function (step) { step.classList.add("lit"); });
+  }
   var copyButton = document.getElementById("copyButton");
   copyButton.addEventListener("click", function () {
     var text = document.getElementById("buildCommands").textContent;
