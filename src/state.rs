@@ -107,6 +107,12 @@ fn is_default_project(project: &str, provider: Provider) -> bool {
 }
 
 impl ActivityState {
+    pub fn has_project(&self, path: &Path) -> bool {
+        self.sessions
+            .get(path)
+            .is_some_and(|session| !is_default_project(&session.project, session.provider))
+    }
+
     pub fn provider_last_activity(&self, provider: Provider) -> Option<i64> {
         self.sessions
             .values()

@@ -385,16 +385,40 @@ fn parse_antigravity_line(line: &str) -> Vec<ParsedEvent> {
 }
 
 fn is_internal_path(path_str: &str) -> bool {
-    let lower = path_str.to_ascii_lowercase();
-    lower.contains(".gemini") || lower.contains(".codex") || lower.contains(".claude")
+    path_str.split(['/', '\\']).any(|component| {
+        matches!(
+            component.to_ascii_lowercase().as_str(),
+            ".gemini"
+                | ".codex"
+                | ".claude"
+                | ".cargo"
+                | ".rustup"
+                | "node_modules"
+                | "site-packages"
+                | ".nuget"
+        )
+    })
+}
+
+fn is_absolute_like(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    path.starts_with('/')
+        || path.starts_with('\\')
+        || (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
 }
 
 pub(crate) fn detect_project_root(path_str: &str) -> Option<(String, String)> {
+    detect_project_root_with_hint(path_str, false)
+}
+
+fn detect_project_root_with_hint(path_str: &str, is_dir_hint: bool) -> Option<(String, String)> {
     if is_internal_path(path_str) {
         return None;
     }
     let path = Path::new(path_str);
-    let start_dir = if path.is_file() || path.extension().is_some() {
+    let start_dir = if is_dir_hint || path.is_dir() {
+        path
+    } else if path.is_file() || path.extension().is_some() {
         path.parent()?
     } else {
         path
@@ -435,25 +459,34 @@ pub(crate) fn detect_project_root(path_str: &str) -> Option<(String, String)> {
 fn extract_antigravity_metadata(arguments: Option<&Value>) -> Option<ParsedEvent> {
     let obj = arguments?;
 
-    if let Some(cwd_str) = obj.get("Cwd").and_then(clean_arg_str)
-        && !is_internal_path(&cwd_str)
-        && let Some(project) = project_name(&cwd_str)
-    {
-        return Some(ParsedEvent::SessionMetadata {
-            project,
-            cwd: cwd_str,
-        });
+    for key in ["Cwd", "cwd"] {
+        if let Some(cwd_str) = obj.get(key).and_then(clean_arg_str)
+            && is_absolute_like(&cwd_str)
+            && !is_internal_path(&cwd_str)
+            && let Some(project) = project_name(&cwd_str)
+        {
+            return Some(ParsedEvent::SessionMetadata {
+                project,
+                cwd: cwd_str,
+            });
+        }
     }
 
     let path_keys = [
+        "Path",
         "AbsolutePath",
         "TargetFile",
         "SearchPath",
         "DirectoryPath",
         "SearchDirectory",
+        "ScriptPath",
+        "path",
+        "file_path",
+        "filepath",
     ];
     for key in path_keys {
         if let Some(path_str) = obj.get(key).and_then(clean_arg_str)
+            && is_absolute_like(&path_str)
             && let Some((project, cwd)) = detect_project_root(&path_str)
         {
             return Some(ParsedEvent::SessionMetadata { project, cwd });
@@ -662,6 +695,8 @@ pub(crate) fn extract_file_basename(arguments: &Value) -> Option<String> {
         "file",
         "file_path",
         "filepath",
+        "Path",
+        "ScriptPath",
         "AbsolutePath",
         "TargetFile",
         "SearchPath",
@@ -998,33 +1033,104 @@ fn extract_reasoning_from_value(val: &Value) -> Option<String> {
 }
 
 fn extract_model_selection(content: &str) -> Option<String> {
+    const OPEN_TAG: &str = "<USER_SETTINGS_CHANGE>";
+    const CLOSE_TAG: &str = "</USER_SETTINGS_CHANGE>";
+
+    if content.contains(OPEN_TAG) {
+        let mut cursor = 0;
+        let mut latest = None;
+        while let Some(rel_start) = content[cursor..].find(OPEN_TAG) {
+            let block_start = cursor + rel_start + OPEN_TAG.len();
+            let (block, next_cursor) = match content[block_start..].find(CLOSE_TAG) {
+                Some(rel_end) => (
+                    &content[block_start..block_start + rel_end],
+                    block_start + rel_end + CLOSE_TAG.len(),
+                ),
+                None => (&content[block_start..], content.len()),
+            };
+            if let Some(model) = extract_model_selection_from_slice(block) {
+                latest = Some(model);
+            }
+            cursor = next_cursor;
+        }
+        return latest;
+    }
+
+    if content.contains("<USER_REQUEST>") {
+        return None;
+    }
+
+    extract_model_selection_from_slice(content)
+}
+
+fn extract_model_selection_from_slice(scope: &str) -> Option<String> {
     let key = "Model Selection`";
-    let start = content.find(key)?;
-    let rest = &content[start + key.len()..];
+    let start = scope.find(key)?;
+    let rest = &scope[start + key.len()..];
     let to_idx = rest.find(" to ")?;
     let rest_to = rest[to_idx + 4..].trim_start();
-    let end = rest_to
-        .find(". ")
-        .or_else(|| rest_to.find(".\n"))
-        .or_else(|| rest_to.find(".\r"))
-        .or_else(|| rest_to.find('\n'))
-        .or_else(|| rest_to.find('<'))
-        .unwrap_or(rest_to.len());
-    let raw_model = rest_to[..end].trim();
+    let end = [
+        rest_to.find(". "),
+        rest_to.find(".\n"),
+        rest_to.find(".\r"),
+        rest_to.find('\n'),
+        rest_to.find('\r'),
+        rest_to.find('<'),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
+    .unwrap_or(rest_to.len());
+    let raw_model = rest_to[..end]
+        .trim()
+        .trim_end_matches('.')
+        .trim_matches(|c: char| c == '`' || c == '"' || c == '\'')
+        .trim();
     if raw_model.is_empty() || raw_model == "None" {
         return None;
     }
-    let model = if let Some((base, _)) = raw_model.split_once('(') {
-        base.trim()
-    } else {
-        raw_model
-    };
-    let model = model.trim_matches(|c: char| c == '`' || c == '"' || c == '\'');
-    if !model.is_empty() {
+    let model = strip_model_effort_suffix(raw_model)
+        .trim_matches(|c: char| c == '`' || c == '"' || c == '\'')
+        .trim();
+    if !model.is_empty() && model != "None" {
         Some(model.to_string())
     } else {
         None
     }
+}
+
+fn strip_model_effort_suffix(raw: &str) -> &str {
+    let mut current = raw.trim();
+    while let Some(without_close) = current.strip_suffix(')') {
+        let Some(open_idx) = without_close.rfind('(') else {
+            break;
+        };
+        let qualifier = without_close[open_idx + 1..].trim();
+        let base = without_close[..open_idx].trim();
+        if !base.is_empty() && is_model_effort_qualifier(qualifier) {
+            current = base;
+        } else {
+            break;
+        }
+    }
+    current
+}
+
+fn is_model_effort_qualifier(tag: &str) -> bool {
+    matches!(
+        tag.trim().to_ascii_lowercase().as_str(),
+        "low"
+            | "medium"
+            | "high"
+            | "minimal"
+            | "max"
+            | "xhigh"
+            | "extra high"
+            | "thinking"
+            | "fast"
+            | "default"
+            | "auto"
+    )
 }
 
 fn extract_conversation_id_from_generic(content: &str) -> Option<String> {
@@ -1042,6 +1148,61 @@ fn extract_conversation_id_from_generic(content: &str) -> Option<String> {
     }
 }
 
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn percent_decode_uri(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2]))
+        {
+            out.push((hi << 4) | lo);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+pub(crate) fn metadata_from_file_uri(uri: &str) -> Option<ParsedEvent> {
+    let trimmed = uri.trim();
+    if !trimmed.starts_with("file://") {
+        return None;
+    }
+    let stripped = trimmed
+        .strip_prefix("file:///")
+        .or_else(|| trimmed.strip_prefix("file://"))?;
+    let decoded = percent_decode_uri(stripped).replace('/', "\\");
+    if decoded.is_empty() {
+        return None;
+    }
+    detect_project_root_with_hint(&decoded, true)
+        .map(|(project, cwd)| ParsedEvent::SessionMetadata { project, cwd })
+}
+
+pub(crate) fn metadata_from_workspace_uris_json(raw: &str) -> Option<ParsedEvent> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(uris) = serde_json::from_str::<Vec<String>>(trimmed) {
+        return uris.iter().find_map(|uri| metadata_from_file_uri(uri));
+    }
+    metadata_from_file_uri(trimmed)
+}
+
 fn extract_metadata_from_workspace_uris(content: &str) -> Option<ParsedEvent> {
     let key = "workspaceUris";
     let start = content.find(key)?;
@@ -1050,9 +1211,7 @@ fn extract_metadata_from_workspace_uris(content: &str) -> Option<ParsedEvent> {
     let rest_uri = &rest[uri_start..];
     let uri_end = rest_uri.find('"')?;
     let uri = &rest_uri[..uri_end];
-    let s = uri.strip_prefix("file:///").unwrap_or(uri);
-    let s = s.replace("%3A", ":").replace("%3a", ":").replace('/', "\\");
-    detect_project_root(&s).map(|(project, cwd)| ParsedEvent::SessionMetadata { project, cwd })
+    metadata_from_file_uri(uri)
 }
 
 fn extract_antigravity_agent_from_content(content: &str) -> Option<String> {
@@ -1522,5 +1681,144 @@ mod tests {
             project: "Discodex".to_string(),
             cwd: r"c:\Users\PC\Documents\Discodex".to_string(),
         }));
+    }
+
+    #[test]
+    fn antigravity_v2_file_tools_extract_project_and_file_basename() {
+        for (tool_name, expected_label) in [
+            ("read_file", "Reading project files"),
+            ("edit_file", "Editing files"),
+            ("write_file", "Editing files"),
+        ] {
+            let line = serde_json::json!({
+                "step_index": 1,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "created_at": "2026-11-19T07:30:20Z",
+                "tool_calls": [{
+                    "name": tool_name,
+                    "arguments": {
+                        "Path": "\"C:\\\\Users\\\\PC\\\\Documents\\\\Discodex\\\\src\\\\events.rs\""
+                    }
+                }]
+            })
+            .to_string();
+            let events = parse_line_for(Provider::Antigravity, &line);
+            assert!(events.contains(&ParsedEvent::SessionMetadata {
+                project: "Discodex".to_string(),
+                cwd: r"C:\Users\PC\Documents\Discodex".to_string(),
+            }));
+            assert!(events.contains(&ParsedEvent::ToolStarted {
+                activity: ToolActivity {
+                    label: expected_label.to_string(),
+                    file: Some("events.rs".to_string()),
+                    language: Some("Rust".to_string()),
+                }
+            }));
+        }
+    }
+
+    #[test]
+    fn antigravity_ignores_internal_and_dependency_paths() {
+        for path in [
+            r"C:\Users\PC\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\autocfg-1.5.1\src\lib.rs",
+            r"C:\Users\PC\Documents\Discodex\node_modules\pkg\index.js",
+            r"C:\Users\PC\.gemini\antigravity\brain\123\scratch\test.rs",
+        ] {
+            assert_eq!(detect_project_root(path), None, "path={path}");
+            let line = serde_json::json!({
+                "step_index": 1,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "tool_calls": [{
+                    "name": "read_file",
+                    "arguments": { "Path": path }
+                }]
+            })
+            .to_string();
+            let events = parse_line_for(Provider::Antigravity, &line);
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, ParsedEvent::SessionMetadata { .. })),
+                "unexpected SessionMetadata for {path}: {events:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_model_variant_suffixes_and_ignores_prompt_spoofing() {
+        let cases = [
+            ("Orchestrator (Neon)", "Orchestrator (Neon)"),
+            ("Orchestrator (Argon)", "Orchestrator (Argon)"),
+            ("Orchestrator (Neon) (High)", "Orchestrator (Neon)"),
+            ("Gemini 4 Neon (High)", "Gemini 4 Neon"),
+            ("Claude Opus 4.6 (Thinking)", "Claude Opus 4.6"),
+        ];
+        for (raw, expected) in cases {
+            let line = serde_json::json!({
+                "step_index": 0,
+                "source": "USER_EXPLICIT",
+                "type": "USER_INPUT",
+                "status": "DONE",
+                "created_at": "2026-11-19T07:30:12Z",
+                "content": format!(
+                    "<USER_REQUEST>\nhi\n</USER_REQUEST>\n<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to {raw}. No need to comment.\n</USER_SETTINGS_CHANGE>"
+                )
+            })
+            .to_string();
+            let events = parse_line_for(Provider::Antigravity, &line);
+            assert!(
+                events.contains(&ParsedEvent::AgentDetected {
+                    agent: expected.to_string(),
+                }),
+                "raw={raw}, events={events:?}"
+            );
+        }
+
+        let spoofed = serde_json::json!({
+            "step_index": 0,
+            "source": "USER_EXPLICIT",
+            "type": "USER_INPUT",
+            "status": "DONE",
+            "created_at": "2026-11-19T07:30:12Z",
+            "content": "<USER_REQUEST>\nThe user changed setting `Model Selection` from None to FakeModel (Neon).\n</USER_REQUEST>"
+        })
+        .to_string();
+        let events = parse_line_for(Provider::Antigravity, &spoofed);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, ParsedEvent::AgentDetected { .. })),
+            "prompt text must not spoof AgentDetected: {events:?}"
+        );
+    }
+
+    #[test]
+    fn parses_workspace_uris_json_with_percent_encoding_and_dotted_dirs() {
+        assert_eq!(
+            metadata_from_workspace_uris_json(r#"["file:///Z:/nonexistent/My%20Project"]"#),
+            Some(ParsedEvent::SessionMetadata {
+                project: "My Project".to_string(),
+                cwd: r"Z:\nonexistent\My Project".to_string(),
+            })
+        );
+        assert_eq!(
+            metadata_from_workspace_uris_json(r#"["file:///C:/Users/PC/Documents/demo"]"#),
+            Some(ParsedEvent::SessionMetadata {
+                project: "demo".to_string(),
+                cwd: r"C:\Users\PC\Documents\demo".to_string(),
+            })
+        );
+        assert_eq!(
+            metadata_from_workspace_uris_json(r#"["file:///Z:/nonexistent/my.app"]"#),
+            Some(ParsedEvent::SessionMetadata {
+                project: "my.app".to_string(),
+                cwd: r"Z:\nonexistent\my.app".to_string(),
+            })
+        );
+        assert_eq!(metadata_from_workspace_uris_json(""), None);
     }
 }
