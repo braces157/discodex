@@ -1,40 +1,77 @@
-# Discodex
+<div align="center">
+  <img src="site/assets/discodex-256.png" alt="Discodex logo" width="88" height="88" />
+  <h1>Discodex</h1>
+  <p><strong>Native Windows Discord Rich Presence &amp; local usage analytics for AI coding tools.</strong></p>
 
-**Discord Rich Presence for the AI tools you actually use.**
+  <p>
+    <a href="https://github.com/braces157/discodex/actions/workflows/ci.yml"><img src="https://github.com/braces157/discodex/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+    <a href="https://github.com/braces157/discodex/releases/latest"><img src="https://img.shields.io/github/v/release/braces157/discodex?color=c5e86c&labelColor=232820" alt="Latest Release" /></a>
+    <a href="https://braces157.github.io/discodex/"><img src="https://img.shields.io/badge/website-live-232820?labelColor=232820&color=c5e86c" alt="Website" /></a>
+    <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows11&logoColor=white" alt="Windows 10 / 11" />
+    <img src="https://img.shields.io/badge/rust-1.89%2B-000000?logo=rust&logoColor=white" alt="Rust 1.89+" />
+  </p>
 
-[![CI](https://github.com/braces157/discodex/actions/workflows/ci.yml/badge.svg)](https://github.com/braces157/discodex/actions/workflows/ci.yml)
-[![Windows](https://img.shields.io/badge/platform-Windows-0078D4?logo=windows11&logoColor=white)](https://github.com/braces157/discodex)
-[![Rust](https://img.shields.io/badge/built%20with-Rust-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+  <p>
+    <a href="#highlights">Highlights</a> &middot;
+    <a href="#usage-dashboard">Usage Dashboard</a> &middot;
+    <a href="#provider-support">Providers</a> &middot;
+    <a href="#installation">Install</a> &middot;
+    <a href="#privacy">Privacy</a> &middot;
+    <a href="#documentation">Docs</a>
+  </p>
+</div>
 
-Discodex is a lightweight Windows tray application that mirrors AI activity into Discord Rich Presence. It combines privacy-conscious session tracking for supported coding agents with focused-app detection for popular AI apps and editors.
+---
 
-It runs quietly in the notification area and reconnects to Discord automatically. Normal activity excludes prompts, responses, raw commands, full paths, tool output, and window titles. Reasoning headings require explicit opt-in and can contain private information.
+Discodex is a single-binary Windows tray application written in Rust that turns local AI coding activity into **Discord Rich Presence** and tracks **local model usage, cache hit rates, and API cost estimates** across 16 harnesses—without accounts, cloud sync, Electron, or telemetry.
+
+It runs quietly in the notification area, recovers automatically when Discord or Explorer restarts, and enforces a strict local privacy boundary: normal activity never sends prompts, responses, raw commands, full paths, tool output, window titles, or usage totals to Discord.
 
 ## Highlights
 
-- **Multi-provider support** — Codex, Claude Code, ChatGPT, Claude, Gemini, Cursor, Windsurf, GitHub Copilot, Cline, Roo Code, Continue, Perplexity, Poe, OpenCode, and more.
-- **Rich coding activity** — supported session adapters can show the project, language/framework, current file basename, normalized tool activity, phase, and elapsed time.
-- **One mark per harness** — 30 provider logos are rebuilt to a single 512px plate and served from this repository, so a Discord profile reads as one set instead of 30 mismatched hotlinks.
-- **Broad fallback detection** — focused applications, browser tabs, and IDE panels can still produce useful provider presence when no stable session format is available.
-- **Privacy-first design** — sensitive conversation and tool content is deliberately excluded from Discord payloads.
-- **Native Windows tray app** — no browser server, account system, Electron runtime, or background web service.
-- **Automatic Discord reconnection** — presence recovers when Discord starts or restarts.
-- **Windows startup toggle** — enable or disable launch-at-login directly from the tray menu.
+| Capability | What it does |
+| --- | --- |
+| **39 provider targets** | Combines **21 rich session adapters** (project, language, current file basename, phase, elapsed time), **17 focused-app fallbacks**, and **1 activity-only adapter**. |
+| **Native GPUI usage popup** | Click the tray icon for local token counts, logged calls, cache hit rates, daily charts, period &amp; provider filters, and base-rate API cost estimates across **16 harnesses**. |
+| **Privacy by design** | Strips conversation content, paths, commands, and tool output before anything reaches local Discord IPC. Reasoning headings require explicit opt-in. |
+| **Unified provider artwork** | 30 provider marks rebuilt onto a consistent 512px plate and hosted from this repository—no mismatched external hotlinks. |
+| **Zero-dependency footprint** | Single native Windows `.exe` with automatic Discord reconnection, Explorer tray recovery, startup toggle, and CLI lifecycle controls. |
+| **Built-in diagnostics** | One-click local snapshot of detected providers, store access, watcher state, and Discord connection health without exposing paths or session contents. |
 
-## Provider support
+## Usage Dashboard
 
-Discodex uses two detection layers. Rich session tracking has the most detail; focused-app detection provides broad compatibility without parsing conversations.
+Click the Discodex tray icon—or run `discodex --usage` standalone—to open a compact native **GPUI** popup tracking local usage across **16 harnesses**:
 
-| Provider | Detection | Detail level |
+> **Codex** (including `.jsonl.zst` archives) &middot; **Claude Code** &middot; **Google Antigravity** &middot; **DeepSeek Harness** &middot; **Gemini CLI** &middot; **Qwen Code** &middot; **OpenCode** &middot; **Kilo Code** &middot; **Factory Droid** &middot; **GitHub Copilot CLI** &middot; **Junie** &middot; **Cline** &middot; **Roo Code** &middot; **Zed** &middot; **Crush** &middot; **Aider**
+
+- **Normalized totals:** Cached input and reasoning output are normalized to inclusive totals once across every store format (JSONL, Zstandard, JSON, Markdown, SQLite + `-wal`) so subsets are never double-counted.
+- **Interactive filters &amp; charts:** Filter summary cards, daily bar charts (`Tokens`, `Cost`, `Calls`), and model/effort rows by time period (`Today`, `7d`, `30d`, `All`) and by provider.
+- **Automatic official pricing:** Bundles a Standard API base-rate catalog (checked `2026-11-19`) covering OpenAI, Claude, Google Gemini, DeepSeek, and Qwen, with per-provider/model overrides in `%APPDATA%\Discodex\usage-rates.toml`.
+- **100% local:** Opens no network listener, makes no API calls, and never sends usage totals or costs to Discord.
+
+See [docs/USAGE.md](docs/USAGE.md) for full details on storage schemas, pricing sources, normalization rules, and custom rate overrides.
+
+## Provider Support
+
+Discodex pairs **rich local session adapters** (reading structured local logs and SQLite stores) with **focused-app detection** for broad compatibility across editors, terminals, and web apps.
+
+- **21 Rich session adapters:** OpenAI Codex, Claude Code, Google Antigravity, DeepSeek Harness, Gemini CLI, Qwen Code, GitHub Copilot CLI, Factory Droid, Kiro, Cursor, Windsurf / Cascade, Junie (JetBrains), Aider, Cline, Roo Code, Continue, Block Goose, Charm Crush, OpenCode, Zed, Kilo Code.
+- **17 Focused-app targets:** ChatGPT, Claude, Google Gemini, Cursor, Windsurf, Trae, Kiro, Zed AI, OpenCode, Aider, GitHub Copilot, Cline, Roo Code, Continue, Perplexity, Microsoft Copilot, Poe.
+- **1 Activity-only adapter:** Sourcegraph Amp.
+
+<details>
+<summary><strong>View full 39-target provider matrix</strong></summary>
+
+| Provider | Detection source | Detail level |
 | --- | --- | --- |
-| OpenAI Codex | Local session JSONL | Rich |
+| OpenAI Codex | Local session JSONL / `.jsonl.zst` | Rich |
 | Claude Code | Local session JSONL | Rich |
 | Google Antigravity | Local session JSONL | Rich |
 | DeepSeek Harness | Local JSONL / Zstandard session logs | Rich |
-| Gemini CLI | Local JSONL session logs | Rich |
+| Gemini CLI | Local JSON / JSONL session logs | Rich |
 | Qwen Code | Local JSONL session logs | Rich |
 | GitHub Copilot CLI | Local JSONL session events | Rich |
-| Factory Droid | Local JSONL session logs | Rich |
+| Factory Droid | Local JSONL / settings session logs | Rich |
 | Kiro | Local JSONL session transcripts | Rich |
 | Cursor | Local JSONL agent transcripts | Rich |
 | Windsurf / Cascade | Local JSONL transcripts | Rich |
@@ -49,47 +86,45 @@ Discodex uses two detection layers. Rich session tracking has the most detail; f
 | Zed | Local SQLite thread database | Rich |
 | Kilo Code | Local SQLite session database | Rich |
 | Sourcegraph Amp | Local JSONL thread log | Activity only |
-| ChatGPT | Focused app/window | Standard |
-| Claude | Focused app/window | Standard |
-| Google Gemini | Focused app/window | Standard |
-| Cursor | Focused app/window | Standard |
-| Windsurf | Focused app/window | Standard |
-| Trae | Focused app/window | Standard |
-| Kiro | Focused app/window | Standard |
-| Zed AI | Focused app/window | Standard |
-| OpenCode | Focused app/window | Standard |
-| Aider | Focused app/window | Standard |
-| GitHub Copilot | Focused app/window | Standard |
-| Cline | Focused app/window | Standard |
-| Roo Code | Focused app/window | Standard |
-| Continue | Focused app/window | Standard |
-| Perplexity | Focused app/window | Standard |
-| Microsoft Copilot | Focused app/window | Standard |
-| Poe | Focused app/window | Standard |
+| ChatGPT | Focused app / window | Standard |
+| Claude | Focused app / window | Standard |
+| Google Gemini | Focused app / window | Standard |
+| Cursor | Focused app / window | Standard |
+| Windsurf | Focused app / window | Standard |
+| Trae | Focused app / window | Standard |
+| Kiro | Focused app / window | Standard |
+| Zed AI | Focused app / window | Standard |
+| OpenCode | Focused app / window | Standard |
+| Aider | Focused app / window | Standard |
+| GitHub Copilot | Focused app / window | Standard |
+| Cline | Focused app / window | Standard |
+| Roo Code | Focused app / window | Standard |
+| Continue | Focused app / window | Standard |
+| Perplexity | Focused app / window | Standard |
+| Microsoft Copilot | Focused app / window | Standard |
+| Poe | Focused app / window | Standard |
 
-See [Provider support](docs/PROVIDERS.md) for how each detection mode works and what data it exposes, and [Provider artwork](docs/ARTWORK.md) for the mark set and how to rebuild it.
+</details>
 
-## Install
+See [docs/PROVIDERS.md](docs/PROVIDERS.md) for detection internals and [docs/ARTWORK.md](docs/ARTWORK.md) for the provider artwork pipeline.
 
-### Download a release
+## Installation
 
-1. Open the [latest release](https://github.com/braces157/discodex/releases/latest).
-2. Download `discodex.exe`.
-3. Run it. Discodex appears in the Windows notification area.
-4. Keep Discord Desktop running. Discodex reconnects automatically if Discord starts later.
+### Download a release (recommended)
 
-No installer is required. Only one Discodex process runs per Windows session.
+1. Download `discodex.exe` from the [latest GitHub release](https://github.com/braces157/discodex/releases/latest).
+2. Run `discodex.exe`—no installer required. Discodex creates its config automatically and settles into the Windows tray.
+3. Keep Discord Desktop running; Discodex connects and reconnects automatically.
+
+Only one Discodex tray instance runs per Windows session.
 
 ### Build from source
 
-Requirements:
-
+**Requirements:**
 - Windows 10 or Windows 11
-- Rust 1.89 or newer
-- Windows SDK shader compiler `fxc.exe`, available on `PATH` or through `GPUI_FXC_PATH`
+- Rust **1.89** or newer
+- Windows SDK shader compiler `fxc.exe` on `PATH` or via `GPUI_FXC_PATH` *(if `where.exe fxc.exe` returns multiple paths, set `GPUI_FXC_PATH` to a single full executable path—GPUI 0.2.2 otherwise treats combined output as one executable)*
 - Discord Desktop for Rich Presence output
-
-If `where.exe fxc.exe` returns multiple paths, set `GPUI_FXC_PATH` to the full path of one compiler. GPUI 0.2.2 otherwise treats the combined paths as one executable.
 
 ```powershell
 git clone https://github.com/braces157/discodex.git
@@ -98,41 +133,32 @@ cargo test
 cargo build --release
 ```
 
-The executable is written to `target\release\discodex.exe`.
-
-For a custom Discord application ID:
+The release binary is written to `target\release\discodex.exe`. To embed a custom Discord application ID at build time:
 
 ```powershell
 $env:DISCODEX_DISCORD_APPLICATION_ID = "YOUR_APPLICATION_ID"
 cargo build --release
 ```
 
-## Tray controls
+### CLI &amp; lifecycle management
 
-Right-click the Discodex tray icon to access:
+```powershell
+discodex --usage          # Open the GPUI Usage Dashboard standalone
+discodex --diagnostics    # Print a standalone local diagnostics snapshot
+discodex --restart        # Cleanly restart (alias: --replace)
+discodex --quit           # Stop the running tray instance (alias: --stop)
+```
 
-- **Presence Enabled** — globally enable or disable Discord presence.
-- **Status** — see the current provider/project state.
-- **Test Presence** — publish a short test activity.
-- **Detect focused AI apps** — toggle the broad app/browser/IDE fallback detector.
-- **Start with Windows** — launch Discodex when you sign in.
-- **Share reasoning** opts in to publishing extracted reasoning headings. These headings can contain private text.
-- **Show project names** and **Show file names** control names in Discord, tray status, and presence logs.
-- **Diagnostics** opens a local snapshot of detected providers, session access, last activity, filesystem monitoring, and Discord connection state.
-- **Usage Dashboard** opens the GPUI popup for model usage and API cost estimates.
-- **Open Config** — edit the runtime TOML configuration.
-- **Restart** — cleanly restart Discodex.
-- **Exit** — stop Discodex and clear the current activity.
+You can also manage local builds and installs with `tools/discodex.ps1`:
+- `start | stop | restart | status` — control the tray process
+- `deploy` — build and install from a checkout
+- `install` — configure Start Menu and `PATH` integration for an installed binary
 
-From a terminal, you can also run `discodex --quit` (or `--stop`), `discodex --restart` (or `--replace`), or manage the app with `tools/discodex.ps1` (`start | stop | restart | status`, `deploy` to build and install from a checkout, and `install` to configure Start Menu and `PATH` integration for a binary already present in the install directory).
+## Tray Controls &amp; Configuration
 
-## Usage dashboard
+Right-click the tray icon to toggle presence, focused-app fallback, startup with Windows, privacy switches (**Share reasoning**, **Show project names**, **Show file names**), **Usage Dashboard**, **Diagnostics**, **Open Config**, **Restart**, and **Exit**.
 
-Click the tray icon for a compact GPUI popup tracking local model usage, reasoning effort, tokens, task time, and automatic API price estimates across Codex (including `.jsonl.zst` archives), Claude Code, Google Antigravity, DeepSeek Harness, Gemini CLI, Qwen Code, OpenCode, Kilo Code, Factory Droid, Copilot CLI, Junie, Cline, Roo Code, Zed, Crush, and Aider. It includes real time-period filters, provider filters, charts, and model rows. Run `cargo run --release -- --usage` to open it independently of Discord presence. See [Track model usage](docs/USAGE.md) for pricing sources, coverage, custom rates, and Windows SDK build requirements.
-
-## Configuration
-
-Discodex creates `%APPDATA%\Discodex\config.toml` automatically:
+Configuration lives at `%APPDATA%\Discodex\config.toml`:
 
 ```toml
 discord_application_id = ""
@@ -146,44 +172,44 @@ show_project_names = true
 show_file_names = true
 ```
 
-Reasoning sharing is off by default, including when upgrading an existing configuration. Project and file names remain visible by default. Hiding either kind of name also suppresses reasoning because headings can repeat those names. Language, normalized tool activity, provider, and elapsed time remain visible.
+- `share_reasoning` is **off by default** (including across upgrades).
+- Hiding project or file names also suppresses opted-in reasoning headings so names cannot leak indirectly.
+- Setting `discord_application_id` overrides the build-time default; leave it empty to use the embedded ID.
 
-Diagnostics opens `%APPDATA%\Discodex\diagnostics.txt` in Notepad. It is a snapshot taken when you select the menu item. Reopen it to refresh. The report omits source paths and conversation content. A readable store does not prove that its schema is supported. The report distinguishes missing sources, access problems, and no recognized events.
-
-Run `cargo run -- --diagnostics` for a standalone diagnostic snapshot. This mode does not start the tray, change startup settings, or connect to Discord. Use the tray report to inspect the running Discord connection.
-
-The runtime `discord_application_id` overrides the application ID embedded at build time. Leave it empty to use the embedded default.
-
-See [Configuration](docs/CONFIGURATION.md) for every setting and build-time behavior.
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for every setting.
 
 ## Privacy
 
-Discodex is intentionally conservative about what reaches Discord.
+Discodex enforces a strict boundary between local session inspection and what reaches local Discord IPC:
 
-**May be sent:** provider name, visible workspace and file names, inferred language/framework, normalized activity label, phase, and task start time. Reasoning headings are sent only after explicit opt-in and can contain private text.
+| May be sent to Discord | Never leaves your machine |
+| --- | --- |
+| Provider name &amp; artwork | Prompts &amp; assistant responses |
+| Workspace folder name *(toggleable)* | Full file paths &amp; environment variables |
+| Current file basename *(toggleable)* | Raw shell commands, tool args &amp; tool output |
+| Inferred language / framework | Window titles &amp; browser URLs |
+| Normalized activity label, phase &amp; elapsed time | Session contents &amp; account identifiers |
+| Opted-in reasoning heading *(off by default)* | Usage totals, token counts &amp; API cost estimates |
 
-**Excluded from normal activity:** prompts, assistant responses, full file paths, raw shell commands, tool arguments, tool output, session contents, and window titles. Opted-in reasoning headings are provider-authored text and can repeat private information.
-
-Focused-app detection checks executable names and known product names in the active window title locally. The title itself is neither stored nor included in Rich Presence.
-
-Read the full [Privacy model](docs/PRIVACY.md).
+Read the full privacy model in [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Documentation
 
-- [Installation](docs/INSTALLATION.md)
-- [Configuration](docs/CONFIGURATION.md)
-- [Provider support](docs/PROVIDERS.md)
-- [Provider artwork](docs/ARTWORK.md)
-- [Privacy model](docs/PRIVACY.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security](SECURITY.md)
-- [Changelog](CHANGELOG.md)
+| Guide | Topic |
+| --- | --- |
+| [docs/USAGE.md](docs/USAGE.md) | GPUI usage dashboard, 16 harnesses, normalization, pricing catalog &amp; overrides |
+| [docs/PROVIDERS.md](docs/PROVIDERS.md) | Rich session adapters vs. focused-app detection across all 39 targets |
+| [docs/PRIVACY.md](docs/PRIVACY.md) | Data boundary, opt-in controls, and threat model |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Runtime TOML settings, environment variables, and diagnostics |
+| [docs/INSTALLATION.md](docs/INSTALLATION.md) | Release installation, Windows startup, and building from source |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crate layout, ingestion, scheduling, and Discord IPC flow |
+| [docs/ARTWORK.md](docs/ARTWORK.md) | 512px provider mark set and rebuild pipeline |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common Discord IPC, tray, and build issues |
+| [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md) | Contributing guidelines, security policy, and release history |
 
 ## Development
 
-Run the same checks used by CI before opening a pull request:
+Run the full CI verification suite locally before opening a pull request:
 
 ```powershell
 cargo fmt --check
@@ -191,10 +217,3 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo build --release
 ```
-
-The project is intentionally small and native. Provider parsing lives separately from Discord publishing so new detection adapters can be added without weakening the privacy boundary.
-
-## Project status
-
-Discodex is an early project. Provider storage formats and application window behavior can change upstream, so rich adapters may need maintenance over time. Focused-app detection is designed as the compatibility fallback when a provider does not expose a stable local activity format.
-
