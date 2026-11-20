@@ -487,5 +487,262 @@
     }
   });
 
+  var usageDemo = document.getElementById("usageDemo");
+  if (usageDemo) {
+    var usageData = {
+      all: {
+        label: "Across 5 harnesses",
+        models: [
+          { model: "gpt-5.4", provider: "Codex", effort: "high", tokens: 6420000, inTokens: 5820000, cached: 4540000, outTokens: 600000, cost: 7.42, calls: 158, time: "1h 48m" },
+          { model: "claude-sonnet-4-5", provider: "Claude Code", effort: "medium", tokens: 3880000, inTokens: 3510000, cached: 2740000, outTokens: 370000, cost: 5.84, calls: 112, time: "—" },
+          { model: "gemini-3.1-pro", provider: "Antigravity", effort: "high", tokens: 2340000, inTokens: 2120000, cached: 1580000, outTokens: 220000, cost: 2.91, calls: 74, time: "—" },
+          { model: "gemini-2.5-pro", provider: "Gemini CLI", effort: "", tokens: 1210000, inTokens: 1090000, cached: 790000, outTokens: 120000, cost: 1.38, calls: 41, time: "—" },
+          { model: "qwen4-max", provider: "OpenCode", effort: "", tokens: 950000, inTokens: 860000, cached: 580000, outTokens: 90000, cost: 0.87, calls: 27, time: "—" }
+        ],
+        daily: [
+          { day: "Thu", tokens: 1620000, cost: 2.04, calls: 46 },
+          { day: "Fri", tokens: 2480000, cost: 3.12, calls: 69 },
+          { day: "Sat", tokens: 1190000, cost: 1.44, calls: 34 },
+          { day: "Sun", tokens: 1840000, cost: 2.28, calls: 51 },
+          { day: "Mon", tokens: 2940000, cost: 3.68, calls: 82 },
+          { day: "Tue", tokens: 2610000, cost: 3.24, calls: 72 },
+          { day: "Wed", tokens: 2120000, cost: 2.62, calls: 58 }
+        ]
+      },
+      codex: {
+        label: "OpenAI Codex (.jsonl & .zst)",
+        models: [
+          { model: "gpt-5.4", provider: "Codex", effort: "high", tokens: 4920000, inTokens: 4460000, cached: 3520000, outTokens: 460000, cost: 5.68, calls: 114, time: "1h 24m" },
+          { model: "gpt-5.4-mini", provider: "Codex", effort: "medium", tokens: 1500000, inTokens: 1360000, cached: 1020000, outTokens: 140000, cost: 1.74, calls: 44, time: "24m" }
+        ],
+        daily: [
+          { day: "Thu", tokens: 710000, cost: 0.82, calls: 18 },
+          { day: "Fri", tokens: 1120000, cost: 1.29, calls: 28 },
+          { day: "Sat", tokens: 520000, cost: 0.60, calls: 13 },
+          { day: "Sun", tokens: 790000, cost: 0.91, calls: 19 },
+          { day: "Mon", tokens: 1290000, cost: 1.49, calls: 32 },
+          { day: "Tue", tokens: 1080000, cost: 1.25, calls: 26 },
+          { day: "Wed", tokens: 910000, cost: 1.06, calls: 22 }
+        ]
+      },
+      "claude-code": {
+        label: "Claude Code (inclusive cache)",
+        models: [
+          { model: "claude-sonnet-4-5", provider: "Claude Code", effort: "medium", tokens: 2910000, inTokens: 2640000, cached: 2090000, outTokens: 270000, cost: 4.18, calls: 84, time: "—" },
+          { model: "claude-opus-4-6", provider: "Claude Code", effort: "high", tokens: 970000, inTokens: 870000, cached: 650000, outTokens: 100000, cost: 1.66, calls: 28, time: "—" }
+        ],
+        daily: [
+          { day: "Thu", tokens: 420000, cost: 0.64, calls: 12 },
+          { day: "Fri", tokens: 650000, cost: 0.98, calls: 19 },
+          { day: "Sat", tokens: 310000, cost: 0.46, calls: 9 },
+          { day: "Sun", tokens: 490000, cost: 0.74, calls: 14 },
+          { day: "Mon", tokens: 780000, cost: 1.18, calls: 22 },
+          { day: "Tue", tokens: 690000, cost: 1.03, calls: 20 },
+          { day: "Wed", tokens: 540000, cost: 0.81, calls: 16 }
+        ]
+      },
+      antigravity: {
+        label: "Google Antigravity",
+        models: [
+          { model: "gemini-3.1-pro", provider: "Antigravity", effort: "high", tokens: 1820000, inTokens: 1650000, cached: 1240000, outTokens: 170000, cost: 2.32, calls: 56, time: "—" },
+          { model: "gemini-3-flash", provider: "Antigravity", effort: "", tokens: 520000, inTokens: 470000, cached: 340000, outTokens: 50000, cost: 0.59, calls: 18, time: "—" }
+        ],
+        daily: [
+          { day: "Thu", tokens: 260000, cost: 0.32, calls: 8 },
+          { day: "Fri", tokens: 380000, cost: 0.47, calls: 12 },
+          { day: "Sat", tokens: 190000, cost: 0.24, calls: 6 },
+          { day: "Sun", tokens: 310000, cost: 0.38, calls: 10 },
+          { day: "Mon", tokens: 460000, cost: 0.57, calls: 15 },
+          { day: "Tue", tokens: 410000, cost: 0.51, calls: 13 },
+          { day: "Wed", tokens: 330000, cost: 0.42, calls: 10 }
+        ]
+      },
+      "gemini-cli": {
+        label: "Gemini CLI",
+        models: [
+          { model: "gemini-2.5-pro", provider: "Gemini CLI", effort: "", tokens: 1210000, inTokens: 1090000, cached: 790000, outTokens: 120000, cost: 1.38, calls: 41, time: "—" }
+        ],
+        daily: [
+          { day: "Thu", tokens: 130000, cost: 0.15, calls: 4 },
+          { day: "Fri", tokens: 190000, cost: 0.22, calls: 6 },
+          { day: "Sat", tokens: 100000, cost: 0.11, calls: 4 },
+          { day: "Sun", tokens: 150000, cost: 0.17, calls: 5 },
+          { day: "Mon", tokens: 240000, cost: 0.27, calls: 8 },
+          { day: "Tue", tokens: 220000, cost: 0.25, calls: 8 },
+          { day: "Wed", tokens: 180000, cost: 0.21, calls: 6 }
+        ]
+      },
+      opencode: {
+        label: "OpenCode (SQLite + WAL)",
+        models: [
+          { model: "qwen4-max", provider: "OpenCode", effort: "", tokens: 950000, inTokens: 860000, cached: 580000, outTokens: 90000, cost: 0.87, calls: 27, time: "—" }
+        ],
+        daily: [
+          { day: "Thu", tokens: 100000, cost: 0.11, calls: 4 },
+          { day: "Fri", tokens: 140000, cost: 0.16, calls: 4 },
+          { day: "Sat", tokens: 70000, cost: 0.03, calls: 2 },
+          { day: "Sun", tokens: 100000, cost: 0.08, calls: 3 },
+          { day: "Mon", tokens: 170000, cost: 0.17, calls: 5 },
+          { day: "Tue", tokens: 210000, cost: 0.20, calls: 5 },
+          { day: "Wed", tokens: 160000, cost: 0.12, calls: 4 }
+        ]
+      }
+    };
+    var periodScale = { today: 0.18, "7d": 1, "30d": 3.8, all: 9.4 };
+    var currentPeriod = "7d";
+    var currentProvider = "all";
+    var currentMetric = "tokens";
+
+    var uTokens = document.getElementById("uTokens");
+    var uTokensSub = document.getElementById("uTokensSub");
+    var uCost = document.getElementById("uCost");
+    var uCalls = document.getElementById("uCalls");
+    var uCallsSub = document.getElementById("uCallsSub");
+    var uCache = document.getElementById("uCache");
+    var uCacheSub = document.getElementById("uCacheSub");
+    var uChartLabel = document.getElementById("uChartLabel");
+    var uBars = document.getElementById("uBars");
+    var uModelList = document.getElementById("uModelList");
+
+    function fmtTokens(n) {
+      if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+      if (n >= 1e3) return Math.round(n / 1e3) + "K";
+      return String(Math.round(n));
+    }
+    function fmtCost(n) {
+      return "~$" + (n >= 100 ? n.toFixed(0) : n.toFixed(2));
+    }
+
+    function renderUsageDemo() {
+      var scale = periodScale[currentPeriod] || 1;
+      var data = usageData[currentProvider] || usageData.all;
+      var totalTokens = 0, totalIn = 0, totalOut = 0, totalCached = 0, totalCost = 0, totalCalls = 0;
+      data.models.forEach(function (m) {
+        totalTokens += m.tokens * scale;
+        totalIn += m.inTokens * scale;
+        totalOut += m.outTokens * scale;
+        totalCached += m.cached * scale;
+        totalCost += m.cost * scale;
+        totalCalls += Math.max(1, Math.round(m.calls * scale));
+      });
+      var cachePct = totalIn > 0 ? (totalCached / totalIn) * 100 : 0;
+
+      uTokens.textContent = fmtTokens(totalTokens);
+      uTokensSub.textContent = fmtTokens(totalIn) + " in · " + fmtTokens(totalOut) + " out";
+      uCost.textContent = fmtCost(totalCost);
+      uCalls.textContent = String(totalCalls);
+      uCallsSub.textContent = data.label;
+      uCache.textContent = cachePct.toFixed(1) + "%";
+      uCacheSub.textContent = fmtTokens(totalCached) + " cached input";
+      uChartLabel.textContent = "DAILY ACTIVITY · " + currentMetric.toUpperCase();
+
+      var values = data.daily.map(function (d) {
+        var v = d[currentMetric] * scale;
+        return { day: d.day, val: currentMetric === "calls" ? Math.max(1, Math.round(v)) : v };
+      });
+      var maxVal = values.reduce(function (m, item) { return Math.max(m, item.val); }, 0) || 1;
+      uBars.textContent = "";
+      values.forEach(function (item) {
+        var col = document.createElement("div");
+        col.className = "usage-bar-col";
+        var valEl = document.createElement("span");
+        valEl.className = "usage-bar-val";
+        valEl.textContent = currentMetric === "tokens" ? fmtTokens(item.val) : currentMetric === "cost" ? "$" + item.val.toFixed(item.val >= 10 ? 0 : 2) : String(item.val);
+        var track = document.createElement("div");
+        track.className = "usage-bar-track";
+        var fill = document.createElement("div");
+        fill.className = "usage-bar-fill";
+        fill.style.height = Math.max(8, Math.round((item.val / maxVal) * 100)) + "%";
+        track.appendChild(fill);
+        var dayEl = document.createElement("span");
+        dayEl.className = "usage-bar-day";
+        dayEl.textContent = item.day;
+        col.appendChild(valEl);
+        col.appendChild(track);
+        col.appendChild(dayEl);
+        uBars.appendChild(col);
+      });
+
+      uModelList.textContent = "";
+      data.models.forEach(function (m) {
+        var li = document.createElement("li");
+        li.className = "usage-model-row";
+        var meta = document.createElement("div");
+        meta.className = "usage-model-meta";
+        var title = document.createElement("div");
+        title.className = "usage-model-title";
+        var strong = document.createElement("strong");
+        strong.textContent = m.model;
+        title.appendChild(strong);
+        if (currentProvider === "all") {
+          var pBadge = document.createElement("span");
+          pBadge.className = "usage-badge provider";
+          pBadge.textContent = m.provider;
+          title.appendChild(pBadge);
+        }
+        if (m.effort) {
+          var eBadge = document.createElement("span");
+          eBadge.className = "usage-badge";
+          eBadge.textContent = m.effort;
+          title.appendChild(eBadge);
+        }
+        var sub = document.createElement("span");
+        sub.className = "usage-model-sub";
+        sub.textContent = Math.max(1, Math.round(m.calls * scale)) + " calls · task time " + m.time;
+        meta.appendChild(title);
+        meta.appendChild(sub);
+
+        var nums = document.createElement("div");
+        nums.className = "usage-model-nums";
+        var tok = document.createElement("strong");
+        tok.textContent = fmtTokens(m.tokens * scale);
+        var cost = document.createElement("small");
+        cost.textContent = fmtCost(m.cost * scale);
+        nums.appendChild(tok);
+        nums.appendChild(cost);
+
+        li.appendChild(meta);
+        li.appendChild(nums);
+        uModelList.appendChild(li);
+      });
+    }
+
+    usageDemo.querySelectorAll("[data-period]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        currentPeriod = btn.dataset.period;
+        usageDemo.querySelectorAll("[data-period]").forEach(function (b) {
+          var active = b === btn;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        renderUsageDemo();
+      });
+    });
+    usageDemo.querySelectorAll("[data-uprovider]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        currentProvider = btn.dataset.uprovider;
+        usageDemo.querySelectorAll("[data-uprovider]").forEach(function (b) {
+          var active = b === btn;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        renderUsageDemo();
+      });
+    });
+    usageDemo.querySelectorAll("[data-metric]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        currentMetric = btn.dataset.metric;
+        usageDemo.querySelectorAll("[data-metric]").forEach(function (b) {
+          var active = b === btn;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-pressed", String(active));
+        });
+        renderUsageDemo();
+      });
+    });
+    renderUsageDemo();
+  }
+
   document.getElementById("year").textContent = String(new Date().getFullYear());
 })();
