@@ -1,11 +1,16 @@
 # Standard global API base rates in USD per million tokens.
 # OpenAI default cache writes are 30 minutes. GPT-5.5 and earlier use ordinary input pricing.
 # Claude default cache writes are 5 minutes. The 1-hour rate applies only to recorded TTL breakdowns.
-# Context, speed/service-tier, region and unrecorded write premiums are excluded.
+# Gemini and DeepSeek models have no separate cache-write fee in standard pricing.
+# Qwen standard international rates source: https://www.alibabacloud.com/help/en/model-studio/model-pricing
+# Qwen default cache writes use the standard 5-minute TTL rate when logs do not record TTL.
+# Context, speed/service-tier, time-of-day, region and unrecorded write premiums are excluded.
 # Snapshot aliases below were individually verified. Unknown IDs are never matched by prefix.
-checked_at = "2026-10-29"
+checked_at = "2026-11-19"
 openai_source = "https://developers.openai.com/api/docs/pricing"
 claude_source = "https://platform.claude.com/docs/en/about-claude/pricing"
+google_source = "https://ai.google.dev/gemini-api/docs/pricing"
+deepseek_source = "https://api-docs.deepseek.com/quick_start/pricing"
 
 [[rates]]
 provider = "codex"
@@ -102,6 +107,102 @@ input_per_million = 1.75
 cached_input_per_million = 0.175
 output_per_million = 14.0
 cache_write_per_million = 1.75
+
+[[rates]]
+provider = "codex"
+model = "gpt-5.4-mini"
+input_per_million = 0.75
+cached_input_per_million = 0.075
+output_per_million = 4.5
+cache_write_per_million = 0.75
+
+[[rates]]
+provider = "codex"
+model = "gpt-5.4-nano"
+input_per_million = 0.2
+cached_input_per_million = 0.02
+output_per_million = 1.25
+cache_write_per_million = 0.2
+
+[[rates]]
+provider = "codex"
+model = "gpt-5.2"
+input_per_million = 1.75
+cached_input_per_million = 0.175
+output_per_million = 14.0
+cache_write_per_million = 1.75
+
+[[rates]]
+provider = "codex"
+model = "gpt-5.1-codex"
+input_per_million = 1.25
+cached_input_per_million = 0.125
+output_per_million = 10.0
+cache_write_per_million = 1.25
+
+[[rates]]
+provider = "codex"
+model = "gpt-5.1-codex-mini"
+input_per_million = 0.25
+cached_input_per_million = 0.025
+output_per_million = 2.0
+cache_write_per_million = 0.25
+
+[[rates]]
+provider = "codex"
+model = "gpt-5.1"
+input_per_million = 1.25
+cached_input_per_million = 0.125
+output_per_million = 10.0
+cache_write_per_million = 1.25
+
+[[rates]]
+provider = "codex"
+model = "gpt-5-codex"
+input_per_million = 1.25
+cached_input_per_million = 0.125
+output_per_million = 10.0
+cache_write_per_million = 1.25
+
+[[rates]]
+provider = "codex"
+model = "gpt-5"
+input_per_million = 1.25
+cached_input_per_million = 0.125
+output_per_million = 10.0
+cache_write_per_million = 1.25
+
+[[rates]]
+provider = "codex"
+model = "gpt-5-mini"
+input_per_million = 0.25
+cached_input_per_million = 0.025
+output_per_million = 2.0
+cache_write_per_million = 0.25
+
+[[rates]]
+provider = "codex"
+model = "gpt-5-nano"
+input_per_million = 0.05
+cached_input_per_million = 0.005
+output_per_million = 0.4
+cache_write_per_million = 0.05
+
+[[rates]]
+provider = "codex"
+model = "o3"
+input_per_million = 2.0
+cached_input_per_million = 0.5
+output_per_million = 8.0
+cache_write_per_million = 2.0
+
+[[rates]]
+provider = "codex"
+model = "o4-mini"
+input_per_million = 1.1
+cached_input_per_million = 0.275
+output_per_million = 4.4
+cache_write_per_million = 1.1
 
 [[rates]]
 provider = "claude-code"
@@ -237,3 +338,137 @@ cached_input_per_million = 0.1
 output_per_million = 5.0
 cache_write_per_million = 1.25
 cache_write_1h_per_million = 2.0
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-4-carbon"
+input_per_million = 2.0
+cached_input_per_million = 0.1
+output_per_million = 10.0
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-4-argon"
+input_per_million = 2.0
+cached_input_per_million = 0.1
+output_per_million = 10.0
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-4-hydrogen"
+input_per_million = 1.5
+cached_input_per_million = 0.075
+output_per_million = 7.5
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-4-neon"
+input_per_million = 3.0
+cached_input_per_million = 0.15
+output_per_million = 15.0
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-3.8-flash"
+input_per_million = 0.75
+cached_input_per_million = 0.075
+output_per_million = 3.75
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-3.5-flash-lite"
+input_per_million = 0.3
+cached_input_per_million = 0.03
+output_per_million = 2.5
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-3.1-pro-preview"
+input_per_million = 2.0
+cached_input_per_million = 0.2
+output_per_million = 12.0
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-3-pro-preview"
+input_per_million = 2.0
+cached_input_per_million = 0.2
+output_per_million = 12.0
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-3.1-flash-lite-preview"
+input_per_million = 0.25
+cached_input_per_million = 0.025
+output_per_million = 1.5
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-2.5-pro"
+input_per_million = 1.25
+cached_input_per_million = 0.125
+output_per_million = 10.0
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-2.5-flash"
+input_per_million = 0.30
+cached_input_per_million = 0.03
+output_per_million = 2.50
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-2.5-flash-lite"
+input_per_million = 0.1
+cached_input_per_million = 0.01
+output_per_million = 0.4
+
+[[rates]]
+provider = "gemini-cli"
+model = "gemini-3-flash-preview"
+input_per_million = 0.50
+cached_input_per_million = 0.05
+output_per_million = 3.00
+
+[[rates]]
+provider = "deepseek-harness"
+model = "deepseek-flash"
+input_per_million = 0.30
+cached_input_per_million = 0.006
+output_per_million = 1.20
+
+[[rates]]
+provider = "deepseek-harness"
+model = "deepseek-v4-pro"
+input_per_million = 1.32
+cached_input_per_million = 0.044
+output_per_million = 3.96
+
+[[rates]]
+provider = "qwen-code"
+model = "qwen4-max"
+input_per_million = 1.5
+cached_input_per_million = 0.075
+output_per_million = 4.5
+cache_write_per_million = 1.875
+
+[[rates]]
+provider = "qwen-code"
+model = "qwen3.8-max"
+input_per_million = 2.0
+cached_input_per_million = 0.2
+output_per_million = 6.0
+
+[[rates]]
+provider = "qwen-code"
+model = "qwen3.7-plus"
+input_per_million = 0.4
+cached_input_per_million = 0.04
+output_per_million = 1.6
+
+[[rates]]
+provider = "qwen-code"
+model = "qwen3-coder-flash"
+input_per_million = 0.3
+cached_input_per_million = 0.03
+output_per_million = 1.5
