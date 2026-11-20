@@ -142,11 +142,13 @@ cargo build --release
 
 ### CLI &amp; lifecycle management
 
+Run from the download directory (or use `discodex` directly after `tools/discodex.ps1 install` adds it to `PATH`):
+
 ```powershell
-discodex --usage          # Open the GPUI Usage Dashboard standalone
-discodex --diagnostics    # Print a standalone local diagnostics snapshot
-discodex --restart        # Cleanly restart (alias: --replace)
-discodex --quit           # Stop the running tray instance (alias: --stop)
+.\discodex.exe --usage          # Open the GPUI Usage Dashboard standalone
+.\discodex.exe --diagnostics    # Print a standalone local diagnostics snapshot
+.\discodex.exe --restart        # Cleanly restart (alias: --replace)
+.\discodex.exe --quit           # Stop the running tray instance (alias: --stop)
 ```
 
 You can also manage local builds and installs with `tools/discodex.ps1`:
