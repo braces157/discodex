@@ -17,6 +17,7 @@ mod sources;
 mod state;
 mod tray;
 mod usage;
+mod usage_cache;
 mod watcher;
 
 use std::{
@@ -51,7 +52,7 @@ enum WorkerEvent {
     Exit,
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -237,6 +238,24 @@ fn run() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     sync_start_with_windows(config.start_with_windows);
 
     let session_sources = provider::session_sources();
+    let (rates_path, cache_path) = usage_cache::paths_from_config(&config_path);
+    let usage_preloader = match usage_cache::UsagePreloader::start(
+        session_sources.clone(),
+        rates_path.clone(),
+        cache_path,
+    ) {
+        Ok(preloader) => {
+            usage_cache::register_local_preloader(preloader.handle());
+            Some(preloader)
+        }
+        Err(error) => {
+            log_line(&format!("Could not start usage preloader: {error}"));
+            None
+        }
+    };
+    let preloader_handle = usage_preloader
+        .as_ref()
+        .map(usage_cache::UsagePreloader::handle);
 
     let status = Arc::new(Mutex::new(TrayStatus {
         enabled: config.enabled,
@@ -258,7 +277,9 @@ fn run() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
             worker_status,
             config,
             worker_config_path,
+            rates_path,
             session_sources,
+            preloader_handle,
         );
         log_line("worker_loop exited");
     });
@@ -266,6 +287,8 @@ fn run() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     log_line("starting tray::run...");
     let res = tray::run(tx, status, _single_instance.quit_event_handle());
     log_line(&format!("tray::run returned: {:?}", res));
+    usage_cache::clear_local_preloader();
+    drop(usage_preloader);
     let exit_action =
         res.map_err(|error| format!("Could not create the notification-area tray: {error}"))?;
 
@@ -291,13 +314,16 @@ fn sync_start_with_windows(enabled: bool) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn worker_loop(
     rx: mpsc::Receiver<WorkerEvent>,
     tx: mpsc::Sender<WorkerEvent>,
     status: Arc<Mutex<TrayStatus>>,
     mut config: AppConfig,
     config_path: PathBuf,
+    rates_path: PathBuf,
     session_sources: Vec<SessionSource>,
+    usage_preloader: Option<usage_cache::UsagePreloaderHandle>,
 ) {
     let mut activity = ActivityState::default();
     let mut schedule = Schedule::new(&session_sources);
@@ -329,6 +355,8 @@ fn worker_loop(
     .ok();
 
     let mut watch_status = HashMap::new();
+    let extra_usage_roots = usage::extra_usage_watch_roots(ingestion.sources());
+    let mut extra_usage_watched: HashMap<PathBuf, bool> = HashMap::new();
     if let Some(watcher) = fs_watcher.as_mut() {
         for source in ingestion.sources() {
             if source.provider == Provider::Aider {
@@ -343,6 +371,14 @@ fn worker_loop(
                     watcher
                         .watch(&source.root, RecursiveMode::Recursive)
                         .map_err(|_| "Could not subscribe to filesystem changes".to_string()),
+                );
+            }
+        }
+        for root in &extra_usage_roots {
+            if root.exists() {
+                extra_usage_watched.insert(
+                    root.clone(),
+                    watcher.watch(root, RecursiveMode::Recursive).is_ok(),
                 );
             }
         }
@@ -382,6 +418,14 @@ fn worker_loop(
                         watcher
                             .watch(&source.root, RecursiveMode::Recursive)
                             .map_err(|_| "Could not subscribe to filesystem changes".to_string()),
+                    );
+                }
+            }
+            for root in &extra_usage_roots {
+                if root.exists() && !extra_usage_watched.get(root).copied().unwrap_or(false) {
+                    extra_usage_watched.insert(
+                        root.clone(),
+                        watcher.watch(root, RecursiveMode::Recursive).is_ok(),
                     );
                 }
             }
@@ -459,6 +503,13 @@ fn worker_loop(
 
         match event {
             WorkerEvent::Paths(paths) => {
+                if let Some(preloader) = &usage_preloader {
+                    match usage_cache::classify_changed_paths(&paths, &config_path, &rates_path) {
+                        usage_cache::PathChange::RatesChanged => preloader.request_refresh(),
+                        usage_cache::PathChange::SessionDirty => preloader.mark_dirty(),
+                        usage_cache::PathChange::None => {}
+                    }
+                }
                 let mut reload_config = false;
                 for path in paths {
                     if path == config_path {

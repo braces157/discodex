@@ -4,11 +4,11 @@ Discodex is a small native Rust application with an event-driven worker and a Wi
 
 ## Native usage dashboard
 
-`src/dashboard.rs` renders a compact GPUI popup in a separate `--usage` process. The existing Win32 tray and presence worker retain their event loop. The tray launcher focuses an existing popup or starts one. A separate usage mutex prevents duplicate standalone popups. Closing the GPUI window leaves the tray running.
+`src/dashboard.rs` renders a compact GPUI popup in a separate `--usage` process. The existing Win32 tray and presence worker retain their event loop. The tray launcher nudges the preloader and focuses an existing popup or starts one. A separate usage mutex prevents duplicate standalone popups. Closing the GPUI window leaves the tray running.
 
-`src/usage.rs` reads numeric Codex and Claude Code session metadata on a dedicated dashboard thread. It aggregates by exact provider, model, and reasoning effort. This reader is separate from transient presence state, which intentionally retains only recent activity. The scanner rebuilds from local logs and caches unchanged files in memory. It does not increment saved totals or retain history after source deletion.
+`src/usage.rs` reads numeric AI coding harness session metadata and reconciles cumulative counters across all four periods (`Today`, `7 days`, `30 days`, `All`) in a single pass. This reader is separate from transient presence state, which intentionally retains only recent activity. The scanner rebuilds from local logs and caches unchanged files in memory. It does not increment saved totals or retain history after source deletion.
 
-The UI consumes immutable snapshots through channels. Transcript scans and rate-file operations stay off the UI and presence workers. Period selection applies to timestamped usage contributions after cumulative reconciliation, and the selected contributions produce model totals and daily chart buckets. A bundled official price catalog supplies base-rate estimates, with exact custom provider/model overrides. See [Track model usage](USAGE.md) for accounting semantics, coverage, and pricing limitations.
+`src/usage_cache.rs` runs a low-priority background preloader thread inside the tray process so `UsageScanner` stays warm and pre-populates `%APPDATA%\Discodex\usage-cache.json` (scoped by an opaque 128-bit digest of source roots and rate overrides, and rotated across midnight). When the popup opens, it renders from this cache on frame zero, switches periods instantaneously in memory, and receives incremental updates through a scope-isolated Windows named event and atomic cache replacement. Standalone `--usage` runs fall back to an in-process scanner thread if the tray is not running. A bundled official price catalog supplies base-rate estimates, with exact custom provider/model overrides. See [Track model usage](USAGE.md) for accounting semantics, coverage, and pricing limitations.
 
 ## Data flow
 
@@ -86,6 +86,10 @@ Loads and saves `%APPDATA%\Discodex\config.toml` and manages the per-user Window
 ### `src/instance.rs`
 
 Uses a named Windows mutex so only one Discodex process runs per user session.
+
+### `src/usage_cache.rs`
+
+Runs the tray process's low-priority usage preloader, debounces session-directory changes, ignores Discodex's own config/log/cache writes, and persists atomic metadata-only multi-period cache snapshots for zero-wait popup opening.
 
 ## Store kinds
 

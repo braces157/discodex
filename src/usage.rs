@@ -1,12 +1,13 @@
 use crate::provider::{Provider, SessionSource, SessionStore};
 use chrono::{Days, Local, TimeZone};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::{self, File},
     io::{self, BufRead, BufReader, Cursor, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -20,7 +21,7 @@ const MAX_SCAN_RECORDS: usize = 500_000;
 const MAX_ZED_BLOB_BYTES: usize = 32 * 1024 * 1024;
 const AIDER_MAX_DIR_DEPTH: usize = 2;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UsageSnapshot {
     pub rows: Vec<UsageRow>,
     pub daily: Vec<UsageDay>,
@@ -31,7 +32,32 @@ pub struct UsageSnapshot {
     pub refreshed_at_ms: i64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UsageBundle {
+    pub today: UsageSnapshot,
+    pub week: UsageSnapshot,
+    pub month: UsageSnapshot,
+    pub all: UsageSnapshot,
+}
+
+impl UsageBundle {
+    /// Returns the snapshot for the requested period.
+    pub fn for_period(&self, period: UsagePeriod) -> &UsageSnapshot {
+        match period {
+            UsagePeriod::Today => &self.today,
+            UsagePeriod::Week => &self.week,
+            UsagePeriod::Month => &self.month,
+            UsagePeriod::All => &self.all,
+        }
+    }
+
+    /// Returns the timestamp at which this bundle was refreshed.
+    pub fn refreshed_at_ms(&self) -> i64 {
+        self.week.refreshed_at_ms
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UsageDay {
     pub date: String,
     pub input_tokens: Option<u64>,
@@ -41,7 +67,7 @@ pub struct UsageDay {
     pub requests: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UsagePeriod {
     Today,
     Week,
@@ -71,7 +97,7 @@ impl UsagePeriod {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UsageRow {
     pub provider: String,
     pub model: String,
@@ -331,6 +357,13 @@ pub struct UsageScanner {
     cache: BTreeMap<(String, PathBuf), CachedFile>,
 }
 
+struct PreparedScan {
+    base_warnings: BTreeSet<String>,
+    scanned_files: usize,
+    pricing_checked_at: String,
+    rates: RateIndex,
+}
+
 impl UsageScanner {
     pub fn new(sources: Vec<SessionSource>, rates_path: PathBuf) -> Self {
         Self {
@@ -340,16 +373,88 @@ impl UsageScanner {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn scan(&mut self) -> UsageSnapshot {
         self.scan_period(UsagePeriod::All)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn scan_period(&mut self, period: UsagePeriod) -> UsageSnapshot {
         self.scan_at(period, now_ms())
     }
 
+    /// Scans all four usage periods (`Today`, `Week`, `Month`, `All`) in a single pass.
+    pub fn scan_all_periods(&mut self) -> UsageBundle {
+        self.scan_all_periods_at(now_ms(), None)
+            .expect("uncancelled usage scan must produce a bundle")
+    }
+
+    /// Scans all four usage periods in a single pass, aborting early if `cancel` is set.
+    pub fn scan_all_periods_cancellable(&mut self, cancel: &AtomicBool) -> Option<UsageBundle> {
+        self.scan_all_periods_at(now_ms(), Some(cancel))
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
     fn scan_at(&mut self, period: UsagePeriod, refreshed_at_ms: i64) -> UsageSnapshot {
-        let mut warnings = BTreeSet::from([
+        let prepared = self
+            .prepare_scan(None)
+            .expect("uncancelled usage scan must prepare");
+        let claude_records = reconcile_claude(&self.cache);
+        let sessions = collect_sorted_sessions(&self.cache, &claude_records);
+        aggregate_period(
+            &sessions,
+            period,
+            refreshed_at_ms,
+            prepared.scanned_files,
+            &prepared.pricing_checked_at,
+            &prepared.rates,
+            prepared.base_warnings,
+        )
+    }
+
+    fn scan_all_periods_at(
+        &mut self,
+        refreshed_at_ms: i64,
+        cancel: Option<&AtomicBool>,
+    ) -> Option<UsageBundle> {
+        let prepared = self.prepare_scan(cancel)?;
+        if is_cancelled(cancel) {
+            return None;
+        }
+        let claude_records = reconcile_claude(&self.cache);
+        let sessions = collect_sorted_sessions(&self.cache, &claude_records);
+        let periods = [
+            UsagePeriod::Today,
+            UsagePeriod::Week,
+            UsagePeriod::Month,
+            UsagePeriod::All,
+        ];
+        let mut snapshots = Vec::with_capacity(periods.len());
+        for period in periods {
+            if is_cancelled(cancel) {
+                return None;
+            }
+            snapshots.push(aggregate_period(
+                &sessions,
+                period,
+                refreshed_at_ms,
+                prepared.scanned_files,
+                &prepared.pricing_checked_at,
+                &prepared.rates,
+                prepared.base_warnings.clone(),
+            ));
+        }
+        let mut iter = snapshots.into_iter();
+        Some(UsageBundle {
+            today: iter.next().unwrap_or_default(),
+            week: iter.next().unwrap_or_default(),
+            month: iter.next().unwrap_or_default(),
+            all: iter.next().unwrap_or_default(),
+        })
+    }
+
+    fn prepare_scan(&mut self, cancel: Option<&AtomicBool>) -> Option<PreparedScan> {
+        let mut base_warnings = BTreeSet::from([
             "Coverage includes local session logs and databases for supported coding harnesses only. Deleted logs, remote history, and focused-window-only apps are not included.".to_owned(),
             "Task time includes matched explicit task/turn starts and completions only; it is not active work time. Message-only stores do not measure task time.".to_owned(),
             "Costs are approximate standard API base-rate estimates, not subscription bills. Missing basic token categories and unknown model IDs remain unpriced. Long-context, speed/service-tier, time-of-day, region and unrecorded cache-write premiums are excluded.".to_owned(),
@@ -357,13 +462,22 @@ impl UsageScanner {
         let mut files = BTreeMap::new();
         let mut entries = 0;
         for source in &self.sources {
+            if is_cancelled(cancel) {
+                return None;
+            }
             let Some(provider) = supported(source.provider) else {
                 continue;
             };
-            collect_source(source, provider, &mut files, &mut entries, &mut warnings);
+            collect_source(
+                source,
+                provider,
+                &mut files,
+                &mut entries,
+                &mut base_warnings,
+            );
         }
         if files.len() > MAX_FILES {
-            warnings.insert(format!(
+            base_warnings.insert(format!(
                 "Coverage capped at {MAX_FILES} files in deterministic path order."
             ));
         }
@@ -372,9 +486,12 @@ impl UsageScanner {
         let mut scanned_files = 0;
         let mut retained_records = 0usize;
         for (key, discovered) in files.into_iter().take(MAX_FILES) {
+            if is_cancelled(cancel) {
+                return None;
+            }
             let fingerprint = discovered.fingerprint;
             if fingerprint.bytes > MAX_FILE_BYTES {
-                warnings.insert(format!(
+                base_warnings.insert(format!(
                     "Coverage excludes files larger than {} MiB.",
                     MAX_FILE_BYTES / 1024 / 1024
                 ));
@@ -382,7 +499,7 @@ impl UsageScanner {
             }
             used_bytes = used_bytes.saturating_add(fingerprint.bytes);
             if used_bytes > MAX_SCAN_BYTES {
-                warnings.insert(
+                base_warnings.insert(
                     "Coverage capped at 2 GiB of source files in deterministic path order."
                         .to_owned(),
                 );
@@ -402,7 +519,7 @@ impl UsageScanner {
                         );
                     }
                     Err(_) => {
-                        warnings.insert(format!(
+                        base_warnings.insert(format!(
                             "{} source files could not be read; coverage is incomplete.",
                             key.0
                         ));
@@ -413,82 +530,126 @@ impl UsageScanner {
             retained_records =
                 retained_records.saturating_add(self.cache[&key].parsed.records.len());
             if retained_records > MAX_SCAN_RECORDS {
-                warnings.insert(format!("Coverage capped at {MAX_SCAN_RECORDS} usage/task metadata records in deterministic file order."));
+                base_warnings.insert(format!("Coverage capped at {MAX_SCAN_RECORDS} usage/task metadata records in deterministic file order."));
                 break;
             }
             retained.insert(key);
             scanned_files += 1;
         }
         self.cache.retain(|key, _| retained.contains(key));
-        let mut records = BTreeMap::<String, Vec<(&str, &Record)>>::new();
-        let mut claude = BTreeMap::<ClaudeResponseId<'_>, ClaudeResponse<'_>>::new();
-        for ((provider, _), cached) in &self.cache {
-            warnings.extend(cached.parsed.warnings.iter().cloned());
-            for record in &cached.parsed.records {
-                if let RecordKind::ClaudeUsage { id, request_id, .. } = &record.kind {
-                    let identity = match request_id {
-                        Some(request) => ClaudeResponseId::Request(id, request),
-                        None => ClaudeResponseId::Session(&record.session, id),
-                    };
-                    claude
-                        .entry(identity)
-                        .or_insert(ClaudeResponse {
-                            first: record,
-                            revision: record,
-                        })
-                        .observe(record);
-                    continue;
-                }
-                records
-                    .entry(format!("{provider}/{}", record.session))
-                    .or_default()
-                    .push((provider, record));
+        for cached in self.cache.values() {
+            base_warnings.extend(cached.parsed.warnings.iter().cloned());
+        }
+        let (pricing_checked_at, rates) = load_rates(&self.rates_path, &mut base_warnings);
+        Some(PreparedScan {
+            base_warnings,
+            scanned_files,
+            pricing_checked_at,
+            rates,
+        })
+    }
+}
+
+fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
+    cancel.is_some_and(|flag| flag.load(Ordering::Relaxed))
+}
+
+fn reconcile_claude(cache: &BTreeMap<(String, PathBuf), CachedFile>) -> Vec<Record> {
+    let mut claude = BTreeMap::<ClaudeResponseId<'_>, ClaudeResponse<'_>>::new();
+    for cached in cache.values() {
+        for record in &cached.parsed.records {
+            if let RecordKind::ClaudeUsage { id, request_id, .. } = &record.kind {
+                let identity = match request_id {
+                    Some(request) => ClaudeResponseId::Request(id, request),
+                    None => ClaudeResponseId::Session(&record.session, id),
+                };
+                claude
+                    .entry(identity)
+                    .or_insert(ClaudeResponse {
+                        first: record,
+                        revision: record,
+                    })
+                    .observe(record);
             }
         }
-        let claude: Vec<Record> = claude
-            .into_values()
-            .map(ClaudeResponse::canonical_record)
-            .collect();
-        for record in &claude {
+    }
+    claude
+        .into_values()
+        .map(ClaudeResponse::canonical_record)
+        .collect()
+}
+
+fn collect_sorted_sessions<'a>(
+    cache: &'a BTreeMap<(String, PathBuf), CachedFile>,
+    claude_records: &'a [Record],
+) -> Vec<(String, Vec<(&'a str, &'a Record)>)> {
+    let mut records = BTreeMap::<String, Vec<(&'a str, &'a Record)>>::new();
+    for ((provider, _), cached) in cache {
+        for record in &cached.parsed.records {
+            if matches!(record.kind, RecordKind::ClaudeUsage { .. }) {
+                continue;
+            }
             records
-                .entry(format!("claude-code/{}", record.session))
+                .entry(format!("{provider}/{}", record.session))
                 .or_default()
-                .push(("claude-code", record));
+                .push((provider, record));
         }
-        let (pricing_checked_at, rates) = load_rates(&self.rates_path, &mut warnings);
-        let mut totals = Totals {
-            rows: BTreeMap::new(),
-            daily: BTreeMap::new(),
-            daily_by_provider: BTreeMap::new(),
-            since: period.since_ms(refreshed_at_ms),
-            rates: &rates,
-        };
-        for (session, mut records) in records {
-            records.sort_by_key(|(_, r)| (r.time, r.sequence));
-            aggregate_session(&session, &records, &mut totals, &mut warnings);
-        }
-        let rows = totals
-            .rows
-            .into_values()
-            .map(|mut aggregate: Aggregate| {
-                aggregate.row.sessions = aggregate.sessions.len();
-                aggregate.row
-            })
-            .collect();
-        let daily_by_provider = totals
-            .daily_by_provider
-            .into_iter()
-            .map(|(provider, map)| (provider, map.into_values().collect()))
-            .collect();
-        UsageSnapshot {
-            rows,
-            daily: totals.daily.into_values().collect(),
-            daily_by_provider,
-            pricing_checked_at,
-            scanned_files,
-            warnings: warnings.into_iter().collect(),
-            refreshed_at_ms,
-        }
+    }
+    for record in claude_records {
+        records
+            .entry(format!("claude-code/{}", record.session))
+            .or_default()
+            .push(("claude-code", record));
+    }
+    records
+        .into_iter()
+        .map(|(session, mut recs)| {
+            recs.sort_by_key(|(_, r)| (r.time, r.sequence));
+            (session, recs)
+        })
+        .collect()
+}
+
+fn aggregate_period(
+    sessions: &[(String, Vec<(&str, &Record)>)],
+    period: UsagePeriod,
+    refreshed_at_ms: i64,
+    scanned_files: usize,
+    pricing_checked_at: &str,
+    rates: &RateIndex,
+    mut warnings: BTreeSet<String>,
+) -> UsageSnapshot {
+    let mut totals = Totals {
+        rows: BTreeMap::new(),
+        daily: BTreeMap::new(),
+        daily_by_provider: BTreeMap::new(),
+        since: period.since_ms(refreshed_at_ms),
+        rates,
+    };
+    for (session, records) in sessions {
+        aggregate_session(session, records, &mut totals, &mut warnings);
+    }
+    let rows = totals
+        .rows
+        .into_values()
+        .map(|mut aggregate: Aggregate| {
+            aggregate.row.sessions = aggregate.sessions.len();
+            aggregate.row
+        })
+        .collect();
+    let daily_by_provider = totals
+        .daily_by_provider
+        .into_iter()
+        .map(|(provider, map)| (provider, map.into_values().collect()))
+        .collect();
+    UsageSnapshot {
+        rows,
+        daily: totals.daily.into_values().collect(),
+        daily_by_provider,
+        pricing_checked_at: pricing_checked_at.to_owned(),
+        scanned_files,
+        warnings: warnings.into_iter().collect(),
+        refreshed_at_ms,
     }
 }
 
@@ -545,7 +706,55 @@ fn store_order(store: SessionStore) -> u8 {
     }
 }
 
+fn absolutize_path(path: PathBuf, base_dir: Option<&Path>) -> PathBuf {
+    let joined = if path.is_relative() {
+        match base_dir {
+            Some(base) => base.join(&path),
+            None => path,
+        }
+    } else {
+        path
+    };
+    let mut normalized = PathBuf::new();
+    let mut has_root = false;
+    for component in joined.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => {
+                normalized.push(prefix.as_os_str());
+            }
+            std::path::Component::RootDir => {
+                normalized.push(component.as_os_str());
+                has_root = true;
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                let can_pop = normalized
+                    .components()
+                    .next_back()
+                    .is_some_and(|c| matches!(c, std::path::Component::Normal(_)));
+                if can_pop {
+                    normalized.pop();
+                } else if !has_root {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            std::path::Component::Normal(part) => {
+                normalized.push(part);
+            }
+        }
+    }
+    normalized
+}
+
 fn expand_sources(sources: Vec<SessionSource>) -> Vec<SessionSource> {
+    let cwd = std::env::current_dir().ok();
+    expand_sources_with_base(sources, cwd.as_deref())
+}
+
+fn expand_sources_with_base(
+    sources: Vec<SessionSource>,
+    base_dir: Option<&Path>,
+) -> Vec<SessionSource> {
     let mut expanded = Vec::new();
     for mut source in sources {
         if source.provider == Provider::Codex {
@@ -556,20 +765,24 @@ fn expand_sources(sources: Vec<SessionSource>) -> Vec<SessionSource> {
             {
                 source.root = PathBuf::from(home).join("sessions");
             }
+            source.root = absolutize_path(source.root, base_dir);
             if source.root.file_name().is_some_and(|s| s == "sessions") {
                 let mut archive = source.clone();
                 archive.root.set_file_name("archived_sessions");
                 expanded.push(archive);
             }
-        }
-        if source.provider == Provider::ClaudeCode {
-            let is_default =
-                dirs::home_dir().is_some_and(|home| source.root == home.join(".claude/projects"));
-            if is_default
-                && let Some(home) = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty())
-            {
-                source.root = PathBuf::from(home).join("projects");
+        } else {
+            if source.provider == Provider::ClaudeCode {
+                let is_default = dirs::home_dir()
+                    .is_some_and(|home| source.root == home.join(".claude/projects"));
+                if is_default
+                    && let Some(home) =
+                        std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty())
+                {
+                    source.root = PathBuf::from(home).join("projects");
+                }
             }
+            source.root = absolutize_path(source.root, base_dir);
         }
         if supported(source.provider).is_some() {
             expanded.push(source);
@@ -583,6 +796,94 @@ fn expand_sources(sources: Vec<SessionSource>) -> Vec<SessionSource> {
     });
     expanded.dedup_by(|a, b| a.provider == b.provider && a.store == b.store && a.root == b.root);
     expanded
+}
+
+fn normalized_root_key(path: &Path) -> String {
+    let mut s: String = path
+        .to_string_lossy()
+        .chars()
+        .map(|c| match c {
+            '/' => '\\',
+            c => c.to_ascii_lowercase(),
+        })
+        .collect();
+    while s.len() > 3 && s.ends_with('\\') {
+        s.pop();
+    }
+    s
+}
+
+/// Returns additional expanded non-Aider usage roots (such as Codex archives or env overrides)
+/// that are read by `UsageScanner` beyond the base `sources` list.
+pub fn extra_usage_watch_roots(sources: &[SessionSource]) -> Vec<PathBuf> {
+    let cwd = std::env::current_dir().ok();
+    extra_usage_watch_roots_with_base(sources, cwd.as_deref())
+}
+
+fn extra_usage_watch_roots_with_base(
+    sources: &[SessionSource],
+    base_dir: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut already_watched = HashSet::new();
+    for source in sources {
+        if source.provider == Provider::Aider {
+            continue;
+        }
+        already_watched.insert(normalized_root_key(&source.root));
+        already_watched.insert(normalized_root_key(&absolutize_path(
+            source.root.clone(),
+            base_dir,
+        )));
+    }
+    let mut extras = Vec::new();
+    let mut seen = HashSet::new();
+    for source in expand_sources_with_base(sources.to_vec(), base_dir) {
+        if source.provider == Provider::Aider {
+            continue;
+        }
+        let key = normalized_root_key(&source.root);
+        if !already_watched.contains(&key) && seen.insert(key) {
+            extras.push(source.root);
+        }
+    }
+    extras
+}
+
+/// Returns a stable 128-bit hex digest identifying the expanded usage sources and rates path
+/// without exposing raw local filesystem paths in cached metadata.
+pub fn usage_scope_key(sources: &[SessionSource], rates_path: &Path) -> String {
+    let cwd = std::env::current_dir().ok();
+    usage_scope_key_with_base(sources, rates_path, cwd.as_deref())
+}
+
+fn usage_scope_key_with_base(
+    sources: &[SessionSource],
+    rates_path: &Path,
+    base_dir: Option<&Path>,
+) -> String {
+    let mut h1: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut h2: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut feed_bytes = |tag: u8, bytes: &[u8]| {
+        feed_fnv1a(&mut h1, &[tag]);
+        feed_fnv1a(&mut h1, &(bytes.len() as u64).to_le_bytes());
+        feed_fnv1a(&mut h1, bytes);
+        feed_fnv1a(&mut h2, &[tag ^ 0xa5]);
+        feed_fnv1a(&mut h2, &(bytes.len() as u64).to_be_bytes());
+        for &byte in bytes {
+            feed_fnv1a(&mut h2, &[byte.wrapping_add(0x3d)]);
+        }
+    };
+    let normalized_path = |path: &Path| -> Vec<u8> { normalized_root_key(path).into_bytes() };
+    let abs_rates = absolutize_path(rates_path.to_path_buf(), base_dir);
+    feed_bytes(b'R', &normalized_path(&abs_rates));
+    for source in expand_sources_with_base(sources.to_vec(), base_dir) {
+        if let Some(provider) = supported(source.provider) {
+            feed_bytes(b'P', provider.as_bytes());
+            feed_bytes(b'S', &[store_order(source.store)]);
+            feed_bytes(b'D', &normalized_path(&source.root));
+        }
+    }
+    format!("{h1:016x}{h2:016x}")
 }
 
 fn collect_source(
@@ -2621,12 +2922,16 @@ fn parse_crush_db(path: &Path) -> io::Result<ParsedFile> {
     Ok(parsed)
 }
 
+fn feed_fnv1a(hash: &mut u64, bytes: &[u8]) {
+    for &byte in bytes {
+        *hash ^= u64::from(byte);
+        *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+}
+
 fn fnv1a_64(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for &byte in bytes {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
+    feed_fnv1a(&mut hash, bytes);
     hash
 }
 
@@ -4770,6 +5075,216 @@ mod tests {
         assert_eq!(aider_snap.rows[0].cached_input_tokens, Some(20));
         assert_eq!(aider_snap.rows[0].output_tokens, Some(5));
         assert!(aider_snap.daily.is_empty());
+    }
+
+    fn assert_snapshot_eq(actual: &UsageSnapshot, expected: &UsageSnapshot) {
+        assert_eq!(actual.pricing_checked_at, expected.pricing_checked_at);
+        assert_eq!(actual.scanned_files, expected.scanned_files);
+        assert_eq!(actual.warnings, expected.warnings);
+        assert_eq!(actual.refreshed_at_ms, expected.refreshed_at_ms);
+        assert_eq!(actual.rows.len(), expected.rows.len());
+        for (a, e) in actual.rows.iter().zip(&expected.rows) {
+            assert_eq!(a.provider, e.provider);
+            assert_eq!(a.model, e.model);
+            assert_eq!(a.effort, e.effort);
+            assert_eq!(a.input_tokens, e.input_tokens);
+            assert_eq!(a.cached_input_tokens, e.cached_input_tokens);
+            assert_eq!(a.cache_write_tokens, e.cache_write_tokens);
+            assert_eq!(a.output_tokens, e.output_tokens);
+            assert_eq!(a.reasoning_tokens, e.reasoning_tokens);
+            assert_eq!(a.task_time_ms, e.task_time_ms);
+            assert_eq!(a.estimated_cost_usd, e.estimated_cost_usd);
+            assert_eq!(a.sessions, e.sessions);
+            assert_eq!(a.requests, e.requests);
+            assert_eq!(a.last_seen_ms, e.last_seen_ms);
+        }
+        let assert_days = |a_days: &[UsageDay], e_days: &[UsageDay]| {
+            assert_eq!(a_days.len(), e_days.len());
+            for (a, e) in a_days.iter().zip(e_days) {
+                assert_eq!(a.date, e.date);
+                assert_eq!(a.input_tokens, e.input_tokens);
+                assert_eq!(a.output_tokens, e.output_tokens);
+                assert_eq!(a.cached_input_tokens, e.cached_input_tokens);
+                assert_eq!(a.estimated_cost_usd, e.estimated_cost_usd);
+                assert_eq!(a.requests, e.requests);
+            }
+        };
+        assert_days(&actual.daily, &expected.daily);
+        assert_eq!(
+            actual.daily_by_provider.keys().collect::<Vec<_>>(),
+            expected.daily_by_provider.keys().collect::<Vec<_>>()
+        );
+        for (provider, a_days) in &actual.daily_by_provider {
+            assert_days(a_days, &expected.daily_by_provider[provider]);
+        }
+    }
+
+    #[test]
+    fn scan_all_periods_matches_individual_period_scans() {
+        let f = Fixture::new();
+        let now_dt = Local
+            .with_ymd_and_hms(2026, 2, 15, 14, 0, 0)
+            .single()
+            .unwrap();
+        let now = now_dt.timestamp_millis();
+        let day_ms = 86_400_000_i64;
+        let ts = |days_ago: i64, hour: u32| {
+            let dt = Local
+                .with_ymd_and_hms(2026, 2, 15, hour, 0, 0)
+                .single()
+                .unwrap()
+                .timestamp_millis()
+                - days_ago * day_ms;
+            chrono::DateTime::from_timestamp_millis(dt)
+                .unwrap()
+                .to_rfc3339()
+        };
+        f.write(
+            "multi.jsonl",
+            &[
+                meta(),
+                context("gpt-5.2", "high"),
+                total(&ts(45, 10), 1_000, 100),
+                total(&ts(15, 11), 2_500, 250),
+                total(&ts(3, 12), 4_000, 400),
+                total(&ts(0, 9), 5_500, 550),
+            ],
+        );
+
+        let mut single = f.scanner(Provider::Codex);
+        let expected_today = single.scan_at(UsagePeriod::Today, now);
+        let expected_week = single.scan_at(UsagePeriod::Week, now);
+        let expected_month = single.scan_at(UsagePeriod::Month, now);
+        let expected_all = single.scan_at(UsagePeriod::All, now);
+
+        let mut multi = f.scanner(Provider::Codex);
+        let bundle = multi.scan_all_periods_at(now, None).unwrap();
+
+        assert_snapshot_eq(bundle.for_period(UsagePeriod::Today), &expected_today);
+        assert_snapshot_eq(bundle.for_period(UsagePeriod::Week), &expected_week);
+        assert_snapshot_eq(bundle.for_period(UsagePeriod::Month), &expected_month);
+        assert_snapshot_eq(bundle.for_period(UsagePeriod::All), &expected_all);
+        assert_eq!(bundle.refreshed_at_ms(), now);
+    }
+
+    #[test]
+    fn scan_all_periods_cancellable_stops_when_cancelled() {
+        let f = Fixture::new();
+        f.write(
+            "one.jsonl",
+            &[
+                meta(),
+                context("gpt-5.2", "medium"),
+                total("2026-01-01T00:00:01Z", 100, 20),
+            ],
+        );
+        let mut scanner = f.scanner(Provider::Codex);
+        let cancel = AtomicBool::new(true);
+        assert!(scanner.scan_all_periods_cancellable(&cancel).is_none());
+        cancel.store(false, Ordering::Relaxed);
+        let bundle = scanner.scan_all_periods_cancellable(&cancel).unwrap();
+        assert_eq!(bundle.all.rows.len(), 1);
+    }
+
+    #[test]
+    fn usage_scope_key_is_deterministic_opaque_and_sensitive_to_roots_and_rates() {
+        let sources_a = vec![SessionSource {
+            provider: Provider::Codex,
+            root: PathBuf::from(r"C:\Users\Alice\.codex\sessions"),
+            store: SessionStore::LogFiles,
+        }];
+        let sources_a_alt = vec![SessionSource {
+            provider: Provider::Codex,
+            root: PathBuf::from("c:/users/alice/.codex/sessions"),
+            store: SessionStore::LogFiles,
+        }];
+        let sources_b = vec![SessionSource {
+            provider: Provider::Codex,
+            root: PathBuf::from(r"C:\Users\Bob\.codex\sessions"),
+            store: SessionStore::LogFiles,
+        }];
+        let rates_a = PathBuf::from(r"C:\Users\Alice\AppData\Roaming\Discodex\usage-rates.toml");
+        let rates_b = PathBuf::from(r"C:\Users\Bob\AppData\Roaming\Discodex\usage-rates.toml");
+
+        let k1 = usage_scope_key(&sources_a, &rates_a);
+        let k1_alt = usage_scope_key(&sources_a_alt, &rates_a);
+        let k2 = usage_scope_key(&sources_b, &rates_a);
+        let k3 = usage_scope_key(&sources_a, &rates_b);
+
+        assert_eq!(k1.len(), 32);
+        assert!(k1.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(k1, k1_alt);
+        assert_ne!(k1, k2);
+        assert_ne!(k1, k3);
+        assert!(!k1.to_ascii_lowercase().contains("alice"));
+    }
+
+    #[test]
+    fn usage_scope_key_resolves_relative_roots_against_base_dir() {
+        let rel_sources = vec![SessionSource {
+            provider: Provider::Codex,
+            root: PathBuf::from(r".\codex\sessions"),
+            store: SessionStore::LogFiles,
+        }];
+        let abs_sources_alpha = vec![SessionSource {
+            provider: Provider::Codex,
+            root: PathBuf::from(r"C:\Work\Alpha\codex\sessions"),
+            store: SessionStore::LogFiles,
+        }];
+        let base_alpha = Path::new(r"C:\Work\Alpha");
+        let base_beta = Path::new(r"C:\Work\Beta");
+        let rel_rates = Path::new(r".\cfg\..\usage-rates.toml");
+        let abs_rates_alpha = Path::new(r"C:\Work\Alpha\usage-rates.toml");
+
+        let k_rel_alpha = usage_scope_key_with_base(&rel_sources, rel_rates, Some(base_alpha));
+        let k_abs_alpha =
+            usage_scope_key_with_base(&abs_sources_alpha, abs_rates_alpha, Some(base_alpha));
+        let k_rel_beta = usage_scope_key_with_base(&rel_sources, rel_rates, Some(base_beta));
+
+        assert_eq!(k_rel_alpha, k_abs_alpha);
+        assert_ne!(k_rel_alpha, k_rel_beta);
+    }
+
+    #[test]
+    fn extra_usage_watch_roots_includes_codex_archive_and_excludes_aider() {
+        let sources = vec![
+            SessionSource {
+                provider: Provider::Codex,
+                root: PathBuf::from(r"C:\Work\CustomCodex\sessions"),
+                store: SessionStore::LogFiles,
+            },
+            SessionSource {
+                provider: Provider::Aider,
+                root: PathBuf::from(r"C:\Work\Repo"),
+                store: SessionStore::LogFiles,
+            },
+        ];
+        let extras = extra_usage_watch_roots_with_base(&sources, None);
+        assert_eq!(
+            extras,
+            vec![PathBuf::from(r"C:\Work\CustomCodex\archived_sessions")]
+        );
+    }
+
+    #[test]
+    fn usage_bundle_round_trips_through_json() {
+        let f = Fixture::new();
+        f.write(
+            "one.jsonl",
+            &[
+                meta(),
+                context("gpt-5.2", "low"),
+                total("2026-01-01T00:00:01Z", 100, 20),
+            ],
+        );
+        let mut scanner = f.scanner(Provider::Codex);
+        let bundle = scanner.scan_all_periods();
+        let encoded = serde_json::to_string(&bundle).unwrap();
+        let decoded: UsageBundle = serde_json::from_str(&encoded).unwrap();
+        assert_snapshot_eq(&decoded.today, &bundle.today);
+        assert_snapshot_eq(&decoded.week, &bundle.week);
+        assert_snapshot_eq(&decoded.month, &bundle.month);
+        assert_snapshot_eq(&decoded.all, &bundle.all);
     }
 
     #[test]

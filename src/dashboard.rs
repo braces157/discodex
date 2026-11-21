@@ -2,6 +2,7 @@ use std::{
     collections::BTreeMap,
     io,
     os::windows::process::CommandExt,
+    path::PathBuf,
     process::{Child, Command as ProcessCommand},
     sync::{Arc, Condvar, Mutex, OnceLock, mpsc},
     thread,
@@ -31,9 +32,13 @@ use windows::{
 };
 
 use crate::{
-    config::AppConfig,
-    provider,
-    usage::{UsageDay, UsagePeriod, UsageRow, UsageScanner, UsageSnapshot},
+    provider::{self, SessionSource},
+    usage::{
+        UsageBundle, UsageDay, UsagePeriod, UsageRow, UsageScanner, UsageSnapshot, usage_scope_key,
+    },
+    usage_cache::{
+        self, CACHE_SCHEMA_VERSION, CacheStamp, CachedUsage, FRESH_CACHE_MAX_AGE_MS, PublishOutcome,
+    },
 };
 
 const BG_CANVAS: u32 = 0x0D0F12;
@@ -147,11 +152,12 @@ impl Assets {
 }
 
 pub fn show() -> io::Result<()> {
+    usage_cache::nudge_local_preloader();
     static CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
     let mut child = CHILD
         .get_or_init(|| Mutex::new(None))
         .lock()
-        .map_err(|_| io::Error::other("Usage launcher lock is unavailable"))?;
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if focus_existing() {
         return Ok(());
     }
@@ -305,14 +311,20 @@ pub fn run_standalone() -> Result<(), Box<dyn std::error::Error>> {
                 cx.new(|cx| Dashboard::new(window, cx))
             },
         ) {
-            *result.lock().unwrap() = Some(problem.to_string());
+            *result
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(problem.to_string());
             cx.quit();
             return;
         }
         placement.apply();
         cx.activate(true);
     });
-    if let Some(error) = error.lock().unwrap().take() {
+    if let Some(error) = error
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+    {
         return Err(io::Error::other(error).into());
     }
     Ok(())
@@ -320,7 +332,7 @@ pub fn run_standalone() -> Result<(), Box<dyn std::error::Error>> {
 
 #[derive(Default)]
 struct PendingWork {
-    scan: Option<UsagePeriod>,
+    scan: bool,
     edit_rates: bool,
 }
 
@@ -330,44 +342,47 @@ struct Worker {
 }
 
 enum Update {
-    Snapshot(UsagePeriod, UsageSnapshot),
-    ScanError(UsagePeriod, String),
+    Bundle(Box<CachedUsage>),
+    ScanError(String),
     Rates(Result<(), String>),
 }
 
 impl Worker {
-    fn start() -> io::Result<Self> {
+    fn start(
+        sources: Vec<SessionSource>,
+        rates_path: PathBuf,
+        cache_path: PathBuf,
+        scope_key: String,
+    ) -> io::Result<Self> {
         let pending = Arc::new((Mutex::new(PendingWork::default()), Condvar::new()));
         let work = pending.clone();
         let (send, updates) = mpsc::channel();
         thread::Builder::new()
             .name("usage-scan".into())
             .spawn(move || {
-                let path = match AppConfig::path() {
-                    Ok(path) => path.with_file_name("usage-rates.toml"),
-                    Err(error) => {
-                        let _ = send.send(Update::ScanError(
-                            UsagePeriod::Today,
-                            format!("Cannot locate rate settings. {error}"),
-                        ));
-                        return;
-                    }
-                };
-                let mut scanner = UsageScanner::new(provider::session_sources(), path.clone());
+                let mut scanner = UsageScanner::new(sources, rates_path.clone());
+                let mut generation =
+                    usage_cache::load_cache(&cache_path, &scope_key).map_or(0, |c| c.generation);
                 loop {
                     let (scan, edit) = {
                         let (lock, ready) = &*work;
-                        let mut pending = lock.lock().unwrap();
-                        while pending.scan.is_none() && !pending.edit_rates {
-                            pending = ready.wait(pending).unwrap();
+                        let mut pending =
+                            lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                        while !pending.scan && !pending.edit_rates {
+                            pending = ready
+                                .wait(pending)
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
                         }
-                        (pending.scan.take(), std::mem::take(&mut pending.edit_rates))
+                        (
+                            std::mem::take(&mut pending.scan),
+                            std::mem::take(&mut pending.edit_rates),
+                        )
                     };
                     if edit {
-                        let result = crate::usage::ensure_rates_file(&path)
+                        let result = crate::usage::ensure_rates_file(&rates_path)
                             .and_then(|()| {
                                 ProcessCommand::new("notepad.exe")
-                                    .arg(&path)
+                                    .arg(&rates_path)
                                     .spawn()
                                     .map(|_| ())
                             })
@@ -376,17 +391,46 @@ impl Worker {
                             break;
                         }
                     }
-                    if let Some(period) = scan {
+                    if scan {
+                        let rates_fp = usage_cache::rates_fingerprint(&rates_path);
                         let update =
                             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                match period {
-                                    UsagePeriod::All => scanner.scan(),
-                                    _ => scanner.scan_period(period),
-                                }
+                                scanner.scan_all_periods()
                             })) {
-                                Ok(snapshot) => Update::Snapshot(period, snapshot),
+                                Ok(bundle) => {
+                                    let fallback_date =
+                                        usage_cache::local_date_for_ms(bundle.refreshed_at_ms())
+                                            .unwrap_or_else(usage_cache::current_local_date);
+                                    let cached = match usage_cache::publish_cache(
+                                        &cache_path,
+                                        &scope_key,
+                                        rates_fp.clone(),
+                                        bundle.clone(),
+                                        generation,
+                                    ) {
+                                        Ok(PublishOutcome::Published(saved)) => {
+                                            generation = saved.generation;
+                                            saved
+                                        }
+                                        Ok(PublishOutcome::Superseded(existing)) => {
+                                            generation = generation.max(existing.generation);
+                                            existing
+                                        }
+                                        Err(_) => {
+                                            generation = generation.saturating_add(1);
+                                            CachedUsage {
+                                                schema_version: CACHE_SCHEMA_VERSION,
+                                                scope_key: scope_key.clone(),
+                                                local_date: fallback_date,
+                                                generation,
+                                                rates_fingerprint: rates_fp,
+                                                bundle,
+                                            }
+                                        }
+                                    };
+                                    Update::Bundle(Box::new(cached))
+                                }
                                 Err(_) => Update::ScanError(
-                                    period,
                                     "The usage scan stopped unexpectedly. Refresh to retry.".into(),
                                 ),
                             };
@@ -399,15 +443,19 @@ impl Worker {
         Ok(Self { pending, updates })
     }
 
-    fn scan(&self, period: UsagePeriod) {
+    fn scan(&self) {
         let (lock, ready) = &*self.pending;
-        lock.lock().unwrap().scan = Some(period);
+        lock.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .scan = true;
         ready.notify_one();
     }
 
     fn edit_rates(&self) {
         let (lock, ready) = &*self.pending;
-        lock.lock().unwrap().edit_rates = true;
+        lock.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .edit_rates = true;
         ready.notify_one();
     }
 }
@@ -456,7 +504,12 @@ struct Dashboard {
     worker: Option<Worker>,
     period: UsagePeriod,
     metric: Metric,
-    snapshot: Option<UsageSnapshot>,
+    bundle: Option<UsageBundle>,
+    scope_key: String,
+    cache_path: Option<PathBuf>,
+    cache_generation: u64,
+    cache_stamp: Option<CacheStamp>,
+    waiting_for_tray: Option<Instant>,
     hovered_day: Option<usize>,
     provider_filter: Option<String>,
     refreshing: bool,
@@ -479,10 +532,42 @@ impl Dashboard {
                 cx.quit();
             }
         });
-        let (worker, error) = match Worker::start() {
-            Ok(worker) => (Some(worker), None),
-            Err(error) => (None, Some(format!("Cannot start usage scan. {error}"))),
-        };
+        let sources = provider::session_sources();
+        let (rates_path, cache_path, scope_key, cached, stamp, worker, error) =
+            match usage_cache::resolve_default_paths() {
+                Ok((rates_path, cache_path)) => {
+                    let scope_key = usage_scope_key(&sources, &rates_path);
+                    let (cached, stamp) =
+                        usage_cache::load_cache_with_stamp(&cache_path, &scope_key);
+                    let (worker, error) = match Worker::start(
+                        sources,
+                        rates_path.clone(),
+                        cache_path.clone(),
+                        scope_key.clone(),
+                    ) {
+                        Ok(worker) => (Some(worker), None),
+                        Err(error) => (None, Some(format!("Cannot start usage scan. {error}"))),
+                    };
+                    (
+                        Some(rates_path),
+                        Some(cache_path),
+                        scope_key,
+                        cached,
+                        stamp,
+                        worker,
+                        error,
+                    )
+                }
+                Err(error) => (
+                    None,
+                    None,
+                    String::new(),
+                    None,
+                    None,
+                    None,
+                    Some(format!("Cannot locate rate settings. {error}")),
+                ),
+            };
         let mut dashboard = Self {
             focus,
             _activation: activation,
@@ -490,7 +575,12 @@ impl Dashboard {
             worker,
             period: UsagePeriod::Week,
             metric: Metric::Tokens,
-            snapshot: None,
+            bundle: None,
+            scope_key,
+            cache_path,
+            cache_generation: 0,
+            cache_stamp: stamp,
+            waiting_for_tray: None,
             hovered_day: None,
             provider_filter: None,
             refreshing: false,
@@ -501,7 +591,19 @@ impl Dashboard {
             has_activated: window.is_window_active(),
             pinned: std::env::args().any(|argument| argument == "--pin"),
         };
-        dashboard.refresh();
+        if let Some(cached) = cached {
+            let rates_changed = rates_path.as_deref().is_some_and(|path| {
+                usage_cache::rates_fingerprint(path) != cached.rates_fingerprint
+            });
+            let age_ms = crate::now_ms().saturating_sub(cached.bundle.refreshed_at_ms());
+            dashboard.bundle = Some(cached.bundle);
+            dashboard.cache_generation = cached.generation;
+            if dashboard.error.is_none() && (rates_changed || age_ms > FRESH_CACHE_MAX_AGE_MS) {
+                dashboard.request_refresh(rates_changed);
+            }
+        } else if dashboard.error.is_none() {
+            dashboard.request_refresh(true);
+        }
         cx.spawn(async move |this, cx| {
             loop {
                 Timer::after(Duration::from_millis(150)).await;
@@ -514,65 +616,174 @@ impl Dashboard {
         dashboard
     }
 
-    fn refresh(&mut self) {
-        if let Some(worker) = &self.worker {
-            worker.scan(self.period);
-            self.refreshing = true;
+    fn current_snapshot(&self) -> Option<&UsageSnapshot> {
+        self.bundle
+            .as_ref()
+            .map(|bundle| bundle.for_period(self.period))
+    }
+
+    fn prune_provider_filter(&mut self) {
+        if let Some(filter) = &self.provider_filter
+            && !self
+                .current_snapshot()
+                .is_some_and(|snapshot| snapshot.rows.iter().any(|row| &row.provider == filter))
+        {
+            self.provider_filter = None;
+        }
+    }
+
+    fn apply_cached_bundle(&mut self, cached: CachedUsage) -> bool {
+        let is_newer = self.bundle.as_ref().is_none_or(|current| {
+            usage_cache::is_newer_bundle(current.refreshed_at_ms(), self.cache_generation, &cached)
+        });
+        if !is_newer {
+            return false;
+        }
+        self.bundle = Some(cached.bundle);
+        self.cache_generation = self.cache_generation.max(cached.generation);
+        self.prune_provider_filter();
+        self.hovered_day = None;
+        self.refreshing = false;
+        self.waiting_for_tray = None;
+        self.error = None;
+        true
+    }
+
+    fn request_refresh(&mut self, show_indicator: bool) {
+        if !self.scope_key.is_empty() && usage_cache::signal_preloader_refresh(&self.scope_key) {
             self.error = None;
             self.last_request = Instant::now();
+            if show_indicator || self.bundle.is_none() {
+                self.refreshing = true;
+            }
+            self.waiting_for_tray = Some(Instant::now());
+        } else if let Some(worker) = &self.worker {
+            self.error = None;
+            self.last_request = Instant::now();
+            if show_indicator || self.bundle.is_none() {
+                self.refreshing = true;
+            }
+            self.waiting_for_tray = None;
+            worker.scan();
+        } else {
+            self.refreshing = false;
+            self.waiting_for_tray = None;
+            if self.error.is_none() {
+                self.error =
+                    Some("The local usage worker is unavailable. Reopen Usage to retry.".into());
+            }
         }
     }
 
     fn poll(&mut self, cx: &mut Context<Self>) {
         let mut changed = false;
+        if let Some(cache_path) = &self.cache_path {
+            let stamp = usage_cache::cache_file_stamp(cache_path);
+            if stamp.is_some()
+                && (stamp != self.cache_stamp
+                    || (self.waiting_for_tray.is_some() && self.bundle.is_none()))
+            {
+                let (cached, stable_stamp) =
+                    usage_cache::load_cache_with_stamp(cache_path, &self.scope_key);
+                self.cache_stamp = stable_stamp;
+                if let Some(cached) = cached
+                    && self.apply_cached_bundle(cached)
+                {
+                    changed = true;
+                }
+            }
+        }
+        if let Some(started_at) = self.waiting_for_tray {
+            let preloader_gone =
+                self.scope_key.is_empty() || !usage_cache::is_preloader_running(&self.scope_key);
+            let timed_out = if self.bundle.is_none() {
+                started_at.elapsed() >= Duration::from_secs(20)
+            } else {
+                started_at.elapsed() >= Duration::from_secs(15)
+            };
+            if preloader_gone || timed_out {
+                self.waiting_for_tray = None;
+                if let Some(worker) = &self.worker {
+                    worker.scan();
+                } else {
+                    self.refreshing = false;
+                    if self.error.is_none() {
+                        self.error = Some(
+                            "Background usage refresh timed out. Reopen Usage or retry.".into(),
+                        );
+                    }
+                }
+                changed = true;
+            }
+        }
+        let mut worker_updates = Vec::new();
+        let mut worker_disconnected = false;
         if let Some(worker) = &self.worker {
             loop {
                 match worker.updates.try_recv() {
-                    Ok(Update::Snapshot(period, snapshot)) if period == self.period => {
-                        if let Some(filter) = &self.provider_filter
-                            && !snapshot.rows.iter().any(|row| &row.provider == filter)
-                        {
-                            self.provider_filter = None;
-                        }
-                        self.snapshot = Some(snapshot);
-                        self.hovered_day = None;
-                        self.refreshing = false;
-                        self.error = None;
-                        changed = true;
-                    }
-                    Ok(Update::ScanError(period, error)) if period == self.period => {
-                        self.error = Some(error);
-                        self.refreshing = false;
-                        changed = true;
-                    }
-                    Ok(Update::Rates(result)) => {
-                        self.rates_message = Some(match result {
-                            Ok(()) => "Custom rates opened in Notepad. Save, then refresh.".into(),
-                            Err(error) => error,
-                        });
-                        changed = true;
-                    }
-                    Ok(_) => {}
+                    Ok(update) => worker_updates.push(update),
                     Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
-                        if self.error.is_none() {
-                            self.error = Some(
-                                "The local usage worker is unavailable. Reopen Usage to retry."
-                                    .into(),
-                            );
-                            self.refreshing = false;
-                            changed = true;
-                        }
+                        worker_disconnected = true;
                         break;
                     }
                 }
             }
         }
+        for update in worker_updates {
+            match update {
+                Update::Bundle(cached) => {
+                    let today = usage_cache::current_local_date();
+                    let bundle_date =
+                        usage_cache::local_date_for_ms(cached.bundle.refreshed_at_ms());
+                    if cached.local_date != today || bundle_date.as_deref() != Some(today.as_str())
+                    {
+                        self.refreshing = false;
+                        self.waiting_for_tray = None;
+                        self.request_refresh(self.bundle.is_none());
+                        changed = true;
+                        continue;
+                    }
+                    if self.apply_cached_bundle(*cached) {
+                        self.cache_stamp = None;
+                        changed = true;
+                    } else if self.waiting_for_tray.is_none() && self.refreshing {
+                        self.refreshing = false;
+                        self.error = None;
+                        changed = true;
+                    }
+                }
+                Update::ScanError(error) => {
+                    self.error = Some(error);
+                    self.refreshing = false;
+                    self.waiting_for_tray = None;
+                    changed = true;
+                }
+                Update::Rates(result) => {
+                    self.rates_message = Some(match result {
+                        Ok(()) => "Custom rates opened in Notepad. Save, then refresh.".into(),
+                        Err(error) => error,
+                    });
+                    changed = true;
+                }
+            }
+        }
+        if worker_disconnected {
+            self.worker = None;
+            if self.error.is_none() {
+                self.error =
+                    Some("The local usage worker is unavailable. Reopen Usage to retry.".into());
+            }
+            self.refreshing = false;
+            self.waiting_for_tray = None;
+            changed = true;
+        }
         if !self.refreshing
+            && self.waiting_for_tray.is_none()
             && self.error.is_none()
             && self.last_request.elapsed() >= Duration::from_secs(10)
         {
-            self.refresh();
+            self.request_refresh(false);
             changed = true;
         }
         if changed {
@@ -585,9 +796,8 @@ impl Dashboard {
             Action::Period(period) => {
                 if self.period != period {
                     self.period = period;
-                    self.snapshot = None;
                     self.hovered_day = None;
-                    self.refresh();
+                    self.prune_provider_filter();
                 }
             }
             Action::Metric(metric) => {
@@ -598,7 +808,7 @@ impl Dashboard {
                 self.provider_filter = provider;
                 self.hovered_day = None;
             }
-            Action::Refresh => self.refresh(),
+            Action::Refresh => self.request_refresh(true),
             Action::Close => cx.quit(),
             Action::Info => self.info_open = !self.info_open,
             Action::Rates => {
@@ -780,7 +990,7 @@ impl Dashboard {
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let (dot_color, subtitle) = if self.error.is_some() {
             (ACCENT_ERR, "Scan issue")
-        } else if self.refreshing && self.snapshot.is_none() {
+        } else if self.refreshing && self.current_snapshot().is_none() {
             (ACCENT_AMBER, "Scanning logs...")
         } else if self.refreshing {
             (ACCENT_AMBER, "Refreshing...")
@@ -910,7 +1120,7 @@ impl Dashboard {
     }
 
     fn hero_bento(&self, rows: &[UsageRow], daily: &[UsageDay]) -> impl IntoElement {
-        let known = self.snapshot.is_some();
+        let known = self.current_snapshot().is_some();
         let empty = known && rows.is_empty();
 
         let tokens = sum_tokens(rows);
@@ -1189,8 +1399,7 @@ impl Dashboard {
 
     fn chart(&self, daily: &[UsageDay], cx: &mut Context<Self>) -> impl IntoElement {
         let (visible, truncated) = self
-            .snapshot
-            .as_ref()
+            .current_snapshot()
             .map(|snapshot| chart_days(daily, self.period, snapshot.refreshed_at_ms))
             .unwrap_or_default();
         let values: Vec<Option<f64>> = visible
@@ -1944,11 +2153,8 @@ impl Dashboard {
 
 impl Render for Dashboard {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let all_rows: Vec<UsageRow> = self
-            .snapshot
-            .as_ref()
-            .map(|s| s.rows.clone())
-            .unwrap_or_default();
+        let snapshot = self.current_snapshot();
+        let all_rows: Vec<UsageRow> = snapshot.map(|s| s.rows.clone()).unwrap_or_default();
         let mut provider_totals: BTreeMap<&str, u64> = BTreeMap::new();
         for row in &all_rows {
             let tok = row
@@ -1972,40 +2178,28 @@ impl Render for Dashboard {
             })
             .cloned()
             .collect();
-        let daily: Vec<UsageDay> = self
-            .snapshot
-            .as_ref()
+        let daily: Vec<UsageDay> = snapshot
             .map(|s| match &self.provider_filter {
                 Some(filter) => s.daily_by_provider.get(filter).cloned().unwrap_or_default(),
                 None => s.daily.clone(),
             })
             .unwrap_or_default();
-        let warnings = self
-            .snapshot
-            .as_ref()
-            .map(|s| s.warnings.clone())
-            .unwrap_or_default();
-        let date = self
-            .snapshot
-            .as_ref()
+        let warnings = snapshot.map(|s| s.warnings.clone()).unwrap_or_default();
+        let date = snapshot
             .map(|s| s.pricing_checked_at.as_str())
             .filter(|s| !s.is_empty())
             .unwrap_or("Unknown")
             .to_string();
-        let updated = self
-            .snapshot
-            .as_ref()
+        let updated = snapshot
             .and_then(|s| Local.timestamp_millis_opt(s.refreshed_at_ms).single())
             .map(|time| time.format("%H:%M:%S").to_string())
             .unwrap_or_else(|| "Scanning".into());
-        let scanned_files = self
-            .snapshot
-            .as_ref()
+        let scanned_files = snapshot
             .map(|snapshot| snapshot.scanned_files)
             .unwrap_or_default();
 
-        let is_loading = self.snapshot.is_none() && self.error.is_none();
-        let is_empty = self.snapshot.is_some() && all_rows.is_empty();
+        let is_loading = snapshot.is_none() && self.error.is_none();
+        let is_empty = snapshot.is_some() && all_rows.is_empty();
         let show_provider_filter = !is_loading && !is_empty && distinct_providers.len() > 1;
         let show_provider_name = show_provider_filter && self.provider_filter.is_none();
 

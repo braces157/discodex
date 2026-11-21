@@ -60,9 +60,9 @@ Supported local stores include:
 
 Missing local directories for harnesses you have not installed are skipped silently. Focused-window-only apps (such as web ChatGPT, Claude web, Gemini web, Perplexity, or Poe) and harnesses that do not record local token counts cannot supply token usage.
 
-The scanner caches unchanged files and databases (including SQLite `-wal` sidecars) and reconstructs totals from source records. Refreshes and restarts do not add to a saved counter. Deleting source logs removes their contribution. Limits on scanned files, bytes, lines, and metadata records produce coverage warnings.
+The scanner caches unchanged files and databases (including SQLite `-wal` sidecars) in a background tray preloader across all four periods and persists the latest aggregated snapshot to `%APPDATA%\Discodex\usage-cache.json` so the popup opens and switches periods without waiting for a cold log scan. Refreshes and restarts reconstruct totals from source logs rather than adding to a saved counter, and deleting source logs removes their contribution. Limits on scanned files, bytes, lines, and metadata records produce coverage warnings.
 
-Snapshots contain model identifiers, effort, numeric usage, timestamps, and pricing metadata. They exclude prompts, responses, reasoning prose, tool arguments, project names, and absolute paths. The popup opens no network listener and adds no usage totals to Discord.
+Snapshots and `usage-cache.json` contain model identifiers, effort, numeric usage, timestamps, and pricing metadata. They exclude prompts, responses, reasoning prose, tool arguments, project names, and raw absolute paths. The popup opens no network listener and adds no usage totals to Discord.
 
 ## Build the GPUI window
 
