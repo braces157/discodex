@@ -3440,11 +3440,30 @@ struct RateIndex {
 }
 
 impl RateIndex {
-    fn resolve(&self, provider: &str, model: &str) -> Option<&Rate> {
+    fn resolve_direct(&self, provider: &str, model: &str) -> Option<&Rate> {
         self.exact
             .get(&(provider.to_owned(), model.to_owned()))
             .or_else(|| self.builtin_by_model.get(model).and_then(Option::as_ref))
     }
+
+    fn resolve(&self, provider: &str, model: &str) -> Option<&Rate> {
+        self.resolve_direct(provider, model).or_else(|| {
+            strip_effort_suffix(model).and_then(|base| self.resolve_direct(provider, base))
+        })
+    }
+}
+
+fn strip_effort_suffix(model: &str) -> Option<&str> {
+    const SUFFIXES: &[&str] = &[
+        "-minimal",
+        "-low",
+        "-medium",
+        "-high",
+        "-xhigh",
+        "-max",
+        "-thinking",
+    ];
+    SUFFIXES.iter().find_map(|suffix| model.strip_suffix(suffix))
 }
 
 pub fn ensure_rates_file(path: &Path) -> io::Result<()> {
@@ -5285,6 +5304,66 @@ mod tests {
         assert_snapshot_eq(&decoded.week, &bundle.week);
         assert_snapshot_eq(&decoded.month, &bundle.month);
         assert_snapshot_eq(&decoded.all, &bundle.all);
+    }
+
+    #[test]
+    fn effort_suffixed_models_resolve_to_base_rates_without_overriding_exact_ids() {
+        let f = Fixture::new();
+        let mut warnings = BTreeSet::new();
+        let (_, rates) = load_rates(&f.0.join("missing.toml"), &mut warnings);
+
+        let hydrogen_xhigh = rates
+            .resolve("antigravity", "gemini-4-hydrogen-xhigh")
+            .unwrap();
+        assert_eq!(hydrogen_xhigh.model, "gemini-4-hydrogen");
+        assert_eq!(hydrogen_xhigh.input_per_million, 1.5);
+        assert_eq!(hydrogen_xhigh.cached_input_per_million, 0.075);
+        assert_eq!(hydrogen_xhigh.output_per_million, 7.5);
+
+        let neon_med = rates.resolve("antigravity", "gemini-4-neon-medium").unwrap();
+        assert_eq!(neon_med.model, "gemini-4-neon");
+        assert_eq!(neon_med.input_per_million, 3.0);
+        assert_eq!(neon_med.cached_input_per_million, 0.15);
+        assert_eq!(neon_med.output_per_million, 15.0);
+
+        let neon_xhigh = rates.resolve("antigravity", "gemini-4-neon-xhigh").unwrap();
+        assert_eq!(neon_xhigh.model, "gemini-4-neon");
+
+        let argon_high = rates.resolve("antigravity", "gemini-4-argon-high").unwrap();
+        assert_eq!(argon_high.model, "gemini-4-argon");
+        assert_eq!(argon_high.input_per_million, 2.0);
+
+        let opus_med = rates
+            .resolve("antigravity", "claude-opus-5-5-medium")
+            .unwrap();
+        assert_eq!(opus_med.model, "claude-opus-5-5");
+        assert_eq!(opus_med.input_per_million, 4.0);
+        assert_eq!(opus_med.output_per_million, 20.0);
+
+        let qwen_max = rates.resolve("qwen-code", "qwen4-max").unwrap();
+        assert_eq!(qwen_max.model, "qwen4-max");
+        assert!(rates.resolve("antigravity", "unknown-model-medium").is_none());
+
+        fs::write(
+            f.0.join("rates.toml"),
+            "[[rates]]\nprovider='antigravity'\nmodel='gemini-4-neon-high'\ninput_per_million=9.0\ncached_input_per_million=1.0\noutput_per_million=29.0\n",
+        )
+        .unwrap();
+        let (_, custom_rates) = load_rates(&f.0.join("rates.toml"), &mut warnings);
+        assert_eq!(
+            custom_rates
+                .resolve("antigravity", "gemini-4-neon-high")
+                .unwrap()
+                .input_per_million,
+            9.0
+        );
+        assert_eq!(
+            custom_rates
+                .resolve("antigravity", "gemini-4-neon-medium")
+                .unwrap()
+                .input_per_million,
+            3.0
+        );
     }
 
     #[test]
