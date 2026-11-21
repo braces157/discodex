@@ -1,5 +1,5 @@
 use crate::provider::{Provider, SessionSource, SessionStore};
-use chrono::{Days, Local, TimeZone};
+use chrono::{Datelike, Days, Local, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -26,6 +26,14 @@ pub struct UsageSnapshot {
     pub rows: Vec<UsageRow>,
     pub daily: Vec<UsageDay>,
     pub daily_by_provider: BTreeMap<String, Vec<UsageDay>>,
+    #[serde(default)]
+    pub hourly: Vec<UsageHour>,
+    #[serde(default)]
+    pub hourly_by_provider: BTreeMap<String, Vec<UsageHour>>,
+    #[serde(default)]
+    pub weekday_hour: [[u64; 24]; 7],
+    #[serde(default)]
+    pub weekday_hour_by_provider: BTreeMap<String, [[u64; 24]; 7]>,
     pub pricing_checked_at: String,
     pub scanned_files: usize,
     pub warnings: Vec<String>,
@@ -60,6 +68,16 @@ impl UsageBundle {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UsageDay {
     pub date: String,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
+    pub estimated_cost_usd: Option<f64>,
+    pub requests: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UsageHour {
+    pub hour: u8,
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
@@ -109,6 +127,8 @@ pub struct UsageRow {
     pub reasoning_tokens: Option<u64>,
     pub task_time_ms: Option<u64>,
     pub estimated_cost_usd: Option<f64>,
+    #[serde(default)]
+    pub cache_savings_usd: Option<f64>,
     pub sessions: usize,
     pub requests: u64,
     pub last_seen_ms: i64,
@@ -623,6 +643,10 @@ fn aggregate_period(
         rows: BTreeMap::new(),
         daily: BTreeMap::new(),
         daily_by_provider: BTreeMap::new(),
+        hourly: BTreeMap::new(),
+        hourly_by_provider: BTreeMap::new(),
+        weekday_hour: [[0; 24]; 7],
+        weekday_hour_by_provider: BTreeMap::new(),
         since: period.since_ms(refreshed_at_ms),
         rates,
     };
@@ -642,10 +666,19 @@ fn aggregate_period(
         .into_iter()
         .map(|(provider, map)| (provider, map.into_values().collect()))
         .collect();
+    let hourly_by_provider = totals
+        .hourly_by_provider
+        .into_iter()
+        .map(|(provider, map)| (provider, map.into_values().collect()))
+        .collect();
     UsageSnapshot {
         rows,
         daily: totals.daily.into_values().collect(),
         daily_by_provider,
+        hourly: totals.hourly.into_values().collect(),
+        hourly_by_provider,
+        weekday_hour: totals.weekday_hour,
+        weekday_hour_by_provider: totals.weekday_hour_by_provider,
         pricing_checked_at: pricing_checked_at.to_owned(),
         scanned_files,
         warnings: warnings.into_iter().collect(),
@@ -3148,6 +3181,10 @@ struct Totals<'a> {
     rows: Rows,
     daily: BTreeMap<String, UsageDay>,
     daily_by_provider: BTreeMap<String, BTreeMap<String, UsageDay>>,
+    hourly: BTreeMap<u8, UsageHour>,
+    hourly_by_provider: BTreeMap<String, BTreeMap<u8, UsageHour>>,
+    weekday_hour: [[u64; 24]; 7],
+    weekday_hour_by_provider: BTreeMap<String, [[u64; 24]; 7]>,
     since: Option<i64>,
     rates: &'a RateIndex,
 }
@@ -3311,6 +3348,28 @@ fn add_day_usage(
     day.requests = day.requests.saturating_add(1);
 }
 
+fn add_hour_usage(
+    hours: &mut BTreeMap<u8, UsageHour>,
+    hour: u8,
+    usage: TokenUsage,
+    cost: Option<f64>,
+) {
+    let entry = hours.entry(hour).or_insert_with(|| UsageHour {
+        hour,
+        ..UsageHour::default()
+    });
+    let first = entry.requests == 0;
+    sum_opt(&mut entry.input_tokens, usage.input_tokens, first);
+    sum_opt(&mut entry.output_tokens, usage.output_tokens, first);
+    sum_opt(
+        &mut entry.cached_input_tokens,
+        usage.cached_input_tokens,
+        first,
+    );
+    entry.estimated_cost_usd = sum_cost(entry.estimated_cost_usd, cost, first);
+    entry.requests = entry.requests.saturating_add(1);
+}
+
 fn add_usage(
     totals: &mut Totals<'_>,
     provider: &str,
@@ -3344,10 +3403,11 @@ fn add_usage(
     {
         warnings.insert(format!("{provider} records have incomplete token categories; affected totals and estimates remain unknown."));
     }
-    let cost = totals
-        .rates
-        .resolve(provider, &record.context.model)
-        .and_then(|rate| estimate_usage(provider, usage, write_1h, rate, warnings));
+    let resolved_rate = totals.rates.resolve(provider, &record.context.model);
+    let cost =
+        resolved_rate.and_then(|rate| estimate_usage(provider, usage, write_1h, rate, warnings));
+    let savings =
+        cost.and_then(|_| resolved_rate.and_then(|rate| estimate_cache_savings(usage, rate)));
     let aggregate = row_for(
         &mut totals.rows,
         provider,
@@ -3374,12 +3434,13 @@ fn add_usage(
         first,
     );
     aggregate.row.estimated_cost_usd = sum_cost(aggregate.row.estimated_cost_usd, cost, first);
+    aggregate.row.cache_savings_usd = sum_cost(aggregate.row.cache_savings_usd, savings, first);
     aggregate.row.requests = aggregate.row.requests.saturating_add(1);
     aggregate.has_usage = true;
     if record.time > 0
-        && let Some(date) = Local.timestamp_millis_opt(record.time).single()
+        && let Some(dt) = Local.timestamp_millis_opt(record.time).single()
     {
-        let date = date.format("%Y-%m-%d").to_string();
+        let date = dt.format("%Y-%m-%d").to_string();
         add_day_usage(&mut totals.daily, date.clone(), usage, cost);
         add_day_usage(
             totals
@@ -3390,6 +3451,29 @@ fn add_usage(
             usage,
             cost,
         );
+        let hour = dt.hour() as u8;
+        add_hour_usage(&mut totals.hourly, hour, usage, cost);
+        add_hour_usage(
+            totals
+                .hourly_by_provider
+                .entry(provider.to_owned())
+                .or_default(),
+            hour,
+            usage,
+            cost,
+        );
+        let dow = dt.weekday().num_days_from_sunday() as usize;
+        let hour_idx = hour as usize;
+        let tok = usage
+            .input_tokens
+            .unwrap_or(0)
+            .saturating_add(usage.output_tokens.unwrap_or(0));
+        totals.weekday_hour[dow][hour_idx] = totals.weekday_hour[dow][hour_idx].saturating_add(tok);
+        let provider_grid = totals
+            .weekday_hour_by_provider
+            .entry(provider.to_owned())
+            .or_insert([[0; 24]; 7]);
+        provider_grid[dow][hour_idx] = provider_grid[dow][hour_idx].saturating_add(tok);
     }
 }
 
@@ -3646,6 +3730,13 @@ fn estimate_usage(
         + output as f64 * rate.output_per_million)
         / 1_000_000.0;
     cost.is_finite().then_some(cost)
+}
+
+fn estimate_cache_savings(usage: TokenUsage, rate: &Rate) -> Option<f64> {
+    let cached = usage.cached_input_tokens?;
+    let diff = (rate.input_per_million - rate.cached_input_per_million).max(0.0);
+    let saved = cached as f64 * diff / 1_000_000.0;
+    saved.is_finite().then_some(saved)
 }
 
 fn now_ms() -> i64 {
@@ -5115,6 +5206,7 @@ mod tests {
             assert_eq!(a.reasoning_tokens, e.reasoning_tokens);
             assert_eq!(a.task_time_ms, e.task_time_ms);
             assert_eq!(a.estimated_cost_usd, e.estimated_cost_usd);
+            assert_eq!(a.cache_savings_usd, e.cache_savings_usd);
             assert_eq!(a.sessions, e.sessions);
             assert_eq!(a.requests, e.requests);
             assert_eq!(a.last_seen_ms, e.last_seen_ms);
@@ -5138,6 +5230,30 @@ mod tests {
         for (provider, a_days) in &actual.daily_by_provider {
             assert_days(a_days, &expected.daily_by_provider[provider]);
         }
+        let assert_hours = |a_hours: &[UsageHour], e_hours: &[UsageHour]| {
+            assert_eq!(a_hours.len(), e_hours.len());
+            for (a, e) in a_hours.iter().zip(e_hours) {
+                assert_eq!(a.hour, e.hour);
+                assert_eq!(a.input_tokens, e.input_tokens);
+                assert_eq!(a.output_tokens, e.output_tokens);
+                assert_eq!(a.cached_input_tokens, e.cached_input_tokens);
+                assert_eq!(a.estimated_cost_usd, e.estimated_cost_usd);
+                assert_eq!(a.requests, e.requests);
+            }
+        };
+        assert_hours(&actual.hourly, &expected.hourly);
+        assert_eq!(
+            actual.hourly_by_provider.keys().collect::<Vec<_>>(),
+            expected.hourly_by_provider.keys().collect::<Vec<_>>()
+        );
+        for (provider, a_hours) in &actual.hourly_by_provider {
+            assert_hours(a_hours, &expected.hourly_by_provider[provider]);
+        }
+        assert_eq!(actual.weekday_hour, expected.weekday_hour);
+        assert_eq!(
+            actual.weekday_hour_by_provider,
+            expected.weekday_hour_by_provider
+        );
     }
 
     #[test]
@@ -5372,6 +5488,103 @@ mod tests {
                 .input_per_million,
             3.0
         );
+    }
+
+    #[test]
+    fn cache_savings_computes_priced_and_effort_suffixed_models_and_keeps_unpriced_none() {
+        let f = Fixture::new();
+        f.write(
+            "priced.jsonl",
+            &[
+                meta(),
+                context("gpt-5.4", "high"),
+                total("2026-02-15T10:00:00Z", 2_000_000, 100_000),
+            ],
+        );
+        f.write(
+            "suffixed.jsonl",
+            &[
+                json!({"type":"session_meta","payload":{"id":"s-suffixed"}}),
+                context("gemini-4-neon-medium", "medium"),
+                total("2026-02-15T11:00:00Z", 2_000_000, 100_000),
+            ],
+        );
+        f.write(
+            "unpriced.jsonl",
+            &[
+                json!({"type":"session_meta","payload":{"id":"s-unpriced"}}),
+                context("unknown-local-model", "low"),
+                total("2026-02-15T12:00:00Z", 2_000_000, 100_000),
+            ],
+        );
+
+        let mut scanner = f.scanner(Provider::Codex);
+        let snap = scanner.scan();
+
+        let priced = snap.rows.iter().find(|r| r.model == "gpt-5.4").unwrap();
+        // gpt-5.4: input 2.50, cached 0.25 -> diff 2.25/1M * 1M cached = $2.25
+        assert!((priced.cache_savings_usd.unwrap() - 2.25).abs() < 1e-6);
+
+        let suffixed = snap
+            .rows
+            .iter()
+            .find(|r| r.model == "gemini-4-neon-medium")
+            .unwrap();
+        // gemini-4-neon: input 3.00, cached 0.15 -> diff 2.85/1M * 1M cached = $2.85
+        assert!((suffixed.cache_savings_usd.unwrap() - 2.85).abs() < 1e-6);
+
+        let unpriced = snap
+            .rows
+            .iter()
+            .find(|r| r.model == "unknown-local-model")
+            .unwrap();
+        assert!(unpriced.estimated_cost_usd.is_none());
+        assert!(unpriced.cache_savings_usd.is_none());
+    }
+
+    #[test]
+    fn hourly_and_weekday_hour_aggregate_across_local_buckets_and_providers() {
+        let f = Fixture::new();
+        let dt1 = Local
+            .with_ymd_and_hms(2026, 2, 15, 9, 30, 0)
+            .single()
+            .unwrap();
+        let dt2 = Local
+            .with_ymd_and_hms(2026, 2, 16, 14, 15, 0)
+            .single()
+            .unwrap();
+        f.write(
+            "one.jsonl",
+            &[
+                meta(),
+                context("gpt-5.4", "high"),
+                total(&dt1.to_rfc3339(), 1_000, 200),
+                total(&dt2.to_rfc3339(), 2_500, 700),
+            ],
+        );
+
+        let mut scanner = f.scanner(Provider::Codex);
+        let snap = scanner.scan();
+
+        assert_eq!(snap.hourly.len(), 2);
+        let h9 = snap.hourly.iter().find(|h| h.hour == 9).unwrap();
+        assert_eq!(h9.input_tokens, Some(1_000));
+        assert_eq!(h9.output_tokens, Some(200));
+        assert_eq!(h9.requests, 1);
+
+        let h14 = snap.hourly.iter().find(|h| h.hour == 14).unwrap();
+        // Cumulative delta: 2_500 - 1_000 = 1_500 in, 700 - 200 = 500 out
+        assert_eq!(h14.input_tokens, Some(1_500));
+        assert_eq!(h14.output_tokens, Some(500));
+        assert_eq!(h14.requests, 1);
+
+        assert_eq!(snap.hourly_by_provider["codex"].len(), 2);
+
+        let dow1 = dt1.weekday().num_days_from_sunday() as usize;
+        let dow2 = dt2.weekday().num_days_from_sunday() as usize;
+        assert_eq!(snap.weekday_hour[dow1][9], 1_200);
+        assert_eq!(snap.weekday_hour[dow2][14], 2_000);
+        assert_eq!(snap.weekday_hour_by_provider["codex"], snap.weekday_hour);
     }
 
     #[test]
