@@ -6,7 +6,7 @@ use std::{
     process::{Child, Command as ProcessCommand},
     sync::{Arc, Condvar, Mutex, OnceLock, mpsc},
     thread,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 use chrono::{Datelike, Days, Local, NaiveDate, TimeZone};
@@ -36,7 +36,9 @@ use crate::{
     usage::{
         UsageBundle, UsageDay, UsagePeriod, UsageRow, UsageScanner, UsageSnapshot, usage_scope_key,
     },
-    usage_cache::{self, CACHE_SCHEMA_VERSION, CachedUsage, FRESH_CACHE_MAX_AGE_MS},
+    usage_cache::{
+        self, CACHE_SCHEMA_VERSION, CacheStamp, CachedUsage, FRESH_CACHE_MAX_AGE_MS, PublishOutcome,
+    },
 };
 
 const BG_CANVAS: u32 = 0x0D0F12;
@@ -340,7 +342,7 @@ struct Worker {
 }
 
 enum Update {
-    Bundle(Box<UsageBundle>, u64),
+    Bundle(Box<CachedUsage>),
     ScanError(String),
     Rates(Result<(), String>),
 }
@@ -396,23 +398,37 @@ impl Worker {
                                 scanner.scan_all_periods()
                             })) {
                                 Ok(bundle) => {
-                                    let local_date =
+                                    let fallback_date =
                                         usage_cache::local_date_for_ms(bundle.refreshed_at_ms())
                                             .unwrap_or_else(usage_cache::current_local_date);
-                                    let next_gen = usage_cache::load_cache(&cache_path, &scope_key)
-                                        .map_or(generation, |c| c.generation.max(generation))
-                                        .saturating_add(1);
-                                    generation = next_gen;
-                                    let cached = CachedUsage {
-                                        schema_version: CACHE_SCHEMA_VERSION,
-                                        scope_key: scope_key.clone(),
-                                        local_date,
-                                        generation: next_gen,
-                                        rates_fingerprint: rates_fp,
-                                        bundle: bundle.clone(),
+                                    let cached = match usage_cache::publish_cache(
+                                        &cache_path,
+                                        &scope_key,
+                                        rates_fp.clone(),
+                                        bundle.clone(),
+                                        generation,
+                                    ) {
+                                        Ok(PublishOutcome::Published(saved)) => {
+                                            generation = saved.generation;
+                                            saved
+                                        }
+                                        Ok(PublishOutcome::Superseded(existing)) => {
+                                            generation = generation.max(existing.generation);
+                                            existing
+                                        }
+                                        Err(_) => {
+                                            generation = generation.saturating_add(1);
+                                            CachedUsage {
+                                                schema_version: CACHE_SCHEMA_VERSION,
+                                                scope_key: scope_key.clone(),
+                                                local_date: fallback_date,
+                                                generation,
+                                                rates_fingerprint: rates_fp,
+                                                bundle,
+                                            }
+                                        }
                                     };
-                                    let _ = usage_cache::save_cache(&cache_path, &cached);
-                                    Update::Bundle(Box::new(bundle), next_gen)
+                                    Update::Bundle(Box::new(cached))
                                 }
                                 Err(_) => Update::ScanError(
                                     "The usage scan stopped unexpectedly. Refresh to retry.".into(),
@@ -492,7 +508,7 @@ struct Dashboard {
     scope_key: String,
     cache_path: Option<PathBuf>,
     cache_generation: u64,
-    cache_stamp: Option<(u64, Option<SystemTime>)>,
+    cache_stamp: Option<CacheStamp>,
     waiting_for_tray: Option<Instant>,
     hovered_day: Option<usize>,
     provider_filter: Option<String>,
@@ -521,8 +537,8 @@ impl Dashboard {
             match usage_cache::resolve_default_paths() {
                 Ok((rates_path, cache_path)) => {
                     let scope_key = usage_scope_key(&sources, &rates_path);
-                    let cached = usage_cache::load_cache(&cache_path, &scope_key);
-                    let stamp = usage_cache::cache_file_stamp(&cache_path);
+                    let (cached, stamp) =
+                        usage_cache::load_cache_with_stamp(&cache_path, &scope_key);
                     let (worker, error) = match Worker::start(
                         sources,
                         rates_path.clone(),
@@ -616,23 +632,46 @@ impl Dashboard {
         }
     }
 
-    fn request_refresh(&mut self, show_indicator: bool) {
-        if self.error.is_some() && self.worker.is_none() && self.cache_path.is_none() {
-            return;
+    fn apply_cached_bundle(&mut self, cached: CachedUsage) -> bool {
+        let is_newer = self.bundle.as_ref().is_none_or(|current| {
+            usage_cache::is_newer_bundle(current.refreshed_at_ms(), self.cache_generation, &cached)
+        });
+        if !is_newer {
+            return false;
         }
+        self.bundle = Some(cached.bundle);
+        self.cache_generation = self.cache_generation.max(cached.generation);
+        self.prune_provider_filter();
+        self.hovered_day = None;
+        self.refreshing = false;
+        self.waiting_for_tray = None;
         self.error = None;
-        self.last_request = Instant::now();
-        if show_indicator || self.bundle.is_none() {
-            self.refreshing = true;
-        }
+        true
+    }
+
+    fn request_refresh(&mut self, show_indicator: bool) {
         if !self.scope_key.is_empty() && usage_cache::signal_preloader_refresh(&self.scope_key) {
+            self.error = None;
+            self.last_request = Instant::now();
+            if show_indicator || self.bundle.is_none() {
+                self.refreshing = true;
+            }
             self.waiting_for_tray = Some(Instant::now());
         } else if let Some(worker) = &self.worker {
+            self.error = None;
+            self.last_request = Instant::now();
+            if show_indicator || self.bundle.is_none() {
+                self.refreshing = true;
+            }
             self.waiting_for_tray = None;
             worker.scan();
         } else {
             self.refreshing = false;
             self.waiting_for_tray = None;
+            if self.error.is_none() {
+                self.error =
+                    Some("The local usage worker is unavailable. Reopen Usage to retry.".into());
+            }
         }
     }
 
@@ -644,43 +683,36 @@ impl Dashboard {
                 && (stamp != self.cache_stamp
                     || (self.waiting_for_tray.is_some() && self.bundle.is_none()))
             {
-                self.cache_stamp = stamp;
-                if let Some(cached) = usage_cache::load_cache(cache_path, &self.scope_key) {
-                    let is_newer = self.bundle.is_none()
-                        || cached.generation > self.cache_generation
-                        || self
-                            .bundle
-                            .as_ref()
-                            .is_some_and(|b| cached.bundle.refreshed_at_ms() > b.refreshed_at_ms());
-                    if is_newer {
-                        self.bundle = Some(cached.bundle);
-                        self.cache_generation = self.cache_generation.max(cached.generation);
-                        self.prune_provider_filter();
-                        self.hovered_day = None;
-                        self.refreshing = false;
-                        self.waiting_for_tray = None;
-                        self.error = None;
-                        changed = true;
-                    }
+                let (cached, stable_stamp) =
+                    usage_cache::load_cache_with_stamp(cache_path, &self.scope_key);
+                self.cache_stamp = stable_stamp;
+                if let Some(cached) = cached
+                    && self.apply_cached_bundle(cached)
+                {
+                    changed = true;
                 }
             }
         }
         if let Some(started_at) = self.waiting_for_tray {
             let preloader_gone =
                 self.scope_key.is_empty() || !usage_cache::is_preloader_running(&self.scope_key);
-            if preloader_gone
-                || (self.bundle.is_none() && started_at.elapsed() >= Duration::from_secs(20))
-            {
+            let timed_out = if self.bundle.is_none() {
+                started_at.elapsed() >= Duration::from_secs(20)
+            } else {
+                started_at.elapsed() >= Duration::from_secs(15)
+            };
+            if preloader_gone || timed_out {
                 self.waiting_for_tray = None;
                 if let Some(worker) = &self.worker {
                     worker.scan();
                 } else {
                     self.refreshing = false;
+                    if self.error.is_none() {
+                        self.error = Some(
+                            "Background usage refresh timed out. Reopen Usage or retry.".into(),
+                        );
+                    }
                 }
-                changed = true;
-            } else if self.bundle.is_some() && started_at.elapsed() >= Duration::from_secs(15) {
-                self.waiting_for_tray = None;
-                self.refreshing = false;
                 changed = true;
             }
         }
@@ -700,18 +732,23 @@ impl Dashboard {
         }
         for update in worker_updates {
             match update {
-                Update::Bundle(bundle, generation) => {
-                    if self.bundle.is_none() || generation >= self.cache_generation {
-                        self.bundle = Some(*bundle);
-                        self.cache_generation = self.cache_generation.max(generation);
-                        self.cache_stamp = self
-                            .cache_path
-                            .as_deref()
-                            .and_then(usage_cache::cache_file_stamp);
-                        self.prune_provider_filter();
-                        self.hovered_day = None;
+                Update::Bundle(cached) => {
+                    let today = usage_cache::current_local_date();
+                    let bundle_date =
+                        usage_cache::local_date_for_ms(cached.bundle.refreshed_at_ms());
+                    if cached.local_date != today || bundle_date.as_deref() != Some(today.as_str())
+                    {
                         self.refreshing = false;
                         self.waiting_for_tray = None;
+                        self.request_refresh(self.bundle.is_none());
+                        changed = true;
+                        continue;
+                    }
+                    if self.apply_cached_bundle(*cached) {
+                        self.cache_stamp = None;
+                        changed = true;
+                    } else if self.waiting_for_tray.is_none() && self.refreshing {
+                        self.refreshing = false;
                         self.error = None;
                         changed = true;
                     }
@@ -731,9 +768,12 @@ impl Dashboard {
                 }
             }
         }
-        if worker_disconnected && self.error.is_none() {
-            self.error =
-                Some("The local usage worker is unavailable. Reopen Usage to retry.".into());
+        if worker_disconnected {
+            self.worker = None;
+            if self.error.is_none() {
+                self.error =
+                    Some("The local usage worker is unavailable. Reopen Usage to retry.".into());
+            }
             self.refreshing = false;
             self.waiting_for_tray = None;
             changed = true;

@@ -706,7 +706,55 @@ fn store_order(store: SessionStore) -> u8 {
     }
 }
 
+fn absolutize_path(path: PathBuf, base_dir: Option<&Path>) -> PathBuf {
+    let joined = if path.is_relative() {
+        match base_dir {
+            Some(base) => base.join(&path),
+            None => path,
+        }
+    } else {
+        path
+    };
+    let mut normalized = PathBuf::new();
+    let mut has_root = false;
+    for component in joined.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => {
+                normalized.push(prefix.as_os_str());
+            }
+            std::path::Component::RootDir => {
+                normalized.push(component.as_os_str());
+                has_root = true;
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                let can_pop = normalized
+                    .components()
+                    .next_back()
+                    .is_some_and(|c| matches!(c, std::path::Component::Normal(_)));
+                if can_pop {
+                    normalized.pop();
+                } else if !has_root {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            std::path::Component::Normal(part) => {
+                normalized.push(part);
+            }
+        }
+    }
+    normalized
+}
+
 fn expand_sources(sources: Vec<SessionSource>) -> Vec<SessionSource> {
+    let cwd = std::env::current_dir().ok();
+    expand_sources_with_base(sources, cwd.as_deref())
+}
+
+fn expand_sources_with_base(
+    sources: Vec<SessionSource>,
+    base_dir: Option<&Path>,
+) -> Vec<SessionSource> {
     let mut expanded = Vec::new();
     for mut source in sources {
         if source.provider == Provider::Codex {
@@ -717,20 +765,24 @@ fn expand_sources(sources: Vec<SessionSource>) -> Vec<SessionSource> {
             {
                 source.root = PathBuf::from(home).join("sessions");
             }
+            source.root = absolutize_path(source.root, base_dir);
             if source.root.file_name().is_some_and(|s| s == "sessions") {
                 let mut archive = source.clone();
                 archive.root.set_file_name("archived_sessions");
                 expanded.push(archive);
             }
-        }
-        if source.provider == Provider::ClaudeCode {
-            let is_default =
-                dirs::home_dir().is_some_and(|home| source.root == home.join(".claude/projects"));
-            if is_default
-                && let Some(home) = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty())
-            {
-                source.root = PathBuf::from(home).join("projects");
+        } else {
+            if source.provider == Provider::ClaudeCode {
+                let is_default = dirs::home_dir()
+                    .is_some_and(|home| source.root == home.join(".claude/projects"));
+                if is_default
+                    && let Some(home) =
+                        std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty())
+                {
+                    source.root = PathBuf::from(home).join("projects");
+                }
             }
+            source.root = absolutize_path(source.root, base_dir);
         }
         if supported(source.provider).is_some() {
             expanded.push(source);
@@ -746,9 +798,69 @@ fn expand_sources(sources: Vec<SessionSource>) -> Vec<SessionSource> {
     expanded
 }
 
+fn normalized_root_key(path: &Path) -> String {
+    let mut s: String = path
+        .to_string_lossy()
+        .chars()
+        .map(|c| match c {
+            '/' => '\\',
+            c => c.to_ascii_lowercase(),
+        })
+        .collect();
+    while s.len() > 3 && s.ends_with('\\') {
+        s.pop();
+    }
+    s
+}
+
+/// Returns additional expanded non-Aider usage roots (such as Codex archives or env overrides)
+/// that are read by `UsageScanner` beyond the base `sources` list.
+pub fn extra_usage_watch_roots(sources: &[SessionSource]) -> Vec<PathBuf> {
+    let cwd = std::env::current_dir().ok();
+    extra_usage_watch_roots_with_base(sources, cwd.as_deref())
+}
+
+fn extra_usage_watch_roots_with_base(
+    sources: &[SessionSource],
+    base_dir: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut already_watched = HashSet::new();
+    for source in sources {
+        if source.provider == Provider::Aider {
+            continue;
+        }
+        already_watched.insert(normalized_root_key(&source.root));
+        already_watched.insert(normalized_root_key(&absolutize_path(
+            source.root.clone(),
+            base_dir,
+        )));
+    }
+    let mut extras = Vec::new();
+    let mut seen = HashSet::new();
+    for source in expand_sources_with_base(sources.to_vec(), base_dir) {
+        if source.provider == Provider::Aider {
+            continue;
+        }
+        let key = normalized_root_key(&source.root);
+        if !already_watched.contains(&key) && seen.insert(key) {
+            extras.push(source.root);
+        }
+    }
+    extras
+}
+
 /// Returns a stable 128-bit hex digest identifying the expanded usage sources and rates path
 /// without exposing raw local filesystem paths in cached metadata.
 pub fn usage_scope_key(sources: &[SessionSource], rates_path: &Path) -> String {
+    let cwd = std::env::current_dir().ok();
+    usage_scope_key_with_base(sources, rates_path, cwd.as_deref())
+}
+
+fn usage_scope_key_with_base(
+    sources: &[SessionSource],
+    rates_path: &Path,
+    base_dir: Option<&Path>,
+) -> String {
     let mut h1: u64 = 0xcbf2_9ce4_8422_2325;
     let mut h2: u64 = 0x9e37_79b9_7f4a_7c15;
     let mut feed_bytes = |tag: u8, bytes: &[u8]| {
@@ -761,18 +873,10 @@ pub fn usage_scope_key(sources: &[SessionSource], rates_path: &Path) -> String {
             feed_fnv1a(&mut h2, &[byte.wrapping_add(0x3d)]);
         }
     };
-    let normalized_path = |path: &Path| -> Vec<u8> {
-        path.to_string_lossy()
-            .bytes()
-            .map(|b| match b {
-                b'/' => b'\\',
-                b'A'..=b'Z' => b.to_ascii_lowercase(),
-                _ => b,
-            })
-            .collect()
-    };
-    feed_bytes(b'R', &normalized_path(rates_path));
-    for source in expand_sources(sources.to_vec()) {
+    let normalized_path = |path: &Path| -> Vec<u8> { normalized_root_key(path).into_bytes() };
+    let abs_rates = absolutize_path(rates_path.to_path_buf(), base_dir);
+    feed_bytes(b'R', &normalized_path(&abs_rates));
+    for source in expand_sources_with_base(sources.to_vec(), base_dir) {
         if let Some(provider) = supported(source.provider) {
             feed_bytes(b'P', provider.as_bytes());
             feed_bytes(b'S', &[store_order(source.store)]);
@@ -5113,6 +5217,53 @@ mod tests {
         assert_ne!(k1, k2);
         assert_ne!(k1, k3);
         assert!(!k1.to_ascii_lowercase().contains("alice"));
+    }
+
+    #[test]
+    fn usage_scope_key_resolves_relative_roots_against_base_dir() {
+        let rel_sources = vec![SessionSource {
+            provider: Provider::Codex,
+            root: PathBuf::from(r".\codex\sessions"),
+            store: SessionStore::LogFiles,
+        }];
+        let abs_sources_alpha = vec![SessionSource {
+            provider: Provider::Codex,
+            root: PathBuf::from(r"C:\Work\Alpha\codex\sessions"),
+            store: SessionStore::LogFiles,
+        }];
+        let base_alpha = Path::new(r"C:\Work\Alpha");
+        let base_beta = Path::new(r"C:\Work\Beta");
+        let rel_rates = Path::new(r".\cfg\..\usage-rates.toml");
+        let abs_rates_alpha = Path::new(r"C:\Work\Alpha\usage-rates.toml");
+
+        let k_rel_alpha = usage_scope_key_with_base(&rel_sources, rel_rates, Some(base_alpha));
+        let k_abs_alpha =
+            usage_scope_key_with_base(&abs_sources_alpha, abs_rates_alpha, Some(base_alpha));
+        let k_rel_beta = usage_scope_key_with_base(&rel_sources, rel_rates, Some(base_beta));
+
+        assert_eq!(k_rel_alpha, k_abs_alpha);
+        assert_ne!(k_rel_alpha, k_rel_beta);
+    }
+
+    #[test]
+    fn extra_usage_watch_roots_includes_codex_archive_and_excludes_aider() {
+        let sources = vec![
+            SessionSource {
+                provider: Provider::Codex,
+                root: PathBuf::from(r"C:\Work\CustomCodex\sessions"),
+                store: SessionStore::LogFiles,
+            },
+            SessionSource {
+                provider: Provider::Aider,
+                root: PathBuf::from(r"C:\Work\Repo"),
+                store: SessionStore::LogFiles,
+            },
+        ];
+        let extras = extra_usage_watch_roots_with_base(&sources, None);
+        assert_eq!(
+            extras,
+            vec![PathBuf::from(r"C:\Work\CustomCodex\archived_sessions")]
+        );
     }
 
     #[test]

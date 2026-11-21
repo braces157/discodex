@@ -355,6 +355,8 @@ fn worker_loop(
     .ok();
 
     let mut watch_status = HashMap::new();
+    let extra_usage_roots = usage::extra_usage_watch_roots(ingestion.sources());
+    let mut extra_usage_watched: HashMap<PathBuf, bool> = HashMap::new();
     if let Some(watcher) = fs_watcher.as_mut() {
         for source in ingestion.sources() {
             if source.provider == Provider::Aider {
@@ -369,6 +371,14 @@ fn worker_loop(
                     watcher
                         .watch(&source.root, RecursiveMode::Recursive)
                         .map_err(|_| "Could not subscribe to filesystem changes".to_string()),
+                );
+            }
+        }
+        for root in &extra_usage_roots {
+            if root.exists() {
+                extra_usage_watched.insert(
+                    root.clone(),
+                    watcher.watch(root, RecursiveMode::Recursive).is_ok(),
                 );
             }
         }
@@ -408,6 +418,14 @@ fn worker_loop(
                         watcher
                             .watch(&source.root, RecursiveMode::Recursive)
                             .map_err(|_| "Could not subscribe to filesystem changes".to_string()),
+                    );
+                }
+            }
+            for root in &extra_usage_roots {
+                if root.exists() && !extra_usage_watched.get(root).copied().unwrap_or(false) {
+                    extra_usage_watched.insert(
+                        root.clone(),
+                        watcher.watch(root, RecursiveMode::Recursive).is_ok(),
                     );
                 }
             }
