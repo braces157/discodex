@@ -53,7 +53,8 @@ pub fn run_standalone() -> Result<(), Box<dyn std::error::Error>> {
         LayoutMode::Compact
     };
     let (logical_w, logical_h) = initial_layout.dimensions();
-    let placement = Placement::near_cursor_for(logical_w, logical_h);
+    let placement =
+        Placement::initial_for(logical_w, logical_h, initial_layout == LayoutMode::Wide);
     let error = Arc::new(Mutex::new(None));
     let result = error.clone();
     Application::new().run(move |cx: &mut App| {
@@ -68,7 +69,7 @@ pub fn run_standalone() -> Result<(), Box<dyn std::error::Error>> {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: None,
-                kind: WindowKind::Normal,
+                kind: WindowKind::PopUp,
                 is_movable: false,
                 is_resizable: false,
                 is_minimizable: false,
@@ -506,11 +507,16 @@ impl Dashboard {
                     LayoutMode::Compact => LayoutMode::Wide,
                     LayoutMode::Wide => LayoutMode::Compact,
                 };
-                if self.layout == LayoutMode::Wide {
+                let center = self.layout == LayoutMode::Wide;
+                if center {
                     self.maybe_auto_expand_wide();
                 }
                 let (w, h) = self.layout.dimensions();
-                Placement::resize_active_window(w, h);
+                cx.foreground_executor()
+                    .spawn(async move {
+                        Placement::resize_active_window(w, h, center);
+                    })
+                    .detach();
             }
             Action::Refresh => self.request_refresh(true),
             Action::Close => cx.quit(),

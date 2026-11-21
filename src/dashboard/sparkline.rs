@@ -52,7 +52,7 @@ pub fn paint_smooth_curve(
 
 /// Renders a GPU-accelerated inline sparkline using GPUI `canvas` and `PathBuilder`.
 pub fn sparkline(values: Vec<f64>, color: u32) -> impl IntoElement {
-    div().w(px(84.)).h(px(26.)).flex_none().child(
+    div().w(px(66.)).h(px(22.)).flex_none().child(
         canvas(
             move |bounds, _, _| bounds,
             move |_, bounds, window, _| {

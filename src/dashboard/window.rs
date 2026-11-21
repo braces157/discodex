@@ -119,8 +119,9 @@ pub struct Placement {
 }
 
 impl Placement {
-    /// Computes initial window placement near the mouse cursor clamped to monitor work area.
-    pub fn near_cursor_for(logical_w: f32, logical_h: f32) -> Self {
+    /// Computes initial window placement clamped to monitor work area (centered in Wide mode,
+    /// near the mouse cursor in Compact mode).
+    pub fn initial_for(logical_w: f32, logical_h: f32, center: bool) -> Self {
         // SAFETY: Win32 monitor/DPI queries using initialized structs and stack output variables.
         unsafe {
             let mut cursor = POINT::default();
@@ -148,16 +149,26 @@ impl Placement {
                 ((logical_w * scale) as i32).min((work.right - work.left - 2 * margin).max(1));
             let height =
                 ((logical_h * scale) as i32).min((work.bottom - work.top - 2 * margin).max(1));
-            let x = (cursor.x - width + (24.0 * scale) as i32).clamp(
+            let (raw_x, raw_y) = if center {
+                (
+                    work.left + ((work.right - work.left) - width) / 2,
+                    work.top + ((work.bottom - work.top) - height) / 2,
+                )
+            } else {
+                let mid_y = (work.top + work.bottom) / 2;
+                (
+                    cursor.x - width + (24.0 * scale) as i32,
+                    if cursor.y < mid_y {
+                        cursor.y + margin
+                    } else {
+                        cursor.y - height - margin
+                    },
+                )
+            };
+            let x = raw_x.clamp(
                 work.left + margin,
                 (work.right - width - margin).max(work.left + margin),
             );
-            let mid_y = (work.top + work.bottom) / 2;
-            let raw_y = if cursor.y < mid_y {
-                cursor.y + margin
-            } else {
-                cursor.y - height - margin
-            };
             let y = raw_y.clamp(
                 work.top + margin,
                 (work.bottom - height - margin).max(work.top + margin),
@@ -191,10 +202,10 @@ impl Placement {
         }
     }
 
-    /// Resizes the active popup synchronously via Win32 `SetWindowPos`, anchoring the right edge
-    /// when growing wider so the window never clips off the monitor work area.
-    pub fn resize_active_window(logical_w: f32, logical_h: f32) {
-        // SAFETY: Queries current HWND rect/monitor info and synchronously resizes `Discodex Usage`.
+    /// Resizes the active popup via Win32 `SetWindowPos`, centering on the monitor work area when
+    /// expanding to Wide mode and edge-clamping when returning to Compact mode.
+    pub fn resize_active_window(logical_w: f32, logical_h: f32, center: bool) {
+        // SAFETY: Queries current HWND rect/monitor info and resizes `Discodex Usage`.
         unsafe {
             let Ok(hwnd) = FindWindowW(None, w!("Discodex Usage")) else {
                 return;
@@ -222,18 +233,27 @@ impl Placement {
                 ((logical_h * scale) as i32).min((work.bottom - work.top - 2 * margin).max(1));
 
             let max_x = (work.right - width - margin).max(work.left + margin);
-            let preferred_x = if rect.left + width > work.right - margin {
-                rect.right - width
+            let max_y = (work.bottom - height - margin).max(work.top + margin);
+            let (preferred_x, preferred_y) = if center {
+                (
+                    work.left + ((work.right - work.left) - width) / 2,
+                    work.top + ((work.bottom - work.top) - height) / 2,
+                )
             } else {
-                rect.left
+                (
+                    if rect.left + width > work.right - margin {
+                        rect.right - width
+                    } else {
+                        rect.left
+                    },
+                    if rect.top + height > work.bottom - margin {
+                        rect.bottom - height
+                    } else {
+                        rect.top
+                    },
+                )
             };
             let x = preferred_x.clamp(work.left + margin, max_x);
-            let max_y = (work.bottom - height - margin).max(work.top + margin);
-            let preferred_y = if rect.top + height > work.bottom - margin {
-                rect.bottom - height
-            } else {
-                rect.top
-            };
             let y = preferred_y.clamp(work.top + margin, max_y);
 
             let _ = SetWindowPos(

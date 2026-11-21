@@ -121,30 +121,27 @@ pub fn render_hero_bento(
                 .child(kpi_header("TOKENS", ACCENT_LIME))
                 .child(
                     div()
-                        .mt(px(6.))
+                        .mt(px(5.))
+                        .font_family(FONT_MONO)
+                        .text_size(px(21.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .whitespace_nowrap()
+                        .truncate()
+                        .text_color(rgb(if !known || empty {
+                            TEXT_MUTED
+                        } else {
+                            TEXT_PRIMARY
+                        }))
+                        .child(token_value),
+                )
+                .child(
+                    div()
+                        .mt(px(5.))
                         .flex()
-                        .items_end()
+                        .items_center()
                         .justify_between()
                         .gap(px(6.))
-                        .child(
-                            div()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .child(
-                                    div()
-                                        .font_family(FONT_MONO)
-                                        .text_size(px(21.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(rgb(if !known || empty {
-                                            TEXT_MUTED
-                                        } else {
-                                            TEXT_PRIMARY
-                                        }))
-                                        .child(token_value),
-                                )
-                                .child(delta_or_sessions(delta, sessions)),
-                        )
+                        .child(delta_or_sessions(delta, sessions))
                         .when(!empty && !spark_tok.is_empty(), |row| {
                             row.child(sparkline(spark_tok, ACCENT_LIME))
                         }),
@@ -174,33 +171,31 @@ pub fn render_hero_bento(
                 .child(kpi_header("EST. API COST", ACCENT_COST))
                 .child(
                     div()
-                        .mt(px(6.))
+                        .mt(px(5.))
+                        .font_family(FONT_MONO)
+                        .text_size(px(21.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .whitespace_nowrap()
+                        .truncate()
+                        .text_color(rgb(cost_color))
+                        .child(cost_value),
+                )
+                .child(
+                    div()
+                        .mt(px(5.))
                         .flex()
-                        .items_end()
+                        .items_center()
                         .justify_between()
                         .gap(px(6.))
                         .child(
                             div()
                                 .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .child(
-                                    div()
-                                        .font_family(FONT_MONO)
-                                        .text_size(px(21.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(rgb(cost_color))
-                                        .child(cost_value),
-                                )
-                                .child(
-                                    div()
-                                        .mt(px(5.))
-                                        .font_family(FONT_MONO)
-                                        .text_size(px(10.5))
-                                        .text_color(rgb(TEXT_SECONDARY))
-                                        .truncate()
-                                        .child(per_call_text),
-                                ),
+                                .font_family(FONT_MONO)
+                                .text_size(px(10.5))
+                                .text_color(rgb(TEXT_SECONDARY))
+                                .whitespace_nowrap()
+                                .truncate()
+                                .child(per_call_text),
                         )
                         .when(!empty && !spark_cost.is_empty(), |row| {
                             row.child(sparkline(spark_cost, ACCENT_COST))
@@ -248,7 +243,7 @@ fn delta_or_sessions(delta: Option<(f64, &'static str)>, sessions: usize) -> imp
             )
         };
         div()
-            .mt(px(5.))
+            .min_w_0()
             .px(px(5.))
             .py(px(1.5))
             .rounded(px(4.5))
@@ -257,9 +252,11 @@ fn delta_or_sessions(delta: Option<(f64, &'static str)>, sessions: usize) -> imp
             .border_color(rgba(border))
             .font_family(FONT_MONO)
             .text_size(px(10.))
+            .whitespace_nowrap()
+            .truncate()
             .text_color(rgb(fg))
             .child(format!(
-                "{}{} {label}",
+                "{}{}% {label}",
                 if positive { "+" } else { "" },
                 pct.round() as i64
             ))
@@ -273,9 +270,11 @@ fn delta_or_sessions(delta: Option<(f64, &'static str)>, sessions: usize) -> imp
             format!("{sessions} sessions")
         };
         div()
-            .mt(px(5.))
+            .min_w_0()
             .font_family(FONT_MONO)
             .text_size(px(10.5))
+            .whitespace_nowrap()
+            .truncate()
             .text_color(rgb(TEXT_MUTED))
             .child(text)
             .into_any_element()
