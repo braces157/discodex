@@ -3463,7 +3463,9 @@ fn strip_effort_suffix(model: &str) -> Option<&str> {
         "-max",
         "-thinking",
     ];
-    SUFFIXES.iter().find_map(|suffix| model.strip_suffix(suffix))
+    SUFFIXES
+        .iter()
+        .find_map(|suffix| model.strip_suffix(suffix))
 }
 
 pub fn ensure_rates_file(path: &Path) -> io::Result<()> {
@@ -5320,7 +5322,9 @@ mod tests {
         assert_eq!(hydrogen_xhigh.cached_input_per_million, 0.075);
         assert_eq!(hydrogen_xhigh.output_per_million, 7.5);
 
-        let neon_med = rates.resolve("antigravity", "gemini-4-neon-medium").unwrap();
+        let neon_med = rates
+            .resolve("antigravity", "gemini-4-neon-medium")
+            .unwrap();
         assert_eq!(neon_med.model, "gemini-4-neon");
         assert_eq!(neon_med.input_per_million, 3.0);
         assert_eq!(neon_med.cached_input_per_million, 0.15);
@@ -5342,7 +5346,11 @@ mod tests {
 
         let qwen_max = rates.resolve("qwen-code", "qwen4-max").unwrap();
         assert_eq!(qwen_max.model, "qwen4-max");
-        assert!(rates.resolve("antigravity", "unknown-model-medium").is_none());
+        assert!(
+            rates
+                .resolve("antigravity", "unknown-model-medium")
+                .is_none()
+        );
 
         fs::write(
             f.0.join("rates.toml"),
