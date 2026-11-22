@@ -32,7 +32,7 @@ It runs quietly in the notification area, recovers automatically when Discord or
 | Capability | What it does |
 | --- | --- |
 | **39 provider targets** | Combines **21 rich session adapters** (project, language, current file basename, phase, elapsed time), **17 focused-app fallbacks**, and **1 activity-only adapter**. |
-| **Native GPUI usage popup** | Click the tray icon for local token counts, logged calls, cache hit rates, daily charts, period &amp; provider filters, and base-rate API cost estimates across **16 harnesses**. |
+| **Native GPUI usage cockpit** | Click the tray icon for a preloaded Compact or Wide GPUI cockpit with tokens, cache savings, stacked/area charts, 12-week &amp; peak-hours heatmaps, sortable models, and base-rate API cost estimates across **16 harnesses**. |
 | **Privacy by design** | Strips conversation content, paths, commands, and tool output before anything reaches local Discord IPC. Reasoning headings require explicit opt-in. |
 | **Unified provider artwork** | 30 provider marks rebuilt onto a consistent 512px plate and hosted from this repository—no mismatched external hotlinks. |
 | **Zero-dependency footprint** | Single native Windows `.exe` with automatic Discord reconnection, Explorer tray recovery, startup toggle, and CLI lifecycle controls. |
@@ -40,13 +40,14 @@ It runs quietly in the notification area, recovers automatically when Discord or
 
 ## Usage Dashboard
 
-Click the Discodex tray icon—or run `discodex --usage` standalone—to open a compact native **GPUI** popup tracking local usage across **16 harnesses**:
+Click the Discodex tray icon—or run `discodex --usage` (or `discodex --usage --wide`) standalone—to open the preloaded native **GPUI** cockpit tracking local usage across **16 harnesses**:
 
 > **Codex** (including `.jsonl.zst` archives) &middot; **Claude Code** &middot; **Google Antigravity** &middot; **DeepSeek Harness** &middot; **Gemini CLI** &middot; **Qwen Code** &middot; **OpenCode** &middot; **Kilo Code** &middot; **Factory Droid** &middot; **GitHub Copilot CLI** &middot; **Junie** &middot; **Cline** &middot; **Roo Code** &middot; **Zed** &middot; **Crush** &middot; **Aider**
 
-- **Normalized totals:** Cached input and reasoning output are normalized to inclusive totals once across every store format (JSONL, Zstandard, JSON, Markdown, SQLite + `-wal`) so subsets are never double-counted.
-- **Interactive filters &amp; charts:** Filter summary cards, daily bar charts (`Tokens`, `Cost`, `Calls`), and model/effort rows by time period (`Today`, `7d`, `30d`, `All`) and by provider.
-- **Automatic official pricing:** Bundles a Standard API base-rate catalog (checked `2026-11-19`) covering OpenAI, Claude, Google Gemini, DeepSeek, and Qwen, with per-provider/model overrides in `%APPDATA%\Discodex\usage-rates.toml`.
+- **Compact &amp; wide cockpit:** Toggle between the compact tray popup and a two-column analytics cockpit (`w`) featuring KPI sparklines, cache-savings telemetry, `12-Week` streak &amp; `Peak Hours` heatmaps, `Token Mix`, and click-to-expand model rows.
+- **Normalized totals &amp; instant preload:** Cached input and reasoning output are normalized to inclusive totals once across every store format (JSONL, Zstandard, JSON, Markdown, SQLite + `-wal`), and a background tray preloader caches all four periods locally so the popup opens instantly.
+- **Interactive filters &amp; charts:** Filter hero cards, stacked or smooth area charts (`c` — `Tokens`, `Cost`, `Calls`, `Mix` vs `Providers`, `24h` hourly on `Today`), heatmaps, and sortable model rows by time period (`Today`, `7d`, `30d`, `All`) and provider.
+- **Automatic official pricing:** Bundles a Standard API base-rate catalog (checked `2026-11-19`) covering OpenAI, Claude, Google Gemini, DeepSeek, and Qwen (including effort-suffixed model fallback), with per-provider/model overrides in `%APPDATA%\Discodex\usage-rates.toml`.
 - **100% local:** Opens no network listener, makes no API calls, and never sends usage totals or costs to Discord.
 
 See [docs/USAGE.md](docs/USAGE.md) for full details on storage schemas, pricing sources, normalization rules, and custom rate overrides.

@@ -32,7 +32,7 @@ use crate::{
     usage::{UsageBundle, UsageScanner, usage_scope_key},
 };
 
-pub const CACHE_SCHEMA_VERSION: u32 = 1;
+pub const CACHE_SCHEMA_VERSION: u32 = 2;
 pub const CACHE_FILE_NAME: &str = "usage-cache.json";
 pub const RATES_FILE_NAME: &str = "usage-rates.toml";
 

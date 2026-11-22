@@ -25,7 +25,7 @@
   <link rel="preload" href="assets/fonts/outfit-latin.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="stylesheet" href="styles.css">
   <script type="application/ld+json">
-    {"@context":"https://schema.org","@type":"SoftwareApplication","name":"Discodex","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows 10, Windows 11","description":"Native Windows tray app that mirrors AI coding sessions into Discord Rich Presence without sending conversation content.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"softwareVersion":"0.2.0"}
+    {"@context":"https://schema.org","@type":"SoftwareApplication","name":"Discodex","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows 10, Windows 11","description":"Native Windows tray app that mirrors AI coding sessions into Discord Rich Presence and tracks local usage analytics across 16 harnesses without sending conversation content.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"softwareVersion":"0.3.0"}
   </script>
   <script>document.documentElement.classList.replace("no-js", "js");if(!window.matchMedia("(prefers-reduced-motion: reduce)").matches&&!/[?&]static(=|&|$)/.test(location.search))document.documentElement.classList.add("motion");</script>
 </head>
@@ -45,6 +45,8 @@
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
     <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 6-6 6 6 6m8-12 6 6-6 6m-2-15-4 18"/></symbol>
     <symbol id="i-windows" viewBox="0 0 24 24"><path d="M3 5.5 10.5 4v7H3V5.5Zm9-1.8L21 2v9h-9V3.7ZM3 13h7.5v7L3 18.5V13Zm9 0h9v9l-9-1.7V13Z"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+    <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/></symbol>
   </svg>
 
   <nav class="nav" id="nav" aria-label="Primary navigation">
@@ -59,7 +61,7 @@
       <a href="#privacy">Privacy</a>
     </div>
     <div class="nav-end">
-      <a class="version" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener"><span class="status-dot"></span>v0.2.0</a>
+      <a class="version" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener"><span class="status-dot"></span>v0.3.0</a>
       <a class="button button-small button-ink" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">Get Discodex <svg class="icon"><use href="#i-download"/></svg></a>
       <button class="menu-toggle" id="menuToggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="mobileMenu"><span></span><span></span></button>
     </div>
@@ -84,7 +86,7 @@
       <div class="hero-copy">
         <div class="eyebrow reveal"><span class="status-dot"></span>Small app. Good company.</div>
         <h1 class="reveal split-words"><span class="w"><span style="--i:0">Your</span></span> <span class="w"><span style="--i:1">work.</span></span><br><span class="w"><span style="--i:2">In</span></span> <span class="w"><span style="--i:3">good</span></span> <span class="w w-circled"><span class="circled" style="--i:4">company.<svg viewBox="0 0 390 92" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M16 51C15 20 119 8 212 10c107 3 169 18 162 46-8 29-110 32-197 28C79 80 4 74 16 40"/></svg></span></span></h1>
-        <p class="hero-description reveal" style="--delay: .45s">Discodex turns your AI coding sessions into Discord Rich Presence—and tracks local token usage, cache hit rates, and API cost estimates across 16 harnesses. Share the work, not the conversation.</p>
+        <p class="hero-description reveal" style="--delay: .45s">Discodex turns your AI coding sessions into Discord Rich Presence—and opens a native usage cockpit for token totals, cache savings, and API cost estimates across 16 harnesses. Share the work, not the conversation.</p>
         <div class="hero-actions reveal" style="--delay: .55s">
           <a class="button button-accent" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener"><svg class="icon"><use href="#i-windows"/></svg>Download for Windows<span class="button-icon"><svg class="icon"><use href="#i-download"/></svg></span></a>
           <a class="text-link" href="https://github.com/braces157/discodex" target="_blank" rel="noopener"><svg class="icon"><use href="#i-github"/></svg>View on GitHub<svg class="icon arrow-up"><use href="#i-arrow-up"/></svg></a>
@@ -170,13 +172,13 @@
           </article>
 
           <article class="feature-side depth-card reveal" style="--delay: .08s">
-            <div class="feature-copy"><span class="feature-number">02</span><h3>Always there.<br>Usage one click away.</h3><p>No Electron app to keep open. Just a quiet tray icon with a native GPUI usage popup across 16 AI tools whenever you click it.</p></div>
+            <div class="feature-copy"><span class="feature-number">02</span><h3>Always there.<br>Usage one click away.</h3><p>No Electron app to keep open. Just a quiet tray icon with a preloaded GPUI usage cockpit in compact or wide view whenever you click it.</p></div>
             <div class="tray-demo">
               <div class="tray-window">
                 <div class="tray-title"><img src="assets/discodex-256.png" alt="" width="23" height="23"><strong>Discodex</strong><span class="tray-active"><span class="status-dot"></span>Active</span></div>
                 <div class="tray-row"><span>Presence enabled</span><span class="switch on"></span></div>
                 <div class="tray-row"><span>Detect focused AI apps</span><span class="switch on"></span></div>
-                <div class="tray-row"><span>Usage dashboard</span><span class="mono">16 TOOLS</span></div>
+                <div class="tray-row"><span>Usage cockpit</span><span class="mono">COMPACT · WIDE</span></div>
                 <div class="tray-row tray-divider"><span>Status</span><span class="mono">CODEX · DISCODEX</span></div>
                 <div class="tray-row"><span>Diagnostics &amp; config</span><svg class="icon"><use href="#i-arrow-up"/></svg></div>
               </div>
@@ -187,9 +189,9 @@
         </div>
 
         <div class="feature-footnotes reveal">
-          <div><span class="footnote-icon"><svg class="icon"><use href="#i-windows"/></svg></span><span><strong>Native by nature</strong><small>One .exe. Native GPUI popup.</small></span></div>
+          <div><span class="footnote-icon"><svg class="icon"><use href="#i-windows"/></svg></span><span><strong>Native by nature</strong><small>One .exe. Compact &amp; wide GPUI cockpit.</small></span></div>
           <div><span class="footnote-icon"><svg class="icon"><use href="#i-code"/></svg></span><span><strong>Reads local logs</strong><small>JSONL, Zstd, JSON, Markdown, SQLite.</small></span></div>
-          <div><span class="footnote-icon reconnect-icon"><svg class="icon"><use href="#i-arrow"/></svg></span><span><strong>Local usage &amp; cost</strong><small>16 harnesses, period &amp; provider filters.</small></span></div>
+          <div><span class="footnote-icon reconnect-icon"><svg class="icon"><use href="#i-arrow"/></svg></span><span><strong>Preloaded local cache</strong><small>Instant popup load across 16 harnesses.</small></span></div>
         </div>
       </div>
     </section>
@@ -198,79 +200,185 @@
       <div class="wrap">
         <div class="section-heading reveal">
           <div><span class="section-index">02 / Local usage &amp; cost</span><h2>Every token counted.<br><span class="muted">Zero cloud required.</span></h2></div>
-          <p>Click the tray icon for a native GPUI popup that scans local session logs across 16 harnesses—normalizing cached input and reasoning tokens with automatic base-rate API cost estimates.</p>
+          <p>Click the tray icon for a preloaded GPUI cockpit in compact or wide view—tracking tokens, cache savings, activity streaks, peak hours, and API cost estimates across 16 harnesses.</p>
         </div>
 
-        <div class="usage-layout">
-          <div class="usage-copy reveal">
+        <div class="usage-layout is-wide" id="usageLayout">
+          <div class="usage-popup depth-card reveal" id="usageDemo" style="--delay: .04s" aria-label="Interactive preview of the Discodex Usage Cockpit">
+            <div class="usage-head">
+              <div class="usage-brand">
+                <img src="assets/discodex-256.png" alt="" width="26" height="26">
+                <div><strong>Discodex <i class="status-dot" aria-hidden="true"></i></strong><span>USAGE COCKPIT · GPUI</span></div>
+              </div>
+              <div class="usage-head-controls">
+                <div class="usage-tabs" role="group" aria-label="Time period">
+                  <button class="usage-tab" type="button" data-period="today" aria-pressed="false">Today</button>
+                  <button class="usage-tab active" type="button" data-period="7d" aria-pressed="true">7d</button>
+                  <button class="usage-tab" type="button" data-period="30d" aria-pressed="false">30d</button>
+                  <button class="usage-tab" type="button" data-period="all" aria-pressed="false">All</button>
+                </div>
+                <button class="usage-layout-btn active" id="uLayoutToggle" type="button" aria-pressed="true" aria-label="Switch between Wide and Compact cockpit layout">
+                  <svg class="icon"><use id="uLayoutIcon" href="#i-collapse"/></svg>
+                  <span id="uLayoutLabel">Compact</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="usage-cockpit-body">
+            <div class="usage-cockpit-grid">
+              <div class="usage-col-main">
+                <div class="usage-bento">
+                  <div class="usage-hero-card">
+                    <div class="usage-card-top"><span>TOKENS</span><i class="usage-dot lime" aria-hidden="true"></i></div>
+                    <strong class="usage-hero-val" id="uTokens">14.8M</strong>
+                    <div class="usage-hero-mid">
+                      <span class="usage-delta positive" id="uDelta">+18% vs 30d avg</span>
+                      <div class="usage-spark" id="uSparkTokens" aria-hidden="true"></div>
+                    </div>
+                    <small class="usage-hero-sub" id="uTokensSub">13.4M in · 1.4M out</small>
+                  </div>
+                  <div class="usage-hero-card">
+                    <div class="usage-card-top"><span>EST. API COST</span><i class="usage-dot emerald" aria-hidden="true"></i></div>
+                    <strong class="usage-hero-val emerald" id="uCost">$18.42</strong>
+                    <div class="usage-hero-mid">
+                      <span class="usage-per-call" id="uPerCall">$0.04 / call</span>
+                      <div class="usage-spark" id="uSparkCost" aria-hidden="true"></div>
+                    </div>
+                    <small class="usage-hero-sub" id="uCostSub">~$2.63 / active day</small>
+                  </div>
+                </div>
+
+                <div class="usage-telemetry" aria-label="Session telemetry">
+                  <div class="usage-tel-cell"><span>CALLS</span><strong id="uCalls">412</strong></div>
+                  <i class="usage-tel-div" aria-hidden="true"></i>
+                  <div class="usage-tel-cell"><span>CACHE HIT</span><strong class="lime" id="uCache">76%</strong></div>
+                  <i class="usage-tel-div" aria-hidden="true"></i>
+                  <div class="usage-tel-cell"><span>CACHE SAVED</span><strong class="emerald" id="uSaved">$14.80</strong></div>
+                  <i class="usage-tel-div" aria-hidden="true"></i>
+                  <div class="usage-tel-cell"><span>TASK TIME</span><strong id="uTaskTime">1h 48m</strong></div>
+                </div>
+
+                <div class="usage-chart-card">
+                  <div class="usage-chart-head">
+                    <div class="usage-chart-controls">
+                      <div class="usage-pill-group" role="group" aria-label="Chart metric">
+                        <button class="usage-metric active" type="button" data-metric="tokens" aria-pressed="true">Tokens</button>
+                        <button class="usage-metric" type="button" data-metric="cost" aria-pressed="false">Cost</button>
+                        <button class="usage-metric" type="button" data-metric="calls" aria-pressed="false">Calls</button>
+                      </div>
+                      <div class="usage-pill-group" role="group" aria-label="Chart style">
+                        <button class="usage-style active" type="button" data-style="bar" aria-pressed="true">Bar</button>
+                        <button class="usage-style" type="button" data-style="area" aria-pressed="false">Area</button>
+                      </div>
+                      <div class="usage-pill-group" id="uStackGroup" role="group" aria-label="Stack breakdown">
+                        <button class="usage-stack active" type="button" data-stack="mix" aria-pressed="true">Mix</button>
+                        <button class="usage-stack" type="button" data-stack="providers" aria-pressed="false">Providers</button>
+                      </div>
+                    </div>
+                    <strong class="usage-chart-total" id="uChartTotal">14.8M</strong>
+                  </div>
+
+                  <div class="usage-readout" id="uReadout" aria-live="polite">
+                    <div class="usage-readout-row">
+                      <span id="uReadoutTitle">Period summary</span>
+                      <strong id="uReadoutVal">Peak 2.94M · Avg 2.11M</strong>
+                    </div>
+                    <div class="usage-readout-sub">
+                      <span id="uReadoutSubLeft">Hover chart for exact breakdown</span>
+                      <span id="uReadoutSubRight"></span>
+                    </div>
+                  </div>
+
+                  <div class="usage-plot" id="uChartPlot"></div>
+
+                  <div class="usage-chart-foot">
+                    <div class="usage-legend" id="uChartLegend"></div>
+                    <span class="usage-chart-note" id="uChartNote"></span>
+                  </div>
+                </div>
+
+                <div class="usage-heatmap-card">
+                  <div class="usage-card-head">
+                    <div class="usage-card-title-row">
+                      <span>ACTIVITY</span>
+                      <span class="usage-streak-pill" id="uStreakBadge">14d streak · 68d active</span>
+                    </div>
+                    <div class="usage-pill-group" role="group" aria-label="Activity view">
+                      <button class="usage-heat-tab active" type="button" data-heat="calendar" aria-pressed="true">12-Week</button>
+                      <button class="usage-heat-tab" type="button" data-heat="hours" aria-pressed="false">Peak Hours</button>
+                    </div>
+                  </div>
+                  <div class="usage-heatmap-grid" id="uHeatmapGrid"></div>
+                  <div class="usage-heatmap-readout" id="uHeatmapReadout" aria-live="polite">Hover any cell for breakdown</div>
+                </div>
+              </div>
+
+              <div class="usage-col-side">
+                <div class="usage-providers-card">
+                  <div class="usage-card-head">
+                    <span>PROVIDERS</span>
+                    <span class="usage-card-hint" id="uProviderHint">Click to filter</span>
+                  </div>
+                  <div class="usage-share-bar" id="uProviderBar" aria-hidden="true"></div>
+                  <div class="usage-providers" id="uProviderChips" role="group" aria-label="Filter usage by provider">
+                    <button class="usage-pill active" type="button" data-uprovider="all" aria-pressed="true">All</button>
+                    <button class="usage-pill" type="button" data-uprovider="codex" aria-pressed="false"><i style="--pcol:#c5f277"></i>Codex</button>
+                    <button class="usage-pill" type="button" data-uprovider="claude-code" aria-pressed="false"><i style="--pcol:#f5b971"></i>Claude Code</button>
+                    <button class="usage-pill" type="button" data-uprovider="antigravity" aria-pressed="false"><i style="--pcol:#7dd3fc"></i>Antigravity</button>
+                    <button class="usage-pill" type="button" data-uprovider="gemini-cli" aria-pressed="false"><i style="--pcol:#a78bfa"></i>Gemini CLI</button>
+                    <button class="usage-pill" type="button" data-uprovider="opencode" aria-pressed="false"><i style="--pcol:#6ee7b7"></i>OpenCode</button>
+                  </div>
+                </div>
+
+                <div class="usage-mix-card">
+                  <div class="usage-card-head">
+                    <span>TOKEN MIX</span>
+                    <span class="usage-card-mono" id="uAvgPerCall">35.9K tok / call</span>
+                  </div>
+                  <div class="usage-mix-bar" id="uMixBar" aria-hidden="true"></div>
+                  <div class="usage-mix-legend" id="uMixLegend"></div>
+                </div>
+
+                <div class="usage-models">
+                  <div class="usage-models-head">
+                    <span>MODELS</span>
+                    <div class="usage-pill-group" role="group" aria-label="Sort models by">
+                      <button class="usage-sort active" type="button" data-sort="tokens" aria-pressed="true">Tokens</button>
+                      <button class="usage-sort" type="button" data-sort="cost" aria-pressed="false">Cost</button>
+                      <button class="usage-sort" type="button" data-sort="calls" aria-pressed="false">Calls</button>
+                      <button class="usage-sort" type="button" data-sort="cache" aria-pressed="false">Cache</button>
+                    </div>
+                  </div>
+                  <ul class="usage-model-list" id="uModelList"></ul>
+                </div>
+              </div>
+            </div>
+            </div>
+
+            <div class="usage-foot">
+              <span><i class="status-dot"></i>Interactive preview · Click models, hover charts, or switch Compact / Wide</span>
+              <span>Never sent to Discord</span>
+            </div>
+          </div>
+
+          <div class="usage-copy reveal" style="--delay: .08s">
             <div class="usage-stats">
               <div><span class="usage-stat-num">16</span><span class="usage-stat-label">Usage harnesses</span></div>
               <div><span class="usage-stat-num">0</span><span class="usage-stat-label">Network calls</span></div>
             </div>
             <ul class="usage-points">
-              <li><svg class="icon"><use href="#i-check"/></svg><span><strong>No double-counting:</strong> cached input and reasoning output are normalized to inclusive totals once across every store format.</span></li>
-              <li><svg class="icon"><use href="#i-check"/></svg><span><strong>Bundled official catalog:</strong> automatic Standard API base-rate estimates for OpenAI, Claude, Gemini, DeepSeek, and Qwen, plus custom <code>usage-rates.toml</code> overrides.</span></li>
-              <li><svg class="icon"><use href="#i-check"/></svg><span><strong>Fast local cache:</strong> tracks unchanged files, <code>.jsonl.zst</code> archives, and SQLite <code>-wal</code> sidecars—or launch standalone via <code>discodex --usage</code>.</span></li>
+              <li><svg class="icon"><use href="#i-check"/></svg><span><strong>Compact &amp; wide cockpit:</strong> switch between a tray popup and a two-column analytics cockpit with stacked or area charts, 12-week streaks, peak hours, and expandable model rows.</span></li>
+              <li><svg class="icon"><use href="#i-check"/></svg><span><strong>Instant preload &amp; zero double-counting:</strong> a background tray preloader caches all four periods locally and normalizes cached input and reasoning output once across every format.</span></li>
+              <li><svg class="icon"><use href="#i-check"/></svg><span><strong>Bundled catalog &amp; cache savings:</strong> automatic Standard API base rates and cache-savings telemetry across OpenAI, Claude, Gemini, DeepSeek, and Qwen—including effort-suffixed models and <code>usage-rates.toml</code> overrides.</span></li>
             </ul>
             <div class="usage-harness-block">
-              <span class="mono">SUPPORTED USAGE STORES (16)</span>
+              <div class="usage-harness-head">
+                <span class="mono">SUPPORTED USAGE STORES (16)</span>
+                <a class="text-link" href="https://github.com/braces157/discodex/blob/main/docs/USAGE.md" target="_blank" rel="noopener">Read the usage &amp; pricing guide<svg class="icon arrow-up"><use href="#i-arrow-up"/></svg></a>
+              </div>
               <div class="usage-harnesses" aria-label="Harnesses with local usage tracking">
                 <span>Codex</span><span>Claude Code</span><span>Antigravity</span><span>DeepSeek Harness</span><span>Gemini CLI</span><span>Qwen Code</span><span>OpenCode</span><span>Kilo Code</span><span>Factory Droid</span><span>Copilot CLI</span><span>Junie</span><span>Cline</span><span>Roo Code</span><span>Zed</span><span>Crush</span><span>Aider</span>
               </div>
-            </div>
-            <a class="text-link" href="https://github.com/braces157/discodex/blob/main/docs/USAGE.md" target="_blank" rel="noopener">Read the usage &amp; pricing guide<svg class="icon arrow-up"><use href="#i-arrow-up"/></svg></a>
-          </div>
-
-          <div class="usage-popup depth-card reveal" id="usageDemo" style="--delay: .08s" aria-label="Interactive preview of the Discodex Usage Dashboard">
-            <div class="usage-head">
-              <div class="usage-brand">
-                <img src="assets/discodex-256.png" alt="" width="24" height="24">
-                <div><strong>Usage Dashboard</strong><span>GPUI · LOCAL SNAPSHOT</span></div>
-              </div>
-              <div class="usage-tabs" role="group" aria-label="Time period">
-                <button class="usage-tab" type="button" data-period="today" aria-pressed="false">Today</button>
-                <button class="usage-tab active" type="button" data-period="7d" aria-pressed="true">7d</button>
-                <button class="usage-tab" type="button" data-period="30d" aria-pressed="false">30d</button>
-                <button class="usage-tab" type="button" data-period="all" aria-pressed="false">All</button>
-              </div>
-            </div>
-
-            <div class="usage-providers" role="group" aria-label="Filter usage by provider">
-              <button class="usage-pill active" type="button" data-uprovider="all" aria-pressed="true">All providers</button>
-              <button class="usage-pill" type="button" data-uprovider="codex" aria-pressed="false">Codex</button>
-              <button class="usage-pill" type="button" data-uprovider="claude-code" aria-pressed="false">Claude Code</button>
-              <button class="usage-pill" type="button" data-uprovider="antigravity" aria-pressed="false">Antigravity</button>
-              <button class="usage-pill" type="button" data-uprovider="gemini-cli" aria-pressed="false">Gemini CLI</button>
-              <button class="usage-pill" type="button" data-uprovider="opencode" aria-pressed="false">OpenCode</button>
-            </div>
-
-            <div class="usage-kpis">
-              <div class="usage-kpi"><span>Total tokens</span><strong id="uTokens">14.8M</strong><small id="uTokensSub">13.4M in · 1.4M out</small></div>
-              <div class="usage-kpi"><span>Est. API cost</span><strong id="uCost">~$18.42</strong><small id="uCostSub">Standard base rates</small></div>
-              <div class="usage-kpi"><span>Logged calls</span><strong id="uCalls">412</strong><small id="uCallsSub">Across 5 harnesses</small></div>
-              <div class="usage-kpi"><span>Cache hit</span><strong id="uCache">76.4%</strong><small id="uCacheSub">10.2M cached input</small></div>
-            </div>
-
-            <div class="usage-chart-card">
-              <div class="usage-chart-head">
-                <span class="mono" id="uChartLabel">DAILY ACTIVITY · TOKENS</span>
-                <div class="usage-metrics" role="group" aria-label="Chart metric">
-                  <button class="usage-metric active" type="button" data-metric="tokens" aria-pressed="true">Tokens</button>
-                  <button class="usage-metric" type="button" data-metric="cost" aria-pressed="false">Cost</button>
-                  <button class="usage-metric" type="button" data-metric="calls" aria-pressed="false">Calls</button>
-                </div>
-              </div>
-              <div class="usage-bars" id="uBars" aria-live="polite"></div>
-            </div>
-
-            <div class="usage-models">
-              <div class="usage-models-head"><span>MODEL &amp; EFFORT</span><span>TOKENS / EST. COST</span></div>
-              <ul class="usage-model-list" id="uModelList"></ul>
-            </div>
-
-            <div class="usage-foot">
-              <span><i class="status-dot"></i>Interactive preview · Sample local snapshot</span>
-              <span>Never sent to Discord</span>
             </div>
           </div>
         </div>
@@ -368,7 +476,7 @@
             <li><span class="step-number">03</span><div><h3>Get back to work</h3><p>Keep Discord Desktop open. Your presence connects and reconnects automatically as you build.</p></div></li>
           </ol>
           <div class="download-panel depth-card reveal" style="--delay: .08s">
-            <div class="download-panel-top"><img src="assets/discodex-256.png" alt="" width="52" height="52"><div><strong>Discodex for Windows</strong><span>Version 0.2.0 · Free & open source</span></div><span class="release-tag">LATEST</span></div>
+            <div class="download-panel-top"><img src="assets/discodex-256.png" alt="" width="52" height="52"><div><strong>Discodex for Windows</strong><span>Version 0.3.0 · Free & open source</span></div><span class="release-tag">LATEST</span></div>
             <a class="button button-accent download-button" href="https://github.com/braces157/discodex/releases/latest" target="_blank" rel="noopener">Download discodex.exe<span class="button-icon"><svg class="icon"><use href="#i-download"/></svg></span></a>
             <div class="requirements"><span><svg class="icon"><use href="#i-check"/></svg>Windows 10 or 11</span><span><svg class="icon"><use href="#i-check"/></svg>Discord Desktop</span><span><svg class="icon"><use href="#i-check"/></svg>No installer</span></div>
             <details class="build-details"><summary>Prefer to build from source?<span>+</span></summary><div class="build-content"><p>You’ll need Rust 1.89 or newer and Windows SDK <code>fxc.exe</code>. If <code>where.exe fxc.exe</code> returns multiple paths, set <code>GPUI_FXC_PATH</code> to one full executable path.</p><div class="code-block"><button id="copyButton" class="copy-button" type="button" aria-label="Copy build commands"><svg class="icon"><use href="#i-copy"/></svg><span>Copy</span></button><pre id="buildCommands">git clone https://github.com/braces157/discodex.git

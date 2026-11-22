@@ -1,18 +1,19 @@
 # Track model usage
 
-Click the Discodex tray icon to open the compact GPUI usage popup. Right-click still opens the tray menu. You can also run the popup independently:
+Click the Discodex tray icon to open the GPUI usage cockpit in Compact or Wide view. Right-click still opens the tray menu. You can also run the cockpit independently:
 
 ```powershell
 cargo run --release -- --usage
+cargo run --release -- --usage --wide
 ```
 
-The popup closes with Escape, its close button, or a click outside it. Pin keeps it open while you use other windows. Closing it leaves Discord presence running.
+The popup closes with Escape, its close button, or a click outside it. Pin (`p`) keeps it open while you use other windows, `w` toggles Compact and Wide layout, `c` switches between Stacked Bar and Area charts, `1`–`4` switch periods, and `r` refreshes. Closing it leaves Discord presence running.
 
 ## Read usage for a period
 
 Select Today, 7 days, 30 days, or All. Periods start at local midnight. The scanner reconciles cumulative counters before selecting timestamped usage, so a recent model does not bring its older token totals into the selected period.
 
-Summary cards show recorded tokens, logged usage calls, a base-rate API cost estimate, and cache hit rate. The chart switches between tokens, cost, and calls. When multiple providers have usage, a filter bar lets you view all providers together or filter the cards, chart, and model rows to a single provider. Model rows show model and reasoning effort (when recorded) with their available usage and task time.
+Hero cards show recorded tokens and base-rate API cost estimates with period delta badges and sparklines, followed by a telemetry strip for logged calls, cache hit rate, cache savings, and task time. The interactive chart switches between tokens, cost, and calls, stacked bars or area curves, token mix or provider stacks, and a 24-hour local timeline on Today. Below it sit a 12-Week streak calendar and 7×24 Peak Hours activity heatmap, a Token Mix composition bar, provider filter chips, and sortable model rows with expandable detail drawers.
 
 Calls count distinct logged usage observations. They are not unique sessions, network requests, or failed attempts that left no usage record. Missing fields stay unknown. Charts use the dated records available locally.
 
