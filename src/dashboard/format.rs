@@ -60,6 +60,38 @@ pub enum StackBreakdown {
     ByProvider,
 }
 
+pub fn effective_stack_breakdown(
+    stack_by: StackBreakdown,
+    provider_filter: Option<&str>,
+    provider_count: usize,
+) -> StackBreakdown {
+    if stack_by == StackBreakdown::ByProvider && provider_filter.is_none() && provider_count > 1 {
+        StackBreakdown::ByProvider
+    } else {
+        StackBreakdown::TokenMix
+    }
+}
+
+pub fn compute_chart_avg(values: &[Option<f64>]) -> (Option<f64>, bool) {
+    let mut sum = 0.0_f64;
+    let mut known = 0usize;
+    let mut partial = false;
+    for value in values {
+        match value {
+            Some(v) => {
+                sum += *v;
+                known += 1;
+            }
+            None => partial = true,
+        }
+    }
+    if known == 0 {
+        (None, partial)
+    } else {
+        (Some(sum / known as f64), partial)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HeatmapTab {
     Calendar,
@@ -76,12 +108,12 @@ pub enum ModelSort {
 
 #[derive(Clone, Debug, Default)]
 pub struct TokenMix {
-    pub fresh_input: u64,
-    pub cached_read: u64,
-    pub cache_write: u64,
-    pub output: u64,
-    pub reasoning: u64,
-    pub total: u64,
+    pub fresh_input: (Option<u64>, bool),
+    pub cached_read: (Option<u64>, bool),
+    pub cache_write: (Option<u64>, bool),
+    pub output: (Option<u64>, bool),
+    pub reasoning: (Option<u64>, bool),
+    pub total: (Option<u64>, bool),
 }
 
 #[derive(Clone, Debug)]
@@ -145,27 +177,36 @@ pub fn sort_model_rows(rows: &[UsageRow], sort: ModelSort) -> Vec<&UsageRow> {
 }
 
 pub fn compute_token_mix(rows: &[UsageRow]) -> TokenMix {
-    let input = sum_field(rows, |r| r.input_tokens).0.unwrap_or(0);
-    let cached_read = sum_field(rows, |r| r.cached_input_tokens)
-        .0
-        .unwrap_or(0)
-        .min(input);
-    let cache_write = sum_field(rows, |r| r.cache_write_tokens)
-        .0
-        .unwrap_or(0)
-        .min(input.saturating_sub(cached_read));
-    let fresh_input = input
-        .saturating_sub(cached_read)
-        .saturating_sub(cache_write);
-    let output = sum_field(rows, |r| r.output_tokens).0.unwrap_or(0);
-    let reasoning = sum_field(rows, |r| r.reasoning_tokens)
-        .0
-        .unwrap_or(0)
-        .min(output);
-    let total = fresh_input
-        .saturating_add(cached_read)
-        .saturating_add(cache_write)
-        .saturating_add(output);
+    let cached_read = sum_field(rows, |r| {
+        r.cached_input_tokens
+            .map(|c| r.input_tokens.map_or(c, |i| c.min(i)))
+    });
+    let cache_write = sum_field(rows, |r| {
+        r.cache_write_tokens.map(|w| {
+            let max_w = match (r.input_tokens, r.cached_input_tokens) {
+                (Some(i), Some(c)) => i.saturating_sub(c.min(i)),
+                (Some(i), None) => i,
+                _ => w,
+            };
+            w.min(max_w)
+        })
+    });
+    let fresh_input = sum_field(rows, |r| {
+        let input = r.input_tokens?;
+        let cached = r.cached_input_tokens?.min(input);
+        let written = match r.cache_write_tokens {
+            Some(w) => w.min(input.saturating_sub(cached)),
+            None if r.provider == "claude-code" => return None,
+            None => 0,
+        };
+        Some(input.saturating_sub(cached).saturating_sub(written))
+    });
+    let output = sum_field(rows, |r| r.output_tokens);
+    let reasoning = sum_field(rows, |r| {
+        r.reasoning_tokens
+            .map(|rs| r.output_tokens.map_or(rs, |o| rs.min(o)))
+    });
+    let total = sum_tokens(rows);
 
     TokenMix {
         fresh_input,
@@ -484,12 +525,58 @@ mod tests {
             ..Default::default()
         }];
         let mix = compute_token_mix(&rows);
-        assert_eq!(mix.fresh_input, 200);
-        assert_eq!(mix.cached_read, 700);
-        assert_eq!(mix.cache_write, 100);
-        assert_eq!(mix.output, 400);
-        assert_eq!(mix.reasoning, 150);
-        assert_eq!(mix.total, 1_400);
+        assert_eq!(mix.fresh_input, (Some(200), false));
+        assert_eq!(mix.cached_read, (Some(700), false));
+        assert_eq!(mix.cache_write, (Some(100), false));
+        assert_eq!(mix.output, (Some(400), false));
+        assert_eq!(mix.reasoning, (Some(150), false));
+        assert_eq!(mix.total, (Some(1_400), false));
+
+        // Unknown cached_input_tokens must not inflate fresh_input.
+        let partial_rows = vec![UsageRow {
+            provider: "codex".into(),
+            input_tokens: Some(100),
+            cached_input_tokens: None,
+            output_tokens: Some(50),
+            ..Default::default()
+        }];
+        let partial_mix = compute_token_mix(&partial_rows);
+        assert_eq!(partial_mix.fresh_input, (None, true));
+        assert_eq!(partial_mix.cached_read, (None, true));
+        assert_eq!(partial_mix.output, (Some(50), false));
+        assert_eq!(partial_mix.total, (Some(150), false));
+
+        // Mixing complete and incomplete rows marks fresh_input partial without counting unknown input.
+        let mixed = vec![rows[0].clone(), partial_rows[0].clone()];
+        let mixed_mix = compute_token_mix(&mixed);
+        assert_eq!(mixed_mix.fresh_input, (Some(200), true));
+        assert_eq!(mixed_mix.total, (Some(1_550), false));
+
+        // Chart average excludes unknown buckets while keeping measured zero buckets.
+        assert_eq!(
+            compute_chart_avg(&[Some(100.0), None, Some(100.0)]),
+            (Some(100.0), true)
+        );
+        assert_eq!(
+            compute_chart_avg(&[Some(100.0), Some(0.0)]),
+            (Some(50.0), false)
+        );
+        assert_eq!(compute_chart_avg(&[None, None]), (None, true));
+        assert_eq!(compute_chart_avg(&[]), (None, false));
+
+        // Effective stack breakdown requires multiple providers and no provider filter.
+        assert_eq!(
+            effective_stack_breakdown(StackBreakdown::ByProvider, None, 2),
+            StackBreakdown::ByProvider
+        );
+        assert_eq!(
+            effective_stack_breakdown(StackBreakdown::ByProvider, None, 1),
+            StackBreakdown::TokenMix
+        );
+        assert_eq!(
+            effective_stack_breakdown(StackBreakdown::ByProvider, Some("codex"), 2),
+            StackBreakdown::TokenMix
+        );
 
         let (saved, partial_saved) = sum_cache_savings(&rows);
         assert!(!partial_saved);

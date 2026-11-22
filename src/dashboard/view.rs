@@ -281,6 +281,15 @@ impl Dashboard {
             .error
             .clone()
             .map(|err| render_error_banner(err, cx).into_any_element());
+        let notice = (!warnings.is_empty())
+            .then(|| render_notice_pill(&warnings, self.info_open, cx).into_any_element());
+        let rates_banner = self
+            .rates_message
+            .clone()
+            .map(|m| render_rates_banner(m).into_any_element());
+        let info_drawer = self
+            .info_open
+            .then(|| render_info_drawer(&date, warnings).into_any_element());
 
         let main_content = if is_loading {
             div()
@@ -303,6 +312,9 @@ impl Dashboard {
                         .text_color(rgb(TEXT_MUTED))
                         .child("Reading local session logs..."),
                 )
+                .children(notice)
+                .children(rates_banner)
+                .children(info_drawer)
                 .into_any_element()
         } else if is_empty {
             div()
@@ -311,6 +323,9 @@ impl Dashboard {
                 .gap(px(10.))
                 .child(hero)
                 .child(render_empty_state(self.period, cx))
+                .children(notice)
+                .children(rates_banner)
+                .children(info_drawer)
                 .into_any_element()
         } else {
             let telemetry = render_telemetry_strip(&rows).into_any_element();
@@ -359,15 +374,6 @@ impl Dashboard {
                 cx,
             )
             .into_any_element();
-            let notice = (!warnings.is_empty())
-                .then(|| render_notice_pill(&warnings, self.info_open, cx).into_any_element());
-            let rates_banner = self
-                .rates_message
-                .clone()
-                .map(|m| render_rates_banner(m).into_any_element());
-            let info_drawer = self
-                .info_open
-                .then(|| render_info_drawer(&date, warnings).into_any_element());
 
             if is_wide {
                 div()

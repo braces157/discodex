@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use chrono::{Days, Local, NaiveDate, TimeZone};
+use chrono::{Datelike, Days, Local, NaiveDate, TimeZone};
 
 use super::format::{Metric, pretty_date};
 use crate::usage::{UsageBundle, UsageDay, UsageHour, UsagePeriod, UsageSnapshot};
@@ -40,6 +40,7 @@ pub struct HeatmapCell {
 
 #[derive(Clone, Debug, Default)]
 pub struct Heatmap84 {
+    pub leading_empty: usize,
     pub cells: Vec<HeatmapCell>,
     pub max_tokens: u64,
     pub streak_days: usize,
@@ -280,7 +281,7 @@ pub fn build_sparkline_series(
     daily: &[UsageDay],
     period: UsagePeriod,
     provider_filter: Option<&str>,
-) -> (Vec<f64>, Vec<f64>) {
+) -> (Vec<Option<f64>>, Vec<Option<f64>>) {
     if period == UsagePeriod::Today
         && let Some(bundle) = bundle
     {
@@ -294,32 +295,51 @@ pub fn build_sparkline_series(
             None => &bundle.today.hourly,
         };
         if !hours.is_empty() {
-            let mut by_h = [0.0_f64; 24];
-            let mut cost_h = [0.0_f64; 24];
+            let mut by_h = [Some(0.0_f64); 24];
+            let mut cost_h = [Some(0.0_f64); 24];
+            let mut seen_h = [false; 24];
             for h in hours {
                 let idx = usize::from(h.hour).min(23);
-                by_h[idx] += h
-                    .input_tokens
-                    .unwrap_or_default()
-                    .saturating_add(h.output_tokens.unwrap_or_default())
-                    as f64;
-                cost_h[idx] += h.estimated_cost_usd.unwrap_or(0.0);
+                let tok = match (h.input_tokens, h.output_tokens) {
+                    (Some(i), Some(o)) => Some(i.saturating_add(o) as f64),
+                    _ => None,
+                };
+                if !seen_h[idx] {
+                    by_h[idx] = tok;
+                    cost_h[idx] = h.estimated_cost_usd;
+                    seen_h[idx] = true;
+                } else {
+                    by_h[idx] = match (by_h[idx], tok) {
+                        (Some(a), Some(b)) => Some(a + b),
+                        _ => None,
+                    };
+                    cost_h[idx] = match (cost_h[idx], h.estimated_cost_usd) {
+                        (Some(a), Some(b)) => Some(a + b),
+                        _ => None,
+                    };
+                }
             }
             return (by_h.to_vec(), cost_h.to_vec());
         }
     }
 
+    let Some(refreshed_at_ms) = bundle.map(|b| b.for_period(period).refreshed_at_ms) else {
+        return (Vec::new(), Vec::new());
+    };
+    let (filled, _) = chart_days(daily, period, refreshed_at_ms);
+    if filled.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
     let take_n = if period == UsagePeriod::Week { 7 } else { 14 };
-    let slice_start = daily.len().saturating_sub(take_n);
-    let mut tok = Vec::with_capacity(daily.len() - slice_start);
-    let mut cost = Vec::with_capacity(daily.len() - slice_start);
-    for d in &daily[slice_start..] {
-        tok.push(
-            d.input_tokens
-                .unwrap_or_default()
-                .saturating_add(d.output_tokens.unwrap_or_default()) as f64,
-        );
-        cost.push(d.estimated_cost_usd.unwrap_or(0.0));
+    let slice_start = filled.len().saturating_sub(take_n);
+    let mut tok = Vec::with_capacity(filled.len() - slice_start);
+    let mut cost = Vec::with_capacity(filled.len() - slice_start);
+    for d in &filled[slice_start..] {
+        tok.push(match (d.input_tokens, d.output_tokens) {
+            (Some(i), Some(o)) => Some(i.saturating_add(o) as f64),
+            _ => None,
+        });
+        cost.push(d.estimated_cost_usd);
     }
     (tok, cost)
 }
@@ -330,6 +350,8 @@ pub fn build_heatmap_84(all_daily: &[UsageDay], refreshed_at_ms: i64) -> Heatmap
         .single()
         .unwrap_or_else(Local::now)
         .date_naive();
+    let start = end.checked_sub_days(Days::new(83)).unwrap_or(end);
+    let leading_empty = start.weekday().num_days_from_sunday() as usize;
     let parsed: BTreeMap<NaiveDate, &UsageDay> = all_daily
         .iter()
         .filter_map(|d| {
@@ -390,6 +412,7 @@ pub fn build_heatmap_84(all_daily: &[UsageDay], refreshed_at_ms: i64) -> Heatmap
     }
 
     Heatmap84 {
+        leading_empty,
         cells,
         max_tokens,
         streak_days,
@@ -463,6 +486,71 @@ mod tests {
         assert_eq!(hm.active_days, 2);
         assert_eq!(hm.streak_days, 2);
         assert_eq!(hm.max_tokens, 2_500);
+        // 2026-11-21 is Saturday -> 83 days earlier is Sunday -> leading_empty == 0.
+        assert_eq!(hm.leading_empty, 0);
+        assert_eq!(hm.cells[0].day_name, "Sun");
+        assert_eq!(hm.cells[83].day_name, "Sat");
+
+        // Mid-week refresh (Wednesday 2026-11-18): 83 days earlier is Thursday -> leading_empty == 4.
+        let wed_at = Local
+            .with_ymd_and_hms(2026, 11, 18, 10, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let hm_wed = build_heatmap_84(&all_daily, wed_at);
+        assert_eq!(hm_wed.leading_empty, 4);
+        assert_eq!(hm_wed.cells[0].day_name, "Thu");
+        assert_eq!((hm_wed.leading_empty) % 7, 4); // Thu row
+        assert_eq!(hm_wed.cells[83].day_name, "Wed");
+        assert_eq!((hm_wed.leading_empty + 83) % 7, 3); // Wed row
+
+        // Daily sparkline fills inactive calendar days with Some(0.0) and preserves None unknowns.
+        let sparse_daily = vec![
+            UsageDay {
+                date: "2026-11-15".into(),
+                input_tokens: Some(100),
+                output_tokens: Some(0),
+                estimated_cost_usd: Some(0.5),
+                requests: 1,
+                ..Default::default()
+            },
+            UsageDay {
+                date: "2026-11-21".into(),
+                input_tokens: None,
+                output_tokens: Some(50),
+                estimated_cost_usd: None,
+                requests: 1,
+                ..Default::default()
+            },
+        ];
+        let mut bundle = UsageBundle::default();
+        bundle.week.refreshed_at_ms = at;
+        let (tok_spark, cost_spark) =
+            build_sparkline_series(Some(&bundle), &sparse_daily, UsagePeriod::Week, None);
+        assert_eq!(
+            tok_spark,
+            vec![
+                Some(100.0),
+                Some(0.0),
+                Some(0.0),
+                Some(0.0),
+                Some(0.0),
+                Some(0.0),
+                None,
+            ]
+        );
+        assert_eq!(
+            cost_spark,
+            vec![
+                Some(0.5),
+                Some(0.0),
+                Some(0.0),
+                Some(0.0),
+                Some(0.0),
+                Some(0.0),
+                None,
+            ]
+        );
 
         let snap = UsageSnapshot {
             hourly: vec![UsageHour {

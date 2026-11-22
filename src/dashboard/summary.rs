@@ -369,16 +369,21 @@ pub fn render_token_mix(rows: &[UsageRow]) -> impl IntoElement + use<> {
         .fold(0u64, u64::saturating_add);
     let avg_per_call = mix
         .total
-        .checked_div(calls)
-        .map(compact)
+        .0
+        .and_then(|total| total.checked_div(calls))
+        .map(|avg| format!("{}{}", compact(avg), if mix.total.1 { "*" } else { "" }))
         .unwrap_or_else(|| "—".into());
-    let denom = mix.total.max(1) as f32;
     let bar_items = [
-        (mix.fresh_input, ACCENT_LIME),
-        (mix.cached_read, ACCENT_COST),
-        (mix.cache_write, ACCENT_AMBER),
-        (mix.output, ACCENT_CALLS),
+        (mix.fresh_input.0, ACCENT_LIME),
+        (mix.cached_read.0, ACCENT_COST),
+        (mix.cache_write.0, ACCENT_AMBER),
+        (mix.output.0, ACCENT_CALLS),
     ];
+    let known_bar_sum: u64 = bar_items
+        .iter()
+        .filter_map(|(v, _)| *v)
+        .fold(0u64, u64::saturating_add);
+    let denom = mix.total.0.unwrap_or(0).max(known_bar_sum).max(1) as f32;
     let legend_rows = [
         ("Fresh In", mix.fresh_input, ACCENT_LIME, false),
         ("Cache Read", mix.cached_read, ACCENT_COST, false),
@@ -425,17 +430,15 @@ pub fn render_token_mix(rows: &[UsageRow]) -> impl IntoElement + use<> {
                 .overflow_hidden()
                 .flex()
                 .gap(px(1.5))
-                .children(
-                    bar_items
-                        .into_iter()
-                        .filter(|(v, _)| *v > 0)
-                        .map(|(val, col)| {
-                            div()
-                                .h_full()
-                                .w(relative((val as f32 / denom).clamp(0.01, 1.0)))
-                                .bg(rgb(col))
-                        }),
-                ),
+                .children(bar_items.into_iter().filter_map(|(val, col)| {
+                    let v = val.filter(|v| *v > 0)?;
+                    Some(
+                        div()
+                            .h_full()
+                            .w(relative((v as f32 / denom).clamp(0.01, 1.0)))
+                            .bg(rgb(col)),
+                    )
+                })),
         )
         .child(
             div()
@@ -444,17 +447,23 @@ pub fn render_token_mix(rows: &[UsageRow]) -> impl IntoElement + use<> {
                 .gap_x(px(12.))
                 .gap_y(px(5.))
                 .children(legend_rows.into_iter().map(|(label, val, col, of_output)| {
-                    let pct_denom = if of_output {
-                        mix.output.max(1) as f64
-                    } else {
-                        mix.total.max(1) as f64
+                    let (value_text, value_color) = match val.0 {
+                        Some(v) => {
+                            let star = if val.1 { "*" } else { "" };
+                            let denom_opt = if of_output { mix.output.0 } else { mix.total.0 };
+                            let text = if let Some(d) = denom_opt
+                                && d > 0
+                            {
+                                let pct = ((v as f64 / d as f64) * 100.0).round() as u64;
+                                let suffix = if of_output { "% out" } else { "%" };
+                                format!("{}{star} ({pct}{suffix})", compact(v))
+                            } else {
+                                format!("{}{star}", compact(v))
+                            };
+                            (text, TEXT_PRIMARY)
+                        }
+                        None => ("—".into(), TEXT_MUTED),
                     };
-                    let pct = if (of_output && mix.output == 0) || (!of_output && mix.total == 0) {
-                        0
-                    } else {
-                        ((val as f64 / pct_denom) * 100.0).round() as u64
-                    };
-                    let suffix = if of_output { "% out" } else { "%" };
                     div()
                         .w(px(176.))
                         .flex()
@@ -480,9 +489,9 @@ pub fn render_token_mix(rows: &[UsageRow]) -> impl IntoElement + use<> {
                             div()
                                 .font_family(FONT_MONO)
                                 .text_size(px(11.))
-                                .text_color(rgb(TEXT_PRIMARY))
+                                .text_color(rgb(value_color))
                                 .flex_shrink_0()
-                                .child(format!("{} ({pct}{suffix})", compact(val))),
+                                .child(value_text),
                         )
                 })),
         )

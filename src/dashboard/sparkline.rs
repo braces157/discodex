@@ -4,13 +4,30 @@ use gpui::{
 };
 
 use super::{
-    format::{ChartStyle, Metric, StackBreakdown},
+    format::{ChartStyle, Metric, StackBreakdown, effective_stack_breakdown},
     series::ChartPoint,
     theme::{
-        ACCENT_CALLS, ACCENT_COST, ACCENT_LIME, BORDER_SUBTLE, GRID_LINE, provider_color,
-        provider_display, with_alpha,
+        ACCENT_AMBER, ACCENT_CALLS, ACCENT_COST, ACCENT_LIME, BORDER_SUBTLE, GRID_LINE,
+        provider_color, provider_display, with_alpha,
     },
 };
+
+/// Splits an optional series into contiguous runs of known `(index, value)` points.
+pub fn contiguous_known_runs(values: &[Option<f64>]) -> Vec<Vec<(usize, f64)>> {
+    let mut runs = Vec::new();
+    let mut current = Vec::new();
+    for (i, val) in values.iter().enumerate() {
+        if let Some(v) = val {
+            current.push((i, *v));
+        } else if !current.is_empty() {
+            runs.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        runs.push(current);
+    }
+    runs
+}
 
 /// Paints a smooth cubic-bezier area fill and stroke line across `pts`.
 pub fn paint_smooth_curve(
@@ -51,7 +68,7 @@ pub fn paint_smooth_curve(
 }
 
 /// Renders a GPU-accelerated inline sparkline using GPUI `canvas` and `PathBuilder`.
-pub fn sparkline(values: Vec<f64>, color: u32) -> impl IntoElement {
+pub fn sparkline(values: Vec<Option<f64>>, color: u32) -> impl IntoElement {
     div().w(px(66.)).h(px(22.)).flex_none().child(
         canvas(
             move |bounds, _, _| bounds,
@@ -62,38 +79,79 @@ pub fn sparkline(values: Vec<f64>, color: u32) -> impl IntoElement {
                     return;
                 }
                 let origin = bounds.origin;
-                let max = values.iter().copied().fold(0.0_f64, f64::max);
-                if max <= 0.0 {
+                let has_known = values.iter().any(Option::is_some);
+                let max = values.iter().flatten().copied().fold(0.0_f64, f64::max);
+                if !has_known || max <= 0.0 {
                     let y = origin.y + px(h - 3.0);
+                    let line_color = if has_known { color } else { ACCENT_AMBER };
                     window.paint_quad(fill(
                         Bounds::new(point(origin.x + px(2.0), y), size(px(w - 4.0), px(1.5))),
-                        rgba(with_alpha(color, 0x44)),
+                        rgba(with_alpha(line_color, 0x44)),
                     ));
                     return;
                 }
-                let min = values.iter().copied().fold(max, f64::min).min(0.0);
+                let min = values
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .fold(max, f64::min)
+                    .min(0.0);
                 let span = (max - min).max(1e-9);
                 let usable_w = (w - 6.0).max(1.0);
                 let usable_h = (h - 6.0).max(1.0);
                 let n = values.len();
-                let pts: Vec<Point<Pixels>> = values
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| {
-                        let x = if n == 1 {
-                            w * 0.5
-                        } else {
-                            3.0 + (i as f32 / (n - 1) as f32) * usable_w
-                        };
-                        let norm = ((*v - min) / span).clamp(0.0, 1.0) as f32;
-                        let y = (h - 3.0) - norm * usable_h;
-                        point(origin.x + px(x), origin.y + px(y))
-                    })
-                    .collect();
+                let x_for = |i: usize| -> Pixels {
+                    let x = if n == 1 {
+                        w * 0.5
+                    } else {
+                        3.0 + (i as f32 / (n - 1) as f32) * usable_w
+                    };
+                    origin.x + px(x)
+                };
+                let y_for = |v: f64| -> Pixels {
+                    let norm = ((v - min) / span).clamp(0.0, 1.0) as f32;
+                    origin.y + px((h - 3.0) - norm * usable_h)
+                };
 
-                paint_smooth_curve(&pts, origin.y + px(h - 1.0), color, 0x38, 1.6, window);
+                let runs = contiguous_known_runs(&values);
+                let mut last_known: Option<Point<Pixels>> = None;
+                for run in &runs {
+                    let pts: Vec<Point<Pixels>> = run
+                        .iter()
+                        .map(|&(i, v)| point(x_for(i), y_for(v)))
+                        .collect();
+                    if pts.len() >= 2 {
+                        paint_smooth_curve(&pts, origin.y + px(h - 1.0), color, 0x38, 1.6, window);
+                    } else if let Some(pt) = pts.first() {
+                        let mut dot = fill(
+                            Bounds::new(
+                                point(pt.x - px(1.75), pt.y - px(1.75)),
+                                size(px(3.5), px(3.5)),
+                            ),
+                            rgb(color),
+                        );
+                        dot.corner_radii = px(1.75).into();
+                        window.paint_quad(dot);
+                    }
+                    if let Some(&last) = pts.last() {
+                        last_known = Some(last);
+                    }
+                }
 
-                if let Some(last) = pts.last() {
+                for (i, val) in values.iter().enumerate() {
+                    if val.is_none() {
+                        let x = x_for(i);
+                        window.paint_quad(fill(
+                            Bounds::new(
+                                point(x - px(1.5), origin.y + px(h - 3.0)),
+                                size(px(3.0), px(2.0)),
+                            ),
+                            rgb(ACCENT_AMBER),
+                        ));
+                    }
+                }
+
+                if let Some(last) = last_known {
                     let mut dot = fill(
                         Bounds::new(
                             point(last.x - px(2.25), last.y - px(2.25)),
@@ -116,7 +174,7 @@ pub fn paint_plot_canvas(
     window: &mut Window,
     values: &[Option<f64>],
     max_scale: f64,
-    avg_val: f64,
+    avg_val: Option<f64>,
     metric_color: u32,
     style: ChartStyle,
     hovered_idx: Option<usize>,
@@ -136,8 +194,11 @@ pub fn paint_plot_canvas(
         ));
     }
 
-    if avg_val > 0.0 && max_scale > 0.0 {
-        let norm = (avg_val / max_scale).clamp(0.0, 1.0) as f32;
+    if let Some(avg) = avg_val
+        && avg > 0.0
+        && max_scale > 0.0
+    {
+        let norm = (avg / max_scale).clamp(0.0, 1.0) as f32;
         let y = origin.y + px((h - 2.0) * (1.0 - norm));
         let mut x = 0.0_f32;
         let dash_color = rgba(with_alpha(metric_color, 0x55));
@@ -157,60 +218,93 @@ pub fn paint_plot_canvas(
 
     let n = values.len();
     let slot_w = w / n as f32;
-    let pts: Vec<Point<Pixels>> = values
-        .iter()
-        .enumerate()
-        .map(|(i, val)| {
-            let norm = (val.unwrap_or(0.0) / max_scale).clamp(0.0, 1.0) as f32;
-            let x = (i as f32 + 0.5) * slot_w;
-            let y = (h - 3.0) - norm * (h - 8.0);
-            point(origin.x + px(x), origin.y + px(y))
-        })
-        .collect();
+    let x_for = |i: usize| -> Pixels { origin.x + px((i as f32 + 0.5) * slot_w) };
+    let y_for = |v: f64| -> Pixels {
+        let norm = (v / max_scale).clamp(0.0, 1.0) as f32;
+        origin.y + px((h - 3.0) - norm * (h - 8.0))
+    };
 
-    paint_smooth_curve(
-        &pts,
-        origin.y + px(h - 1.0),
-        metric_color,
-        0x3A,
-        2.0,
-        window,
-    );
-
-    for (i, pt) in pts.iter().enumerate() {
-        let is_hovered = hovered_idx == Some(i);
-        if is_hovered {
-            window.paint_quad(fill(
-                Bounds::new(point(pt.x - px(0.5), origin.y), size(px(1.0), px(h))),
-                rgba(0xFFFFFF36),
-            ));
-            let mut halo = fill(
-                Bounds::new(
-                    point(pt.x - px(5.0), pt.y - px(5.0)),
-                    size(px(10.0), px(10.0)),
-                ),
-                rgba(with_alpha(metric_color, 0x40)),
+    let runs = contiguous_known_runs(values);
+    let mut isolated_known = vec![false; n];
+    for run in &runs {
+        if run.len() >= 2 {
+            let pts: Vec<Point<Pixels>> = run
+                .iter()
+                .map(|&(i, v)| point(x_for(i), y_for(v)))
+                .collect();
+            paint_smooth_curve(
+                &pts,
+                origin.y + px(h - 1.0),
+                metric_color,
+                0x3A,
+                2.0,
+                window,
             );
-            halo.corner_radii = px(5.0).into();
-            window.paint_quad(halo);
+        } else if let Some(&(idx, _)) = run.first() {
+            isolated_known[idx] = true;
         }
-        if values[i].is_some_and(|v| v > 0.0) || is_hovered {
-            let r = if is_hovered {
-                3.5
-            } else if n <= 12 {
-                2.3
-            } else {
-                1.5
-            };
-            let mut dot = fill(
-                Bounds::new(
-                    point(pt.x - px(r), pt.y - px(r)),
-                    size(px(r * 2.0), px(r * 2.0)),
-                ),
-                rgb(metric_color),
-            );
-            dot.corner_radii = px(r).into();
-            window.paint_quad(dot);
+    }
+
+    for (i, val) in values.iter().enumerate() {
+        let is_hovered = hovered_idx == Some(i);
+        let x = x_for(i);
+        match *val {
+            Some(v) => {
+                let y = y_for(v);
+                if is_hovered {
+                    window.paint_quad(fill(
+                        Bounds::new(point(x - px(0.5), origin.y), size(px(1.0), px(h))),
+                        rgba(0xFFFFFF36),
+                    ));
+                    let mut halo = fill(
+                        Bounds::new(point(x - px(5.0), y - px(5.0)), size(px(10.0), px(10.0))),
+                        rgba(with_alpha(metric_color, 0x40)),
+                    );
+                    halo.corner_radii = px(5.0).into();
+                    window.paint_quad(halo);
+                }
+                if v > 0.0 || is_hovered || isolated_known[i] {
+                    let r = if is_hovered {
+                        3.5
+                    } else if n <= 12 || isolated_known[i] {
+                        2.3
+                    } else {
+                        1.5
+                    };
+                    let mut dot = fill(
+                        Bounds::new(point(x - px(r), y - px(r)), size(px(r * 2.0), px(r * 2.0))),
+                        rgb(metric_color),
+                    );
+                    dot.corner_radii = px(r).into();
+                    window.paint_quad(dot);
+                }
+            }
+            None => {
+                let stub_w = (slot_w * 0.5).clamp(4.0, 14.0);
+                let mut stub = fill(
+                    Bounds::new(
+                        point(x - px(stub_w * 0.5), origin.y + px(h - 4.0)),
+                        size(px(stub_w), px(3.0)),
+                    ),
+                    rgb(ACCENT_AMBER),
+                );
+                stub.corner_radii = px(1.5).into();
+                window.paint_quad(stub);
+
+                if is_hovered {
+                    window.paint_quad(fill(
+                        Bounds::new(point(x - px(0.5), origin.y), size(px(1.0), px(h))),
+                        rgba(with_alpha(ACCENT_AMBER, 0x55)),
+                    ));
+                    let y = origin.y + px(h - 3.0);
+                    let mut halo = fill(
+                        Bounds::new(point(x - px(5.0), y - px(5.0)), size(px(10.0), px(10.0))),
+                        rgba(with_alpha(ACCENT_AMBER, 0x40)),
+                    );
+                    halo.corner_radii = px(5.0).into();
+                    window.paint_quad(halo);
+                }
+            }
         }
     }
 }
@@ -249,7 +343,9 @@ pub fn build_legend_items(
     if style != ChartStyle::StackedBar || metric != Metric::Tokens || points.is_empty() {
         return Vec::new();
     }
-    if stack_by == StackBreakdown::ByProvider && provider_filter.is_none() && provider_count > 1 {
+    if effective_stack_breakdown(stack_by, provider_filter, provider_count)
+        == StackBreakdown::ByProvider
+    {
         let mut seen = Vec::new();
         for pt in points {
             for (slug, tok) in &pt.by_provider {
@@ -269,4 +365,32 @@ pub fn build_legend_items(
         ("Cached".into(), ACCENT_COST),
         ("Output".into(), ACCENT_CALLS),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contiguous_known_runs_splits_unknowns_and_keeps_measured_zeros() {
+        let runs = contiguous_known_runs(&[
+            Some(100.0),
+            Some(0.0),
+            None,
+            Some(50.0),
+            None,
+            None,
+            Some(10.0),
+            Some(20.0),
+        ]);
+        assert_eq!(
+            runs,
+            vec![
+                vec![(0, 100.0), (1, 0.0)],
+                vec![(3, 50.0)],
+                vec![(6, 10.0), (7, 20.0)],
+            ]
+        );
+        assert!(contiguous_known_runs(&[None, None]).is_empty());
+    }
 }

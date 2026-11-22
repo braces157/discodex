@@ -138,12 +138,18 @@ fn render_calendar_grid(
     cx: &mut Context<Dashboard>,
 ) -> impl IntoElement + use<> {
     let max_tok = heatmap.max_tokens.max(1);
-    let mut weeks = Vec::with_capacity(12);
-    for week in 0..12 {
+    let total_slots = heatmap.leading_empty + heatmap.cells.len();
+    let num_weeks = total_slots.div_ceil(7).max(12);
+    let mut weeks = Vec::with_capacity(num_weeks);
+    for week in 0..num_weeks {
         let mut col_cells = Vec::with_capacity(7);
         for day in 0..7 {
-            let idx = week * 7 + day;
-            let Some(cell) = heatmap.cells.get(idx) else {
+            let slot = week * 7 + day;
+            let cell = slot
+                .checked_sub(heatmap.leading_empty)
+                .and_then(|idx| heatmap.cells.get(idx).map(|c| (idx, c)));
+            let Some((idx, cell)) = cell else {
+                col_cells.push(div().h(px(11.)).w_full().into_any_element());
                 continue;
             };
             let ratio = cell.tokens as f64 / max_tok as f64;
@@ -185,7 +191,8 @@ fn render_calendar_grid(
                             this.hovered_heatmap = None;
                             cx.notify();
                         }
-                    })),
+                    }))
+                    .into_any_element(),
             );
         }
         weeks.push(

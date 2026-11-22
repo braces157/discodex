@@ -2,7 +2,10 @@ use gpui::{Context, FontWeight, IntoElement, canvas, div, prelude::*, px, rgb, r
 
 use super::{
     Action, Dashboard,
-    format::{ChartStyle, Metric, StackBreakdown, compact, format_metric_value, money},
+    format::{
+        ChartStyle, Metric, StackBreakdown, compact, compute_chart_avg, effective_stack_breakdown,
+        format_metric_value, money,
+    },
     series::ChartPoint,
     sparkline::{build_legend_items, build_x_axis_labels, paint_plot_canvas},
     theme::{
@@ -93,11 +96,7 @@ pub fn render_chart_card(
     let max_scale = if max_raw > 0.0 { max_raw * 1.12 } else { 1.0 };
     let total: f64 = values.iter().flatten().sum();
     let has_unknown = values.iter().any(Option::is_none);
-    let avg_val = if !values.is_empty() && max_raw > 0.0 {
-        total / values.len() as f64
-    } else {
-        0.0
-    };
+    let (avg_val, avg_partial) = compute_chart_avg(&values);
     let metric_color = params.metric.accent();
     let dim_color = params.metric.dim();
 
@@ -112,8 +111,17 @@ pub fn render_chart_card(
     let hovered_pt = params
         .hovered_idx
         .and_then(|idx| points.get(idx).map(|pt| (pt, values[idx])));
-    let readout_strip = (!points.is_empty())
-        .then(|| render_readout_strip(hovered_pt, &params, max_raw, avg_val, metric_color));
+    let readout_strip = (!points.is_empty()).then(|| {
+        render_readout_strip(
+            hovered_pt,
+            &params,
+            max_raw,
+            avg_val,
+            avg_partial,
+            has_unknown,
+            metric_color,
+        )
+    });
 
     let show_provider_stack = params.metric == Metric::Tokens
         && params.chart_style == ChartStyle::StackedBar
@@ -363,7 +371,11 @@ fn render_plot_column(
             let total_h =
                 ((v / max_scale) * PLOT_HEIGHT as f64).clamp(3.0, PLOT_HEIGHT as f64) as f32;
             let segments: Vec<(u64, u32)> = if params.metric == Metric::Tokens {
-                if params.stack_by == StackBreakdown::ByProvider && params.provider_filter.is_none()
+                if effective_stack_breakdown(
+                    params.stack_by,
+                    params.provider_filter,
+                    params.provider_count,
+                ) == StackBreakdown::ByProvider
                 {
                     pt.by_provider
                         .iter()
@@ -446,7 +458,9 @@ fn render_readout_strip(
     hovered: Option<(&ChartPoint, Option<f64>)>,
     params: &ChartParams<'_>,
     max_raw: f64,
-    avg_val: f64,
+    avg_val: Option<f64>,
+    avg_partial: bool,
+    has_unknown: bool,
     metric_color: u32,
 ) -> gpui::Div {
     let (r1_left, r1_right, r2_left, r2_right, active) = if let Some((pt, val)) = hovered {
@@ -476,14 +490,15 @@ fn render_readout_strip(
             true,
         )
     } else {
-        let summary_right = if max_raw > 0.0 {
-            format!(
-                "Peak {} · Avg {}",
+        let summary_right = match avg_val {
+            Some(avg) if max_raw > 0.0 => format!(
+                "Peak {} · Avg {}{}",
                 format_metric_value(params.metric, max_raw),
-                format_metric_value(params.metric, avg_val)
-            )
-        } else {
-            "No activity".into()
+                format_metric_value(params.metric, avg),
+                if avg_partial { "*" } else { "" }
+            ),
+            None if has_unknown => "Avg unavailable".into(),
+            _ => "No activity".into(),
         };
         (
             "Period summary".into(),
