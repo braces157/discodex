@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use chrono::{Datelike, NaiveDate};
 
 use super::theme::{
-    ACCENT_CALLS, ACCENT_CALLS_DIM, ACCENT_COST, ACCENT_COST_DIM, ACCENT_LIME, ACCENT_LIME_DIM,
-    COMPACT_HEIGHT, COMPACT_WIDTH, WIDE_HEIGHT, WIDE_WIDTH, provider_color, provider_display,
+    ACCENT_CALLS, ACCENT_COST, ACCENT_LIME, COMPACT_HEIGHT, COMPACT_WIDTH, WIDE_HEIGHT, WIDE_WIDTH,
+    provider_color, provider_display,
 };
 use crate::usage::{UsageBundle, UsagePeriod, UsageRow, UsageSnapshot};
 
@@ -21,14 +21,6 @@ impl Metric {
             Self::Tokens => ACCENT_LIME,
             Self::Cost => ACCENT_COST,
             Self::Calls => ACCENT_CALLS,
-        }
-    }
-
-    pub fn dim(self) -> u32 {
-        match self {
-            Self::Tokens => ACCENT_LIME_DIM,
-            Self::Cost => ACCENT_COST_DIM,
-            Self::Calls => ACCENT_CALLS_DIM,
         }
     }
 }
@@ -50,8 +42,19 @@ impl LayoutMode {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChartStyle {
-    StackedBar,
     AreaLine,
+    StackedBar,
+    Lollipop,
+}
+
+impl ChartStyle {
+    pub fn next(self) -> Self {
+        match self {
+            Self::AreaLine => Self::StackedBar,
+            Self::StackedBar => Self::Lollipop,
+            Self::Lollipop => Self::AreaLine,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -137,7 +137,7 @@ pub fn render_models_section(
             .map(money)
             .unwrap_or_else(|| "Unpriced".into());
         let cost_color = if row.estimated_cost_usd.is_some() {
-            ACCENT_COST
+            TEXT_PRIMARY
         } else {
             TEXT_MUTED
         };
@@ -420,7 +420,7 @@ pub fn render_models_section(
                 .bg(rgb(BG_SURFACE))
                 .border_1()
                 .border_color(rgba(BORDER_SUBTLE))
-                .rounded(px(11.))
+                .rounded(px(10.))
                 .overflow_hidden()
                 .flex()
                 .flex_col()

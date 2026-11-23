@@ -56,7 +56,7 @@ pub fn render_provider_share(
                 .id(("prov-chip", idx))
                 .px(px(7.))
                 .py(px(3.5))
-                .rounded(px(6.))
+                .rounded(px(6.5))
                 .cursor_pointer()
                 .border_1()
                 .border_color(rgba(if is_selected {
@@ -127,7 +127,7 @@ pub fn render_provider_share(
         .bg(rgb(BG_SURFACE))
         .border_1()
         .border_color(rgba(BORDER_SUBTLE))
-        .rounded(px(11.))
+        .rounded(px(10.))
         .p(px(12.))
         .flex()
         .flex_col()
@@ -155,7 +155,7 @@ pub fn render_provider_share(
         )
         .child(
             div()
-                .h(px(7.))
+                .h(px(6.5))
                 .w_full()
                 .rounded_full()
                 .bg(rgba(TRACK_BG))

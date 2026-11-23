@@ -2,51 +2,54 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use gpui::{Image, ImageFormat};
 
-pub const BG_CANVAS: u32 = 0x0D0F12;
-pub const BG_SURFACE: u32 = 0x14171C;
-pub const BG_RECESSED: u32 = 0x0A0C0F;
-pub const BG_ELEVATED: u32 = 0x1E232B;
-pub const BG_HOVER: u32 = 0xFFFFFF0D;
-pub const BG_ROW_HOVER: u32 = 0xFFFFFF08;
+// Neutral Zinc dark palette (Vercel / shadcn Monochrome)
+pub const BG_CANVAS: u32 = 0x09090B;
+pub const BG_SURFACE: u32 = 0x111113;
+pub const BG_RECESSED: u32 = 0x0B0B0D;
+pub const BG_ELEVATED: u32 = 0x1C1C20;
+pub const BG_TOOLTIP: u32 = 0x141417;
+pub const BG_HOVER: u32 = 0xFFFFFF0A;
+pub const BG_ROW_HOVER: u32 = 0xFFFFFF06;
 
-pub const BORDER_OUTER: u32 = 0xFFFFFF1F;
-pub const BORDER_SUBTLE: u32 = 0xFFFFFF12;
-pub const BORDER_STRONG: u32 = 0xFFFFFF24;
-pub const GRID_LINE: u32 = 0xFFFFFF0A;
-pub const TRACK_BG: u32 = 0xFFFFFF0C;
+pub const BORDER_OUTER: u32 = 0x2A2A2FFF;
+pub const BORDER_SUBTLE: u32 = 0x222226FF;
+pub const BORDER_STRONG: u32 = 0x3F3F46FF;
+pub const GRID_LINE: u32 = 0x27272AFF;
+pub const TRACK_BG: u32 = 0x1F1F24FF;
 
-pub const TEXT_PRIMARY: u32 = 0xF3F4F6;
-pub const TEXT_SECONDARY: u32 = 0x9CA3AF;
-pub const TEXT_MUTED: u32 = 0x6B7280;
+pub const TEXT_PRIMARY: u32 = 0xFAFAFA;
+pub const TEXT_SECONDARY: u32 = 0xA1A1AA;
+pub const TEXT_MUTED: u32 = 0x71717A;
 
-pub const ACCENT_LIME: u32 = 0xC5F277;
-pub const ACCENT_LIME_SOFT: u32 = 0xC5F2771F;
-pub const ACCENT_LIME_BORDER: u32 = 0xC5F27745;
-pub const ACCENT_LIME_DIM: u32 = 0xC5F2774D;
+// Monochrome primary + soft slate-blue secondary; quiet sage/rose strictly for +/- deltas
+pub const ACCENT_LIME: u32 = 0xE4E4E7;
+pub const ACCENT_LIME_SOFT: u32 = 0xE4E4E716;
+pub const ACCENT_LIME_BORDER: u32 = 0xE4E4E733;
 
-pub const ACCENT_COST: u32 = 0x6EE7B7;
-pub const ACCENT_COST_DIM: u32 = 0x6EE7B74D;
+pub const ACCENT_COST: u32 = 0x60A5FA;
 
-pub const ACCENT_CALLS: u32 = 0x7DD3FC;
-pub const ACCENT_CALLS_DIM: u32 = 0x7DD3FC4D;
+pub const ACCENT_CALLS: u32 = 0x94A3B8;
 
-pub const ACCENT_CLAUDE: u32 = 0xE8A87C;
-pub const ACCENT_REASONING: u32 = 0xA78BFA;
-pub const ACCENT_AMBER: u32 = 0xF5B971;
-pub const ACCENT_AMBER_SOFT: u32 = 0xF5B97116;
-pub const ACCENT_AMBER_BORDER: u32 = 0xF5B97138;
+pub const ACCENT_POS: u32 = 0x4ADE80;
+pub const ACCENT_POS_SOFT: u32 = 0x4ADE8016;
+pub const ACCENT_POS_BORDER: u32 = 0x4ADE8038;
+
+pub const ACCENT_REASONING: u32 = 0x818CF8;
+pub const ACCENT_AMBER: u32 = 0xD4A359;
+pub const ACCENT_AMBER_SOFT: u32 = 0xD4A35916;
+pub const ACCENT_AMBER_BORDER: u32 = 0xD4A35933;
 pub const ACCENT_ERR: u32 = 0xF87171;
-pub const ACCENT_ERR_SOFT: u32 = 0xF871711A;
-pub const ACCENT_ERR_BORDER: u32 = 0xF8717140;
+pub const ACCENT_ERR_SOFT: u32 = 0xF8717116;
+pub const ACCENT_ERR_BORDER: u32 = 0xF8717138;
 
 pub const FONT_UI: &str = "Segoe UI Variable";
 pub const FONT_MONO: &str = "Cascadia Mono";
 pub const FONT_ICON: &str = "Segoe Fluent Icons";
 
-pub const COMPACT_WIDTH: f32 = 520.0;
-pub const COMPACT_HEIGHT: f32 = 720.0;
-pub const WIDE_WIDTH: f32 = 880.0;
-pub const WIDE_HEIGHT: f32 = 836.0;
+pub const COMPACT_WIDTH: f32 = 548.0;
+pub const COMPACT_HEIGHT: f32 = 756.0;
+pub const WIDE_WIDTH: f32 = 940.0;
+pub const WIDE_HEIGHT: f32 = 868.0;
 
 pub struct Assets {
     pub brand: Arc<Image>,
@@ -156,22 +159,22 @@ pub fn provider_display(provider: &str) -> String {
 
 pub fn provider_color(provider: &str) -> u32 {
     match provider.trim().to_ascii_lowercase().as_str() {
-        "codex" => ACCENT_LIME,
-        "claude-code" => ACCENT_CLAUDE,
-        "antigravity" => 0x7DD3FC,
+        "codex" => 0xE4E4E7,
+        "claude-code" => 0x60A5FA,
+        "antigravity" => 0x94A3B8,
         "deepseek-harness" => 0x818CF8,
-        "gemini-cli" => 0x60A5FA,
-        "qwen-code" => 0xA78BFA,
-        "opencode" => 0x6EE7B7,
-        "kilo-code" => 0xF472B6,
-        "factory-droid" => 0xFBBF24,
-        "copilot-cli" => 0x38BDF8,
-        "junie" => 0x34D399,
-        "cline" => 0xFB923C,
-        "roo-code" => 0xC084FC,
-        "zed" => 0x93C5FD,
-        "crush" => 0xF87171,
-        "aider" => 0xA3E635,
+        "gemini-cli" => 0x7DD3FC,
+        "qwen-code" => 0xA1A1AA,
+        "opencode" => 0x64748B,
+        "kilo-code" => 0xCBD5E1,
+        "factory-droid" => 0x71717A,
+        "copilot-cli" => 0x93C5FD,
+        "junie" => 0x86EFAC,
+        "cline" => 0xA8A29E,
+        "roo-code" => 0xA5B4FC,
+        "zed" => 0xBAE6FD,
+        "crush" => 0xFCA5A5,
+        "aider" => 0xD4D4D8,
         _ => ACCENT_CALLS,
     }
 }

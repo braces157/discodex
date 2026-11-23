@@ -1,5 +1,10 @@
+mod chart_canvas;
+mod chart_curves;
+mod chart_math;
+mod chart_readout;
 mod charts;
 mod controls;
+mod donut;
 mod format;
 mod heatmap;
 mod models;
@@ -13,23 +18,27 @@ mod window;
 mod worker;
 
 use std::{
+    cell::Cell,
     collections::BTreeSet,
     io,
     path::PathBuf,
+    rc::Rc,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use gpui::{
-    App, Application, Bounds, Context, FocusHandle, IntoElement, Render, Subscription, Timer,
-    Window, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, point,
+    App, Application, Bounds, Context, FocusHandle, IntoElement, Pixels, Render, Subscription,
+    Timer, Window, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, point,
     prelude::*, px, rgb, rgba, size,
 };
 
 use self::{
+    chart_math::SpringState,
     format::{
         ChartStyle, HeatmapTab, LayoutMode, Metric, ModelSort, StackBreakdown, sort_model_rows,
     },
+    heatmap::HeatmapHover,
     theme::{Assets, BG_CANVAS, BORDER_OUTER, FONT_UI, TEXT_PRIMARY},
     view::toggle_chart_style,
     window::{Placement, acquire_usage_mutex, focus_existing},
@@ -111,6 +120,9 @@ pub enum Action {
     Metric(Metric),
     ChartStyle(ChartStyle),
     StackBy(StackBreakdown),
+    PinBaseline(Option<usize>),
+    ClearChartSelection,
+    ScrubChart(isize),
     HeatmapTab(HeatmapTab),
     ModelSort(ModelSort),
     ProviderFilter(Option<String>),
@@ -142,7 +154,16 @@ pub struct Dashboard {
     cache_stamp: Option<CacheStamp>,
     waiting_for_tray: Option<Instant>,
     pub hovered_chart_idx: Option<usize>,
-    pub hovered_heatmap: Option<String>,
+    pub pinned_baseline_idx: Option<usize>,
+    pub drag_anchor_idx: Option<usize>,
+    pub selected_range: Option<(usize, usize)>,
+    pub plot_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+    pub last_chart_len: usize,
+    pub cursor_x_spring: SpringState,
+    pub cursor_y_spring: SpringState,
+    pub reveal_start: Instant,
+    pub last_anim_tick: Instant,
+    pub hovered_heatmap: Option<HeatmapHover>,
     pub provider_filter: Option<String>,
     pub expanded_models: BTreeSet<(String, String, String)>,
     user_touched_model_expand: bool,
@@ -210,7 +231,7 @@ impl Dashboard {
             layout,
             period: UsagePeriod::Week,
             metric: Metric::Tokens,
-            chart_style: ChartStyle::StackedBar,
+            chart_style: ChartStyle::AreaLine,
             stack_by: StackBreakdown::TokenMix,
             heatmap_tab: HeatmapTab::Calendar,
             model_sort: ModelSort::Tokens,
@@ -221,6 +242,15 @@ impl Dashboard {
             cache_stamp: stamp,
             waiting_for_tray: None,
             hovered_chart_idx: None,
+            pinned_baseline_idx: None,
+            drag_anchor_idx: None,
+            selected_range: None,
+            plot_bounds: Rc::new(Cell::new(None)),
+            last_chart_len: 0,
+            cursor_x_spring: SpringState::default(),
+            cursor_y_spring: SpringState::default(),
+            reveal_start: Instant::now(),
+            last_anim_tick: Instant::now(),
             hovered_heatmap: None,
             provider_filter: None,
             expanded_models: BTreeSet::new(),
@@ -318,6 +348,9 @@ impl Dashboard {
             self.maybe_auto_expand_wide();
         }
         self.hovered_chart_idx = None;
+        self.pinned_baseline_idx = None;
+        self.drag_anchor_idx = None;
+        self.selected_range = None;
         self.hovered_heatmap = None;
         self.refreshing = false;
         self.waiting_for_tray = None;
@@ -467,25 +500,80 @@ impl Dashboard {
         }
     }
 
+    fn trigger_chart_reveal(&mut self) {
+        self.reveal_start = Instant::now();
+        self.last_anim_tick = Instant::now();
+    }
+
     pub fn act(&mut self, action: Action, cx: &mut Context<Self>) {
         match action {
             Action::Period(period) => {
                 if self.period != period {
                     self.period = period;
                     self.hovered_chart_idx = None;
+                    self.pinned_baseline_idx = None;
+                    self.drag_anchor_idx = None;
+                    self.selected_range = None;
                     self.hovered_heatmap = None;
                     self.prune_provider_filter();
+                    self.trigger_chart_reveal();
                 }
             }
             Action::Metric(metric) => {
-                self.metric = metric;
-                self.hovered_chart_idx = None;
+                if self.metric != metric {
+                    self.metric = metric;
+                    self.hovered_chart_idx = None;
+                    self.pinned_baseline_idx = None;
+                    self.drag_anchor_idx = None;
+                    self.selected_range = None;
+                    self.trigger_chart_reveal();
+                }
             }
             Action::ChartStyle(style) => {
-                self.chart_style = style;
-                self.hovered_chart_idx = None;
+                if self.chart_style != style {
+                    self.chart_style = style;
+                    self.hovered_chart_idx = None;
+                    self.trigger_chart_reveal();
+                }
             }
-            Action::StackBy(stack) => self.stack_by = stack,
+            Action::StackBy(stack) => {
+                if self.stack_by != stack {
+                    self.stack_by = stack;
+                    self.trigger_chart_reveal();
+                }
+            }
+            Action::PinBaseline(idx) => {
+                self.pinned_baseline_idx = idx;
+                if idx.is_some() {
+                    self.selected_range = None;
+                }
+            }
+            Action::ClearChartSelection => {
+                self.selected_range = None;
+                self.drag_anchor_idx = None;
+                self.pinned_baseline_idx = None;
+            }
+            Action::ScrubChart(delta) => {
+                if self.last_chart_len > 0 {
+                    self.selected_range = None;
+                    let max_idx = self.last_chart_len - 1;
+                    let next = match self.hovered_chart_idx {
+                        Some(cur) => {
+                            let signed = cur as isize + delta;
+                            signed.clamp(0, max_idx as isize) as usize
+                        }
+                        None => {
+                            if delta < 0 {
+                                max_idx
+                            } else {
+                                0
+                            }
+                        }
+                    };
+                    self.hovered_chart_idx = Some(next);
+                    self.last_anim_tick = Instant::now();
+                }
+            }
             Action::HeatmapTab(tab) => {
                 self.heatmap_tab = tab;
                 self.hovered_heatmap = None;
@@ -494,7 +582,11 @@ impl Dashboard {
             Action::ProviderFilter(provider) => {
                 self.provider_filter = provider;
                 self.hovered_chart_idx = None;
+                self.pinned_baseline_idx = None;
+                self.drag_anchor_idx = None;
+                self.selected_range = None;
                 self.hovered_heatmap = None;
+                self.trigger_chart_reveal();
             }
             Action::ToggleModel(key) => {
                 self.user_touched_model_expand = true;
@@ -543,9 +635,9 @@ impl Dashboard {
 }
 
 impl Render for Dashboard {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let header = self.render_header(cx);
-        let (body, footer) = self.render_shell(cx);
+        let (body, footer) = self.render_shell(window, cx);
 
         div()
             .size_full()
@@ -566,7 +658,15 @@ impl Render for Dashboard {
                     return;
                 }
                 match event.keystroke.key.as_str() {
-                    "escape" => cx.quit(),
+                    "escape" => {
+                        if this.selected_range.is_some() || this.pinned_baseline_idx.is_some() {
+                            this.act(Action::ClearChartSelection, cx);
+                        } else {
+                            cx.quit();
+                        }
+                    }
+                    "left" => this.act(Action::ScrubChart(-1), cx),
+                    "right" => this.act(Action::ScrubChart(1), cx),
                     "1" => this.act(Action::Period(UsagePeriod::Today), cx),
                     "2" => this.act(Action::Period(UsagePeriod::Week), cx),
                     "3" => this.act(Action::Period(UsagePeriod::Month), cx),
