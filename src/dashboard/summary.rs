@@ -430,9 +430,13 @@ pub fn render_token_mix(rows: &[UsageRow]) -> impl IntoElement + use<> {
             })
         })
         .collect();
-    let (cache_pct, _) = cache_hit_ratio(rows);
+    let (cache_pct, cache_partial) = cache_hit_ratio(rows);
     let (center_val, center_lbl, center_col) = match cache_pct {
-        Some(pct) => (format!("{pct:.0}%"), "CACHED", TEXT_PRIMARY),
+        Some(pct) => (
+            format!("{pct:.0}%{}", if cache_partial { "*" } else { "" }),
+            "CACHED",
+            TEXT_PRIMARY,
+        ),
         None => {
             let fresh_pct = mix.fresh_input.0.and_then(|v| {
                 mix.total
@@ -495,86 +499,89 @@ pub fn render_token_mix(rows: &[UsageRow]) -> impl IntoElement + use<> {
                         .flex_col()
                         .gap(px(5.5))
                         .children(legend_rows.into_iter().map(|(label, val, col, of_output)| {
-                            let denom_opt = if of_output { mix.output.0 } else { mix.total.0 };
-                            let ratio = match (val.0, denom_opt) {
+                        let (denom_opt, denom_partial) =
+                            if of_output { mix.output } else { mix.total };
+                        let valid_pct = !denom_partial
+                            && matches!((val.0, denom_opt), (Some(v), Some(d)) if d > 0 && v <= d);
+                        let ratio = if valid_pct {
+                            match (val.0, denom_opt) {
                                 (Some(v), Some(d)) if d > 0 => {
                                     (v as f32 / d as f32).clamp(0.0, 1.0)
                                 }
                                 _ => 0.0,
-                            };
-                            let (value_text, value_color) = match val.0 {
-                                Some(v) => {
-                                    let star = if val.1 { "*" } else { "" };
-                                    let text = if let Some(d) = denom_opt
-                                        && d > 0
-                                    {
-                                        let pct = ((v as f64 / d as f64) * 100.0).round() as u64;
-                                        let suffix = if of_output { "% out" } else { "%" };
-                                        format!("{}{star} · {pct}{suffix}", compact(v))
-                                    } else {
-                                        format!("{}{star}", compact(v))
-                                    };
-                                    (text, TEXT_PRIMARY)
-                                }
-                                None => ("—".into(), TEXT_MUTED),
-                            };
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.5))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .justify_between()
-                                        .gap(px(6.))
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .items_center()
-                                                .gap(px(5.))
-                                                .min_w_0()
-                                                .child(
-                                                    div()
-                                                        .size(px(6.5))
-                                                        .rounded(px(2.))
-                                                        .bg(rgb(col)),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_size(px(10.5))
-                                                        .text_color(rgb(TEXT_SECONDARY))
-                                                        .truncate()
-                                                        .child(label),
-                                                ),
-                                        )
-                                        .child(
-                                            div()
-                                                .font_family(FONT_MONO)
-                                                .text_size(px(10.5))
-                                                .text_color(rgb(value_color))
-                                                .flex_shrink_0()
-                                                .child(value_text),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .h(px(2.5))
-                                        .w_full()
-                                        .rounded_full()
-                                        .bg(rgba(TRACK_BG))
-                                        .overflow_hidden()
-                                        .when(ratio > 0.0, |track| {
-                                            track.child(
+                            }
+                        } else {
+                            0.0
+                        };
+                        let (value_text, value_color) = match val.0 {
+                            Some(v) => {
+                                let star = if val.1 { "*" } else { "" };
+                                let text = if valid_pct
+                                    && let Some(d) = denom_opt
+                                    && d > 0
+                                {
+                                    let pct = ((v as f64 / d as f64) * 100.0).round() as u64;
+                                    let suffix = if of_output { "% out" } else { "%" };
+                                    format!("{}{star} · {pct}{suffix}", compact(v))
+                                } else {
+                                    format!("{}{star}", compact(v))
+                                };
+                                (text, TEXT_PRIMARY)
+                            }
+                            None => ("—".into(), TEXT_MUTED),
+                        };
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.5))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap(px(6.))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(5.))
+                                            .min_w_0()
+                                            .child(div().size(px(6.5)).rounded(px(2.)).bg(rgb(col)))
+                                            .child(
                                                 div()
-                                                    .h_full()
-                                                    .w(relative(ratio.max(0.02)))
-                                                    .rounded_full()
-                                                    .bg(rgb(col)),
-                                            )
-                                        }),
-                                )
-                        })),
+                                                    .text_size(px(10.5))
+                                                    .text_color(rgb(TEXT_SECONDARY))
+                                                    .truncate()
+                                                    .child(label),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .font_family(FONT_MONO)
+                                            .text_size(px(10.5))
+                                            .text_color(rgb(value_color))
+                                            .flex_shrink_0()
+                                            .child(value_text),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h(px(2.5))
+                                    .w_full()
+                                    .rounded_full()
+                                    .bg(rgba(TRACK_BG))
+                                    .overflow_hidden()
+                                    .when(ratio > 0.0, |track| {
+                                        track.child(
+                                            div()
+                                                .h_full()
+                                                .w(relative(ratio.max(0.02)))
+                                                .rounded_full()
+                                                .bg(rgb(col)),
+                                        )
+                                    }),
+                            )
+                    })),
                 ),
         )
 }

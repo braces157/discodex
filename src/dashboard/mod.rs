@@ -135,6 +135,8 @@ pub enum Action {
     Pin,
 }
 
+type ChartSignature = Vec<(String, Option<u64>, Option<u64>, u64)>;
+
 pub struct Dashboard {
     focus: FocusHandle,
     _activation: Subscription,
@@ -162,6 +164,7 @@ pub struct Dashboard {
     pub cursor_x_spring: SpringState,
     pub cursor_y_spring: SpringState,
     pub reveal_start: Instant,
+    pub has_revealed_chart: bool,
     pub last_anim_tick: Instant,
     pub hovered_heatmap: Option<HeatmapHover>,
     pub provider_filter: Option<String>,
@@ -250,6 +253,7 @@ impl Dashboard {
             cursor_x_spring: SpringState::default(),
             cursor_y_spring: SpringState::default(),
             reveal_start: Instant::now(),
+            has_revealed_chart: false,
             last_anim_tick: Instant::now(),
             hovered_heatmap: None,
             provider_filter: None,
@@ -334,6 +338,29 @@ impl Dashboard {
         }
     }
 
+    fn active_chart_signature(&self) -> Option<ChartSignature> {
+        let snapshot = self.current_snapshot()?;
+        let distinct: Vec<String> = format::compute_provider_shares(&snapshot.rows)
+            .into_iter()
+            .map(|p| p.slug)
+            .collect();
+        let (points, _, _) = series::build_chart_series(
+            snapshot,
+            self.period,
+            self.provider_filter.as_deref(),
+            &distinct,
+        );
+        Some(
+            points
+                .into_iter()
+                .map(|p| {
+                    let val = p.value(self.metric).map(f64::to_bits);
+                    (p.label, val, p.cost.map(f64::to_bits), p.requests)
+                })
+                .collect(),
+        )
+    }
+
     fn apply_cached_bundle(&mut self, cached: CachedUsage) -> bool {
         let is_newer = self.bundle.as_ref().is_none_or(|current| {
             usage_cache::is_newer_bundle(current.refreshed_at_ms(), self.cache_generation, &cached)
@@ -341,17 +368,22 @@ impl Dashboard {
         if !is_newer {
             return false;
         }
+        let prev_sig = self.active_chart_signature();
+        let prev_filter = self.provider_filter.clone();
         self.bundle = Some(cached.bundle);
         self.cache_generation = self.cache_generation.max(cached.generation);
         self.prune_provider_filter();
         if self.layout == LayoutMode::Wide {
             self.maybe_auto_expand_wide();
         }
-        self.hovered_chart_idx = None;
-        self.pinned_baseline_idx = None;
-        self.drag_anchor_idx = None;
-        self.selected_range = None;
-        self.hovered_heatmap = None;
+        let next_sig = self.active_chart_signature();
+        if prev_sig != next_sig || prev_filter != self.provider_filter {
+            self.hovered_chart_idx = None;
+            self.pinned_baseline_idx = None;
+            self.drag_anchor_idx = None;
+            self.selected_range = None;
+            self.hovered_heatmap = None;
+        }
         self.refreshing = false;
         self.waiting_for_tray = None;
         self.error = None;

@@ -46,8 +46,8 @@ pub struct PlotCanvasSpec {
     pub cursor_norm_y: Option<f32>,
     /// Entrance / mode-switch reveal progress in `[0.0, 1.0]`.
     pub reveal_t: f32,
-    /// Marks the final bucket as live/in-progress (EvilCharts hatched buffer motif).
-    pub live_last_bucket: bool,
+    /// Optional index of the currently in-progress live bucket (hatched buffer motif).
+    pub live_bucket_idx: Option<usize>,
 }
 
 /// Shared Y coordinate inside a plot of logical height `h` for value `v` on `[0, max_scale]`.
@@ -192,19 +192,24 @@ fn paint_active_cursor(
     y_for: &impl Fn(f64) -> Pixels,
     window: &mut Window,
 ) {
+    let n = spec.values.len();
     let target_x = x_for(h_idx);
-    let cur_x = spec
-        .cursor_norm_x
-        .map(|nx| origin.x + px(nx.clamp(0.0, 1.0) * w))
-        .unwrap_or(target_x);
+    let cur_x = if spec.style == ChartStyle::StackedBar {
+        target_x
+    } else {
+        spec.cursor_norm_x
+            .map(|nx| origin.x + px(nx.clamp(0.0, 1.0) * w))
+            .unwrap_or(target_x)
+    };
 
     match spec.values[h_idx] {
         Some(v) => {
             let target_y =
                 if spec.style == ChartStyle::StackedBar && v > 0.0 && spec.max_scale > 0.0 {
-                    let bar_h =
-                        ((v / spec.max_scale) * usable_h as f64).clamp(3.0, usable_h as f64) as f32;
-                    base_y - px(bar_h)
+                    let wave = staggered_bar_reveal(spec.reveal_t, h_idx, n).max(0.02);
+                    let bar_h = (((v * f64::from(wave)) / spec.max_scale) * usable_h as f64)
+                        .clamp(3.0, usable_h as f64) as f32;
+                    px(f32::from(base_y).round() - bar_h)
                 } else {
                     y_for(v)
                 };
@@ -248,23 +253,19 @@ fn paint_active_cursor(
             );
 
             // Detent Caliper I-Beam Bracket vs Pinned Baseline or Period Avg
-            let ref_y = if Some(h_idx) != spec.pinned_idx {
-                pin_y_px.or_else(|| {
+            let ref_pair = if Some(h_idx) != spec.pinned_idx {
+                pin_y_px.zip(pinned_val).or_else(|| {
                     spec.avg_val
                         .filter(|a| *a > 0.0 && spec.max_scale > 0.0)
-                        .map(y_for)
+                        .map(|a| (y_for(a), a))
                 })
             } else {
                 None
             };
-            if let Some(ry) = ref_y {
+            if let Some((ry, ref_val)) = ref_pair {
                 let delta_px = f32::from(ry) - f32::from(cur_y);
                 if delta_px.abs() >= 7.0 {
-                    let caliper_color = if delta_px > 0.0 {
-                        ACCENT_POS
-                    } else {
-                        ACCENT_ERR
-                    };
+                    let caliper_color = if v >= ref_val { ACCENT_POS } else { ACCENT_ERR };
                     let caliper_x = if spec.style == ChartStyle::StackedBar {
                         let offset = (slot_w * 0.38).clamp(5.0, 16.0);
                         if f32::from(cur_x - origin.x) + offset < w - 4.0 {
@@ -347,7 +348,7 @@ fn paint_bar_series(
             spec.hovered_idx.is_some() && !is_hovered && !is_pinned
         };
         let wave = staggered_bar_reveal(spec.reveal_t, i, n).max(0.02);
-        let is_live_buffer = spec.live_last_bucket && i + 1 == n;
+        let is_live_buffer = spec.live_bucket_idx == Some(i);
 
         if is_hovered {
             let mut spot = fill(

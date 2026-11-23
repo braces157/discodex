@@ -13,6 +13,15 @@ use super::{
     },
 };
 
+/// Formats Y-axis tick values so adjacent ticks stay distinct even on small scales.
+fn format_axis_tick(metric: Metric, v: f64) -> String {
+    if metric != Metric::Cost && v > 0.0 && v < 10.0 && (v - v.round()).abs() > 1e-4 {
+        format!("{v:.1}")
+    } else {
+        format_metric_value(metric, v)
+    }
+}
+
 /// Right-side Y-axis rail with Liveline-style gliding hover pill, live latest badge, and pin tag.
 #[allow(clippy::too_many_arguments)]
 pub fn render_y_axis_rail(
@@ -23,13 +32,16 @@ pub fn render_y_axis_rail(
     pinned_val: Option<f64>,
     same_as_pin: bool,
     cursor_norm_y: Option<f32>,
+    active_override_local_y: Option<f32>,
     metric_color: u32,
 ) -> gpui::Div {
-    let active_pill = hovered_val
+    let active_data = hovered_val
         .map(|v| (v, true))
         .or_else(|| latest_val.map(|v| (v, false)))
         .map(|(v, is_hover)| {
-            let local_y = if is_hover {
+            let local_y = if let Some(ov) = active_override_local_y {
+                ov
+            } else if is_hover {
                 cursor_norm_y
                     .map(|ny| {
                         PLOT_PAD_TOP
@@ -41,50 +53,53 @@ pub fn render_y_axis_rail(
                 plot_local_y(PLOT_HEIGHT, v, max_scale)
             };
             let pill_top = (local_y - 9.0).clamp(0.0, PLOT_HEIGHT - 18.0);
-            let pill_bg = if let Some(pv) = pinned_val {
-                if same_as_pin && is_hover {
-                    TEXT_PRIMARY
-                } else if v >= pv {
-                    ACCENT_POS
-                } else {
-                    ACCENT_ERR
-                }
-            } else {
-                metric_color
-            };
-            div()
-                .absolute()
-                .left_0()
-                .top(px(pill_top))
-                .px(px(5.))
-                .h(px(17.))
-                .rounded(px(4.5))
-                .bg(if is_hover {
-                    rgb(pill_bg)
-                } else {
-                    rgba(with_alpha(pill_bg, 0x26))
-                })
-                .when(!is_hover, |d| {
-                    d.border_1().border_color(rgba(with_alpha(pill_bg, 0x66)))
-                })
-                .flex()
-                .items_center()
-                .font_family(FONT_MONO)
-                .text_size(px(9.5))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(if is_hover { BG_RECESSED } else { pill_bg }))
-                .whitespace_nowrap()
-                .child(format_metric_value(metric, v))
+            (v, is_hover, pill_top)
         });
+
+    let active_pill_top = active_data.map(|(_, _, top)| top);
+    let active_pill = active_data.map(|(v, is_hover, pill_top)| {
+        let pill_bg = if let Some(pv) = pinned_val {
+            if same_as_pin && is_hover {
+                TEXT_PRIMARY
+            } else if v >= pv {
+                ACCENT_POS
+            } else {
+                ACCENT_ERR
+            }
+        } else {
+            metric_color
+        };
+        div()
+            .absolute()
+            .left_0()
+            .top(px(pill_top))
+            .px(px(5.))
+            .h(px(17.))
+            .rounded(px(4.5))
+            .bg(if is_hover {
+                rgb(pill_bg)
+            } else {
+                rgba(with_alpha(pill_bg, 0x26))
+            })
+            .when(!is_hover, |d| {
+                d.border_1().border_color(rgba(with_alpha(pill_bg, 0x66)))
+            })
+            .flex()
+            .items_center()
+            .font_family(FONT_MONO)
+            .text_size(px(9.5))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgb(if is_hover { BG_RECESSED } else { pill_bg }))
+            .whitespace_nowrap()
+            .child(format_metric_value(metric, v))
+    });
 
     let pin_pill = pinned_val.and_then(|pv| {
         let py = (plot_local_y(PLOT_HEIGHT, pv, max_scale) - 8.0).clamp(0.0, PLOT_HEIGHT - 16.0);
-        if let Some(hv) = hovered_val.or(latest_val) {
-            let hy =
-                (plot_local_y(PLOT_HEIGHT, hv, max_scale) - 9.0).clamp(0.0, PLOT_HEIGHT - 18.0);
-            if (hy - py).abs() < 18.0 {
-                return None;
-            }
+        if let Some(hy) = active_pill_top
+            && (hy - py).abs() < 18.0
+        {
+            return None;
         }
         Some(
             div()
@@ -111,12 +126,12 @@ pub fn render_y_axis_rail(
     let ticks: [(f64, String, u32); 3] = [
         (
             max_scale,
-            format_metric_value(metric, max_scale),
+            format_axis_tick(metric, max_scale),
             TEXT_SECONDARY,
         ),
         (
             max_scale * 0.5,
-            format_metric_value(metric, max_scale * 0.5),
+            format_axis_tick(metric, max_scale * 0.5),
             TEXT_SECONDARY,
         ),
         (0.0, "0".into(), TEXT_MUTED),
@@ -188,16 +203,31 @@ pub fn render_editorial_header(
                 };
                 delta_badge = Some((format_signed_pct(pct), col));
             }
+            let (hero_val_str, hero_col) = if r.known_count == 0 {
+                ("Unknown".into(), ACCENT_AMBER)
+            } else {
+                let mut s = format_metric_value(params.metric, r.total);
+                if r.known_count < r.count {
+                    s.push('*');
+                }
+                (s, metric_color)
+            };
             let avg_str = r
                 .avg
-                .map(|v| format!("Avg {}", format_metric_value(params.metric, v)))
+                .map(|v| {
+                    format!(
+                        "Avg {}{}",
+                        format_metric_value(params.metric, v),
+                        if r.known_count < r.count { "*" } else { "" }
+                    )
+                })
                 .unwrap_or_else(|| "Avg —".into());
             let cost_str = r.cost_usd.map(money).unwrap_or_else(|| "Unpriced".into());
             let calls_word = if r.calls == 1 { "call" } else { "calls" };
             (
                 eyebrow,
-                format_metric_value(params.metric, r.total),
-                metric_color,
+                hero_val_str,
+                hero_col,
                 format!("{avg_str} · {cost_str}"),
                 format!("{} {calls_word}", compact(r.calls)),
             )

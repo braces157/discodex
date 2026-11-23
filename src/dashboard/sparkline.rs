@@ -182,6 +182,24 @@ pub fn build_legend_items(
     let by_provider = effective_stack_breakdown(stack_by, provider_filter, provider_count)
         == StackBreakdown::ByProvider;
     if by_provider {
+        if style == ChartStyle::AreaLine {
+            let mut totals: Vec<(String, u64)> = Vec::new();
+            for pt in points {
+                for (slug, tok) in &pt.by_provider {
+                    if let Some((_, sum)) = totals.iter_mut().find(|(s, _)| s == slug) {
+                        *sum = sum.saturating_add(*tok);
+                    } else if *tok > 0 {
+                        totals.push((slug.clone(), *tok));
+                    }
+                }
+            }
+            totals.sort_by_key(|b| std::cmp::Reverse(b.1));
+            return totals
+                .into_iter()
+                .take(4)
+                .map(|(slug, _)| (provider_display(&slug), provider_color(&slug)))
+                .collect();
+        }
         let mut seen = Vec::new();
         for pt in points {
             for (slug, tok) in &pt.by_provider {

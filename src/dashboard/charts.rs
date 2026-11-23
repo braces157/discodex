@@ -1,5 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
+use chrono::{Local, Timelike};
 use gpui::{
     Bounds, Context, FontWeight, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, canvas, div, prelude::*, px, rgb, rgba,
@@ -7,8 +8,11 @@ use gpui::{
 
 use super::{
     Action, Dashboard,
-    chart_canvas::{AreaLayerData, BarColumnData, PlotCanvasSpec, paint_plot_canvas, plot_local_y},
-    chart_math::{compute_nice_scale, last_known_index},
+    chart_canvas::{
+        AreaLayerData, BarColumnData, PLOT_PAD_BOTTOM, PLOT_PAD_TOP, PlotCanvasSpec,
+        paint_plot_canvas, plot_local_y,
+    },
+    chart_math::{compute_nice_scale, last_known_index, staggered_bar_reveal},
     chart_readout::{render_crosshair_pill, render_editorial_header, render_y_axis_rail},
     format::{
         ChartStyle, Metric, StackBreakdown, compute_chart_avg, effective_stack_breakdown,
@@ -208,14 +212,8 @@ pub fn render_chart_card(
     let point_count = points.len();
     let values: Vec<Option<f64>> = points.iter().map(|p| p.value(params.metric)).collect();
     let area_layers = build_area_layers(points, &params);
-    let max_raw = if !area_layers.is_empty() && params.pinned_idx.is_none() {
-        area_layers
-            .iter()
-            .flat_map(|l| l.values.iter().flatten().copied())
-            .fold(0.0_f64, f64::max)
-    } else {
-        values.iter().flatten().copied().fold(0.0_f64, f64::max)
-    };
+    // Keep one aggregate scale across plot curves, readouts, Y-axis rail, and cursor spring
+    let max_raw = values.iter().flatten().copied().fold(0.0_f64, f64::max);
     let max_scale = compute_nice_scale(max_raw);
     let total: f64 = values.iter().flatten().sum();
     let has_unknown = values.iter().any(Option::is_none);
@@ -266,6 +264,15 @@ pub fn render_chart_card(
         params.provider_count,
     );
 
+    let live_bucket_idx = if params.is_hourly {
+        let cur_hour = Local::now().hour() as usize;
+        (cur_hour < point_count).then_some(cur_hour)
+    } else if !params.truncated {
+        point_count.checked_sub(1)
+    } else {
+        None
+    };
+
     let bars = build_bar_columns(points, &values, &params);
     let canvas_spec = PlotCanvasSpec {
         values: values.clone(),
@@ -281,7 +288,25 @@ pub fn render_chart_card(
         cursor_norm_x: params.cursor_norm_x,
         cursor_norm_y: params.cursor_norm_y,
         reveal_t: params.reveal_t,
-        live_last_bucket: params.is_hourly || !params.truncated,
+        live_bucket_idx,
+    };
+
+    let active_bar_local_y = if params.chart_style == ChartStyle::StackedBar && max_scale > 0.0 {
+        let active_idx = hovered_idx.or_else(|| last_known_index(&values));
+        active_idx.and_then(|idx| {
+            let v = values.get(idx).copied().flatten()?;
+            if v > 0.0 {
+                let usable_h = (PLOT_HEIGHT - PLOT_PAD_TOP - PLOT_PAD_BOTTOM).max(1.0);
+                let wave = staggered_bar_reveal(params.reveal_t, idx, point_count).max(0.02);
+                let bar_h = (((v * f64::from(wave)) / max_scale) * usable_h as f64)
+                    .clamp(3.0, usable_h as f64) as f32;
+                Some((PLOT_HEIGHT - PLOT_PAD_BOTTOM).round() - bar_h)
+            } else {
+                None
+            }
+        })
+    } else {
+        None
     };
 
     let y_axis_rail = render_y_axis_rail(
@@ -292,6 +317,7 @@ pub fn render_chart_card(
         pinned_idx.and_then(|i| values[i]),
         hovered_idx == pinned_idx,
         params.cursor_norm_y,
+        active_bar_local_y,
         metric_color,
     );
 
@@ -459,6 +485,10 @@ pub fn render_chart_card(
                             MouseButton::Left,
                             cx.listener(|this, _, _, cx| {
                                 if this.drag_anchor_idx.take().is_some() {
+                                    if this.selected_range.is_some() {
+                                        this.pinned_baseline_idx = None;
+                                    }
+                                    this.hovered_chart_idx = None;
                                     cx.notify();
                                 }
                             }),

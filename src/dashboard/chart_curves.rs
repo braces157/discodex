@@ -1,6 +1,6 @@
 use gpui::{
-    Bounds, Corners, PathBuilder, Pixels, Point, Window, fill, pattern_slash, point, px, rgb, rgba,
-    size,
+    Bounds, ContentMask, Corners, PathBuilder, Pixels, Point, Window, fill, pattern_slash, point,
+    px, rgb, rgba, size,
 };
 
 use super::{
@@ -37,37 +37,44 @@ pub fn paint_monotone_area_and_stroke(
     }
     let scale_a = |a: u8| -> u8 { ((f32::from(a) * style.dim_factor).clamp(0.0, 255.0)) as u8 };
 
-    // Pass 1: Clean flat translucent area tint (zero gradients)
-    if style.fill_alpha > 0 {
-        let mut area = PathBuilder::fill();
-        area.move_to(point(pts[0].x, base_y));
-        area.line_to(pts[0]);
-        for seg in &segs {
-            area.cubic_bezier_to(seg.p1, seg.c0, seg.c1);
-        }
-        if let Some(last) = pts.last() {
-            area.line_to(point(last.x, base_y));
-        }
-        area.close();
-        if let Ok(path) = area.build() {
+    window.with_content_mask(
+        Some(ContentMask {
+            bounds: clip_bounds,
+        }),
+        |window| {
+            // Pass 1: Clean flat translucent area tint (zero gradients)
+            if style.fill_alpha > 0 {
+                let mut area = PathBuilder::fill();
+                area.move_to(point(pts[0].x, base_y));
+                area.line_to(pts[0]);
+                for seg in &segs {
+                    area.cubic_bezier_to(seg.p1, seg.c0, seg.c1);
+                }
+                if let Some(last) = pts.last() {
+                    area.line_to(point(last.x, base_y));
+                }
+                area.close();
+                if let Ok(path) = area.build() {
+                    window.paint_layer(clip_bounds, |window| {
+                        window.paint_path(
+                            path,
+                            rgba(with_alpha(style.color, scale_a(style.fill_alpha))),
+                        );
+                    });
+                }
+            }
+
+            // Pass 2: Razor-sharp 4x MSAA solid stroke (zero neon glow)
             window.paint_layer(clip_bounds, |window| {
-                window.paint_path(
-                    path,
-                    rgba(with_alpha(style.color, scale_a(style.fill_alpha))),
+                paint_cubic_stroke(
+                    &segs,
+                    style.stroke_width,
+                    rgba(with_alpha(style.color, scale_a(0xFF))),
+                    window,
                 );
             });
-        }
-    }
-
-    // Pass 2: Razor-sharp 4x MSAA solid stroke (zero neon glow)
-    window.paint_layer(clip_bounds, |window| {
-        paint_cubic_stroke(
-            &segs,
-            style.stroke_width,
-            rgba(with_alpha(style.color, scale_a(0xFF))),
-            window,
-        );
-    });
+        },
+    );
 }
 
 fn paint_cubic_stroke(
@@ -102,15 +109,25 @@ pub fn paint_area_series(
     let reveal_w = (w * ease_out_quart(spec.reveal_t)).max(1.0);
     let clip_bounds = Bounds::new(origin, size(px(reveal_w), px(h)));
 
-    window.paint_layer(clip_bounds, |window| {
-        if !spec.area_layers.is_empty() && pinned_val.is_none() {
-            paint_multi_series_area(origin, reveal_w, h, base_y, spec, x_for, y_for, window);
-        } else {
-            paint_single_area_series(
-                origin, w, reveal_w, h, base_y, slot_w, spec, pinned_val, x_for, y_for, window,
-            );
-        }
-    });
+    window.with_content_mask(
+        Some(ContentMask {
+            bounds: clip_bounds,
+        }),
+        |window| {
+            window.paint_layer(clip_bounds, |window| {
+                if !spec.area_layers.is_empty() && pinned_val.is_none() {
+                    paint_multi_series_area(
+                        origin, reveal_w, h, base_y, spec, x_for, y_for, window,
+                    );
+                } else {
+                    paint_single_area_series(
+                        origin, w, reveal_w, h, base_y, slot_w, spec, pinned_val, x_for, y_for,
+                        window,
+                    );
+                }
+            });
+        },
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -125,29 +142,41 @@ fn paint_multi_series_area(
     window: &mut Window,
 ) {
     let paint_layers = |clip: Bounds<Pixels>, dim_factor: f32, window: &mut Window| {
-        for layer in &spec.area_layers {
-            let runs = contiguous_known_runs(&layer.values);
-            for run in &runs {
-                if run.len() >= 2 {
-                    let pts: Vec<Point<Pixels>> = run
-                        .iter()
-                        .map(|&(i, v)| point(x_for(i), y_for(v)))
-                        .collect();
-                    paint_monotone_area_and_stroke(
-                        clip,
-                        &pts,
-                        base_y,
-                        CurveStyle {
-                            color: layer.color,
-                            fill_alpha: 0x16,
-                            stroke_width: 1.75,
-                            dim_factor,
-                        },
-                        window,
-                    );
+        let dot_alpha = ((255.0 * dim_factor).clamp(0.0, 255.0)) as u8;
+        window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {
+            for layer in &spec.area_layers {
+                let runs = contiguous_known_runs(&layer.values);
+                for run in &runs {
+                    if run.len() >= 2 {
+                        let pts: Vec<Point<Pixels>> = run
+                            .iter()
+                            .map(|&(i, v)| point(x_for(i), y_for(v)))
+                            .collect();
+                        paint_monotone_area_and_stroke(
+                            clip,
+                            &pts,
+                            base_y,
+                            CurveStyle {
+                                color: layer.color,
+                                fill_alpha: 0x16,
+                                stroke_width: 1.75,
+                                dim_factor,
+                            },
+                            window,
+                        );
+                    } else if let Some(&(idx, v)) = run.first() {
+                        let x = x_for(idx);
+                        let y = y_for(v);
+                        let mut dot = fill(
+                            Bounds::new(point(x - px(2.6), y - px(2.6)), size(px(5.2), px(5.2))),
+                            rgba(with_alpha(layer.color, dot_alpha)),
+                        );
+                        dot.corner_radii = px(2.6).into();
+                        window.paint_quad(dot);
+                    }
                 }
             }
-        }
+        });
     };
 
     let full_clip = Bounds::new(origin, size(px(w), px(h)));

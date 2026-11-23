@@ -260,8 +260,17 @@ impl Dashboard {
             .as_secs_f32()
             .clamp(0.001, 0.05);
         self.last_anim_tick = Instant::now();
-        let reveal_t = (self.reveal_start.elapsed().as_secs_f32() / 0.65).clamp(0.0, 1.0);
-        let reveal_moving = reveal_t < 1.0;
+        let has_chart = !chart_points.is_empty();
+        if has_chart && !self.has_revealed_chart {
+            self.has_revealed_chart = true;
+            self.reveal_start = Instant::now();
+        }
+        let reveal_t = if has_chart {
+            (self.reveal_start.elapsed().as_secs_f32() / 0.65).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let reveal_moving = has_chart && reveal_t < 1.0;
 
         if let Some(h_idx) = self.hovered_chart_idx
             && !chart_points.is_empty()

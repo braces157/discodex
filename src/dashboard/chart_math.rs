@@ -190,9 +190,11 @@ pub fn sample_segments_y(segments: &[CubicSegment], x_target: f32) -> Option<f32
     if x_target < first_x - 0.5 || x_target > last_x + 0.5 {
         return None;
     }
+    let x_clamped = x_target.clamp(first_x, last_x);
     let seg = segments
         .iter()
-        .find(|s| x_target >= f32::from(s.p0.x) - 0.5 && x_target <= f32::from(s.p1.x) + 0.5)?;
+        .find(|s| x_clamped >= f32::from(s.p0.x) && x_clamped <= f32::from(s.p1.x))
+        .or_else(|| segments.last())?;
 
     let x0 = f32::from(seg.p0.x);
     let x1 = f32::from(seg.c0.x);
@@ -393,7 +395,9 @@ impl RangeSummary {
         }
         let avg = (known_count > 0).then(|| total / known_count as f64);
         let delta = match (first_val, last_val) {
-            (Some(s), Some(e)) if end > start => Some(ValueDelta::between(e, s)),
+            (Some(s), Some(e)) if end > start && known_count >= 2 => {
+                Some(ValueDelta::between(e, s))
+            }
             _ => None,
         };
         Some(Self {
@@ -615,6 +619,25 @@ mod tests {
         assert_eq!(staggered_bar_reveal(0.0, 3, 7), 0.0);
         assert_eq!(staggered_bar_reveal(1.0, 6, 7), 1.0);
         assert!(staggered_bar_reveal(0.45, 0, 7) > staggered_bar_reveal(0.45, 6, 7));
+
+        // Single known bucket inside a multi-bucket range must not report a synthetic 0% delta
+        let single_known = [None, Some(10.0), None];
+        let sr = RangeSummary::compute(&single_known, &[None, None, None], &[0, 1, 0], 0, 2)
+            .expect("range");
+        assert_eq!(sr.known_count, 1);
+        assert!(sr.delta.is_none());
+
+        // Cubic segment selection must use exact intervals rather than +/-0.5 spillover
+        let segs = monotone_cubic_segments(&[
+            point(px(0.0), px(100.0)),
+            point(px(9.6), px(100.0)),
+            point(px(19.2), px(20.0)),
+        ]);
+        let y10 = sample_segments_y(&segs, 10.0).expect("sample at 10.0");
+        assert!(
+            y10 < 99.8,
+            "expected sample at x=10.0 to evaluate second segment (<99.8), got {y10}"
+        );
     }
 
     #[test]
