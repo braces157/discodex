@@ -1,6 +1,7 @@
 use gpui::{FontWeight, IntoElement, div, prelude::*, px, relative, rgb, rgba};
 
 use super::{
+    donut::{DonutSlice, render_donut_ring},
     format::{
         cache_hit_ratio, compact, compute_token_mix, duration, format_cost, format_count, money,
         period_delta_pct, sum_cache_savings, sum_cost, sum_field, sum_tokens,
@@ -8,9 +9,9 @@ use super::{
     series::build_sparkline_series,
     sparkline::sparkline,
     theme::{
-        ACCENT_AMBER, ACCENT_CALLS, ACCENT_COST, ACCENT_LIME, ACCENT_LIME_BORDER, ACCENT_LIME_SOFT,
-        ACCENT_REASONING, BG_SURFACE, BORDER_SUBTLE, FONT_MONO, TEXT_MUTED, TEXT_PRIMARY,
-        TEXT_SECONDARY, TRACK_BG, with_alpha,
+        ACCENT_AMBER, ACCENT_CALLS, ACCENT_COST, ACCENT_ERR, ACCENT_LIME, ACCENT_POS,
+        ACCENT_POS_BORDER, ACCENT_POS_SOFT, ACCENT_REASONING, BG_SURFACE, BORDER_SUBTLE, FONT_MONO,
+        TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, TRACK_BG, with_alpha,
     },
 };
 use crate::usage::{UsageBundle, UsageDay, UsagePeriod, UsageRow};
@@ -64,7 +65,7 @@ pub fn render_hero_bento(
     let cost_color = if !known || empty || cost.0.is_none() {
         TEXT_MUTED
     } else {
-        ACCENT_COST
+        TEXT_PRIMARY
     };
     let per_call_text = if !known {
         "Checking catalog rates".into()
@@ -102,6 +103,20 @@ pub fn render_hero_bento(
         .then(|| bundle.and_then(|b| period_delta_pct(b, period, provider_filter)))
         .flatten();
     let (spark_tok, spark_cost) = build_sparkline_series(bundle, daily, period, provider_filter);
+    let known_tok_pts = spark_tok.iter().filter(|v| v.is_some()).count();
+    let known_cost_pts = spark_cost.iter().filter(|v| v.is_some()).count();
+    let total_cost_buckets = spark_cost.len();
+    let show_tok_spark = !empty && known_tok_pts >= 2;
+    let show_cost_spark =
+        !empty && known_cost_pts >= 2 && spark_cost.iter().flatten().any(|v| *v > 0.0);
+    let cost_partial_note =
+        (!empty && !show_cost_spark && total_cost_buckets > 0 && cost.0.is_some()).then(|| {
+            if known_cost_pts == 0 {
+                "Unpriced models in daily buckets".to_string()
+            } else {
+                format!("{known_cost_pts}/{total_cost_buckets} buckets fully priced")
+            }
+        });
 
     div()
         .flex()
@@ -113,7 +128,7 @@ pub fn render_hero_bento(
                 .bg(rgb(BG_SURFACE))
                 .border_1()
                 .border_color(rgba(BORDER_SUBTLE))
-                .rounded(px(11.))
+                .rounded(px(10.))
                 .p(px(12.))
                 .flex()
                 .flex_col()
@@ -121,36 +136,35 @@ pub fn render_hero_bento(
                 .child(kpi_header("TOKENS", ACCENT_LIME))
                 .child(
                     div()
-                        .mt(px(5.))
-                        .font_family(FONT_MONO)
-                        .text_size(px(21.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .whitespace_nowrap()
-                        .truncate()
-                        .text_color(rgb(if !known || empty {
-                            TEXT_MUTED
-                        } else {
-                            TEXT_PRIMARY
-                        }))
-                        .child(token_value),
-                )
-                .child(
-                    div()
-                        .mt(px(5.))
+                        .mt(px(4.))
                         .flex()
-                        .items_center()
+                        .items_baseline()
                         .justify_between()
                         .gap(px(6.))
-                        .child(delta_or_sessions(delta, sessions))
-                        .when(!empty && !spark_tok.is_empty(), |row| {
-                            row.child(sparkline(spark_tok, ACCENT_LIME))
-                        }),
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(23.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .whitespace_nowrap()
+                                .truncate()
+                                .text_color(rgb(if !known || empty {
+                                    TEXT_MUTED
+                                } else {
+                                    TEXT_PRIMARY
+                                }))
+                                .child(token_value),
+                        )
+                        .child(delta_or_sessions(delta, sessions)),
                 )
+                .when(show_tok_spark, |card| {
+                    card.child(div().mt(px(6.)).child(sparkline(spark_tok, ACCENT_LIME)))
+                })
                 .child(
                     div()
-                        .mt(px(7.))
+                        .mt(px(5.))
                         .font_family(FONT_MONO)
-                        .text_size(px(10.5))
+                        .text_size(px(10.))
                         .text_color(rgb(TEXT_SECONDARY))
                         .truncate()
                         .child(token_sub),
@@ -163,7 +177,7 @@ pub fn render_hero_bento(
                 .bg(rgb(BG_SURFACE))
                 .border_1()
                 .border_color(rgba(BORDER_SUBTLE))
-                .rounded(px(11.))
+                .rounded(px(10.))
                 .p(px(12.))
                 .flex()
                 .flex_col()
@@ -171,42 +185,65 @@ pub fn render_hero_bento(
                 .child(kpi_header("EST. API COST", ACCENT_COST))
                 .child(
                     div()
-                        .mt(px(5.))
-                        .font_family(FONT_MONO)
-                        .text_size(px(21.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .whitespace_nowrap()
-                        .truncate()
-                        .text_color(rgb(cost_color))
-                        .child(cost_value),
-                )
-                .child(
-                    div()
-                        .mt(px(5.))
+                        .mt(px(4.))
                         .flex()
-                        .items_center()
+                        .items_baseline()
                         .justify_between()
                         .gap(px(6.))
                         .child(
                             div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(23.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .whitespace_nowrap()
+                                .truncate()
+                                .text_color(rgb(cost_color))
+                                .child(cost_value),
+                        )
+                        .child(
+                            div()
                                 .min_w_0()
                                 .font_family(FONT_MONO)
-                                .text_size(px(10.5))
+                                .text_size(px(10.))
                                 .text_color(rgb(TEXT_SECONDARY))
                                 .whitespace_nowrap()
                                 .truncate()
                                 .child(per_call_text),
-                        )
-                        .when(!empty && !spark_cost.is_empty(), |row| {
-                            row.child(sparkline(spark_cost, ACCENT_COST))
-                        }),
+                        ),
                 )
+                .when(show_cost_spark, |card| {
+                    card.child(div().mt(px(6.)).child(sparkline(spark_cost, ACCENT_COST)))
+                })
+                .when_some(cost_partial_note, |card, note| {
+                    card.child(
+                        div()
+                            .mt(px(8.))
+                            .h(px(26.))
+                            .px(px(8.))
+                            .rounded(px(6.))
+                            .bg(rgba(with_alpha(ACCENT_AMBER, 0x10)))
+                            .border_1()
+                            .border_color(rgba(with_alpha(ACCENT_AMBER, 0x2B)))
+                            .flex()
+                            .items_center()
+                            .gap(px(5.))
+                            .child(div().size(px(5.)).rounded_full().bg(rgb(ACCENT_AMBER)))
+                            .child(
+                                div()
+                                    .font_family(FONT_MONO)
+                                    .text_size(px(9.5))
+                                    .text_color(rgb(TEXT_SECONDARY))
+                                    .truncate()
+                                    .child(note),
+                            ),
+                    )
+                })
                 .when_some(cost_footer, |this, footer| {
                     this.child(
                         div()
-                            .mt(px(7.))
+                            .mt(px(5.))
                             .font_family(FONT_MONO)
-                            .text_size(px(10.5))
+                            .text_size(px(10.))
                             .text_color(rgb(TEXT_SECONDARY))
                             .truncate()
                             .child(footer),
@@ -234,12 +271,12 @@ fn delta_or_sessions(delta: Option<(f64, &'static str)>, sessions: usize) -> imp
     if let Some((pct, label)) = delta {
         let positive = pct >= 0.0;
         let (bg, border, fg) = if positive {
-            (ACCENT_LIME_SOFT, ACCENT_LIME_BORDER, ACCENT_LIME)
+            (ACCENT_POS_SOFT, ACCENT_POS_BORDER, ACCENT_POS)
         } else {
             (
-                with_alpha(ACCENT_CALLS, 0x1A),
-                with_alpha(ACCENT_CALLS, 0x40),
-                ACCENT_CALLS,
+                with_alpha(ACCENT_ERR, 0x16),
+                with_alpha(ACCENT_ERR, 0x38),
+                ACCENT_ERR,
             )
         };
         div()
@@ -287,11 +324,7 @@ pub fn render_telemetry_strip(rows: &[UsageRow]) -> impl IntoElement + use<> {
     let (cache_text, cache_color) = match cache_pct {
         Some(pct) => (
             format!("{pct:.0}%{}", if partial_cache { "*" } else { "" }),
-            if pct >= 50.0 {
-                ACCENT_LIME
-            } else {
-                TEXT_PRIMARY
-            },
+            TEXT_PRIMARY,
         ),
         None => ("—".into(), TEXT_MUTED),
     };
@@ -300,7 +333,7 @@ pub fn render_telemetry_strip(rows: &[UsageRow]) -> impl IntoElement + use<> {
     let (saved_text, saved_color) = match saved_opt {
         Some(usd) => (
             format!("{}{}", money(usd), if partial_saved { "*" } else { "" }),
-            ACCENT_COST,
+            TEXT_PRIMARY,
         ),
         None => ("—".into(), TEXT_MUTED),
     };
@@ -376,31 +409,57 @@ pub fn render_token_mix(rows: &[UsageRow]) -> impl IntoElement + use<> {
     let bar_items = [
         (mix.fresh_input.0, ACCENT_LIME),
         (mix.cached_read.0, ACCENT_COST),
-        (mix.cache_write.0, ACCENT_AMBER),
+        (mix.cache_write.0, 0x52525B),
         (mix.output.0, ACCENT_CALLS),
     ];
-    let known_bar_sum: u64 = bar_items
-        .iter()
-        .filter_map(|(v, _)| *v)
-        .fold(0u64, u64::saturating_add);
-    let denom = mix.total.0.unwrap_or(0).max(known_bar_sum).max(1) as f32;
     let legend_rows = [
         ("Fresh In", mix.fresh_input, ACCENT_LIME, false),
         ("Cache Read", mix.cached_read, ACCENT_COST, false),
-        ("Cache Write", mix.cache_write, ACCENT_AMBER, false),
+        ("Cache Write", mix.cache_write, 0x52525B, false),
         ("Output", mix.output, ACCENT_CALLS, false),
         ("Reasoning", mix.reasoning, ACCENT_REASONING, true),
     ];
+
+    let donut_slices: Vec<DonutSlice> = bar_items
+        .iter()
+        .filter_map(|(val, col)| {
+            let v = (*val).filter(|v| *v > 0)?;
+            Some(DonutSlice {
+                value: v as f64,
+                color: *col,
+            })
+        })
+        .collect();
+    let (cache_pct, cache_partial) = cache_hit_ratio(rows);
+    let (center_val, center_lbl, center_col) = match cache_pct {
+        Some(pct) => (
+            format!("{pct:.0}%{}", if cache_partial { "*" } else { "" }),
+            "CACHED",
+            TEXT_PRIMARY,
+        ),
+        None => {
+            let fresh_pct = mix.fresh_input.0.and_then(|v| {
+                mix.total
+                    .0
+                    .filter(|t| *t > 0)
+                    .map(|t| (v as f64 / t as f64 * 100.0).round() as u64)
+            });
+            match fresh_pct {
+                Some(p) => (format!("{p}%"), "FRESH", TEXT_PRIMARY),
+                None => ("—".into(), "MIX", TEXT_MUTED),
+            }
+        }
+    };
 
     div()
         .bg(rgb(BG_SURFACE))
         .border_1()
         .border_color(rgba(BORDER_SUBTLE))
-        .rounded(px(11.))
+        .rounded(px(10.))
         .p(px(12.))
         .flex()
         .flex_col()
-        .gap(px(8.))
+        .gap(px(9.))
         .child(
             div()
                 .flex()
@@ -423,76 +482,106 @@ pub fn render_token_mix(rows: &[UsageRow]) -> impl IntoElement + use<> {
         )
         .child(
             div()
-                .h(px(7.))
-                .w_full()
-                .rounded_full()
-                .bg(rgba(TRACK_BG))
-                .overflow_hidden()
                 .flex()
-                .gap(px(1.5))
-                .children(bar_items.into_iter().filter_map(|(val, col)| {
-                    let v = val.filter(|v| *v > 0)?;
-                    Some(
-                        div()
-                            .h_full()
-                            .w(relative((v as f32 / denom).clamp(0.01, 1.0)))
-                            .bg(rgb(col)),
-                    )
-                })),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .gap_x(px(12.))
-                .gap_y(px(5.))
-                .children(legend_rows.into_iter().map(|(label, val, col, of_output)| {
-                    let (value_text, value_color) = match val.0 {
-                        Some(v) => {
-                            let star = if val.1 { "*" } else { "" };
-                            let denom_opt = if of_output { mix.output.0 } else { mix.total.0 };
-                            let text = if let Some(d) = denom_opt
-                                && d > 0
-                            {
-                                let pct = ((v as f64 / d as f64) * 100.0).round() as u64;
-                                let suffix = if of_output { "% out" } else { "%" };
-                                format!("{}{star} ({pct}{suffix})", compact(v))
-                            } else {
-                                format!("{}{star}", compact(v))
-                            };
-                            (text, TEXT_PRIMARY)
-                        }
-                        None => ("—".into(), TEXT_MUTED),
-                    };
+                .items_center()
+                .gap(px(14.))
+                .child(render_donut_ring(
+                    donut_slices,
+                    center_val,
+                    center_lbl,
+                    center_col,
+                ))
+                .child(
                     div()
-                        .w(px(176.))
+                        .flex_1()
+                        .min_w_0()
                         .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap(px(6.))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(5.))
-                                .min_w_0()
-                                .child(div().size(px(7.)).rounded_full().bg(rgb(col)))
-                                .child(
-                                    div()
-                                        .text_size(px(11.))
-                                        .text_color(rgb(TEXT_SECONDARY))
-                                        .truncate()
-                                        .child(label),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .font_family(FONT_MONO)
-                                .text_size(px(11.))
-                                .text_color(rgb(value_color))
-                                .flex_shrink_0()
-                                .child(value_text),
-                        )
-                })),
+                        .flex_col()
+                        .gap(px(5.5))
+                        .children(legend_rows.into_iter().map(|(label, val, col, of_output)| {
+                        let (denom_opt, denom_partial) =
+                            if of_output { mix.output } else { mix.total };
+                        let valid_pct = !denom_partial
+                            && matches!((val.0, denom_opt), (Some(v), Some(d)) if d > 0 && v <= d);
+                        let ratio = if valid_pct {
+                            match (val.0, denom_opt) {
+                                (Some(v), Some(d)) if d > 0 => {
+                                    (v as f32 / d as f32).clamp(0.0, 1.0)
+                                }
+                                _ => 0.0,
+                            }
+                        } else {
+                            0.0
+                        };
+                        let (value_text, value_color) = match val.0 {
+                            Some(v) => {
+                                let star = if val.1 { "*" } else { "" };
+                                let text = if valid_pct
+                                    && let Some(d) = denom_opt
+                                    && d > 0
+                                {
+                                    let pct = ((v as f64 / d as f64) * 100.0).round() as u64;
+                                    let suffix = if of_output { "% out" } else { "%" };
+                                    format!("{}{star} · {pct}{suffix}", compact(v))
+                                } else {
+                                    format!("{}{star}", compact(v))
+                                };
+                                (text, TEXT_PRIMARY)
+                            }
+                            None => ("—".into(), TEXT_MUTED),
+                        };
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.5))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap(px(6.))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(5.))
+                                            .min_w_0()
+                                            .child(div().size(px(6.5)).rounded(px(2.)).bg(rgb(col)))
+                                            .child(
+                                                div()
+                                                    .text_size(px(10.5))
+                                                    .text_color(rgb(TEXT_SECONDARY))
+                                                    .truncate()
+                                                    .child(label),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .font_family(FONT_MONO)
+                                            .text_size(px(10.5))
+                                            .text_color(rgb(value_color))
+                                            .flex_shrink_0()
+                                            .child(value_text),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h(px(2.5))
+                                    .w_full()
+                                    .rounded_full()
+                                    .bg(rgba(TRACK_BG))
+                                    .overflow_hidden()
+                                    .when(ratio > 0.0, |track| {
+                                        track.child(
+                                            div()
+                                                .h_full()
+                                                .w(relative(ratio.max(0.02)))
+                                                .rounded_full()
+                                                .bg(rgb(col)),
+                                        )
+                                    }),
+                            )
+                    })),
+                ),
         )
 }

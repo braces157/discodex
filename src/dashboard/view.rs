@@ -1,10 +1,14 @@
+use std::time::Instant;
+
 use chrono::{Local, TimeZone};
 use gpui::{
-    AnyElement, Context, FontWeight, IntoElement, ObjectFit, div, img, prelude::*, px, rgb, rgba,
+    AnyElement, Context, FontWeight, IntoElement, ObjectFit, Window, div, img, prelude::*, px, rgb,
+    rgba,
 };
 
 use super::{
     Action, Dashboard,
+    chart_math::compute_nice_scale,
     charts::{ChartParams, render_chart_card},
     controls::{
         chip_button, icon_button, icon_label_button, render_empty_state, render_footer,
@@ -176,7 +180,11 @@ impl Dashboard {
             })
     }
 
-    pub fn render_shell(&self, cx: &mut Context<Self>) -> (AnyElement, AnyElement) {
+    pub fn render_shell(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (AnyElement, AnyElement) {
         let snapshot = self.current_snapshot();
         let all_rows: Vec<UsageRow> = snapshot.map(|s| s.rows.clone()).unwrap_or_default();
         let provider_shares = compute_provider_shares(&all_rows);
@@ -224,6 +232,79 @@ impl Dashboard {
                 )
             })
             .unwrap_or_default();
+        let has_snapshot = snapshot.is_some();
+        self.last_chart_len = chart_points.len();
+        if self
+            .hovered_chart_idx
+            .is_some_and(|idx| idx >= chart_points.len())
+        {
+            self.hovered_chart_idx = None;
+        }
+        if self
+            .pinned_baseline_idx
+            .is_some_and(|idx| idx >= chart_points.len())
+        {
+            self.pinned_baseline_idx = None;
+        }
+        if self
+            .selected_range
+            .is_some_and(|(a, b)| a >= chart_points.len() || b >= chart_points.len())
+        {
+            self.selected_range = None;
+            self.drag_anchor_idx = None;
+        }
+
+        let dt = self
+            .last_anim_tick
+            .elapsed()
+            .as_secs_f32()
+            .clamp(0.001, 0.05);
+        self.last_anim_tick = Instant::now();
+        let has_chart = !chart_points.is_empty();
+        if has_chart && !self.has_revealed_chart {
+            self.has_revealed_chart = true;
+            self.reveal_start = Instant::now();
+        }
+        let reveal_t = if has_chart {
+            (self.reveal_start.elapsed().as_secs_f32() / 0.65).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let reveal_moving = has_chart && reveal_t < 1.0;
+
+        if let Some(h_idx) = self.hovered_chart_idx
+            && !chart_points.is_empty()
+        {
+            let target_nx = (h_idx as f32 + 0.5) / chart_points.len() as f32;
+            self.cursor_x_spring.set_target(target_nx);
+            let max_raw = chart_points
+                .iter()
+                .filter_map(|p| p.value(self.metric))
+                .fold(0.0_f64, f64::max);
+            let max_scale = compute_nice_scale(max_raw);
+            if let Some(v) = chart_points[h_idx].value(self.metric) {
+                let target_ny = (v / max_scale).clamp(0.0, 1.0) as f32;
+                self.cursor_y_spring.set_target(target_ny);
+            } else {
+                self.cursor_y_spring.reset();
+            }
+        } else {
+            self.cursor_x_spring.reset();
+            self.cursor_y_spring.reset();
+        }
+        let x_moving = self.cursor_x_spring.step(dt, 30.0, 0.96);
+        let y_moving = self.cursor_y_spring.step(dt, 28.0, 0.96);
+        if reveal_moving || x_moving || y_moving {
+            window.request_animation_frame();
+        }
+        let cursor_norm_x = self
+            .cursor_x_spring
+            .initialized
+            .then_some(self.cursor_x_spring.value);
+        let cursor_norm_y = self
+            .cursor_y_spring
+            .initialized
+            .then_some(self.cursor_y_spring.value);
 
         let heatmap: Heatmap84 = self
             .bundle
@@ -262,8 +343,8 @@ impl Dashboard {
             })
             .unwrap_or([[0; 24]; 7]);
 
-        let is_loading = snapshot.is_none() && self.error.is_none();
-        let is_empty = snapshot.is_some() && all_rows.is_empty();
+        let is_loading = !has_snapshot && self.error.is_none();
+        let is_empty = has_snapshot && all_rows.is_empty();
         let show_providers = !is_loading && !is_empty && provider_shares.len() > 1;
         let show_provider_name = show_providers && self.provider_filter.is_none();
         let is_wide = self.layout == LayoutMode::Wide;
@@ -340,6 +421,12 @@ impl Dashboard {
                     provider_filter: self.provider_filter.as_deref(),
                     provider_count: distinct_providers.len(),
                     hovered_idx: self.hovered_chart_idx,
+                    pinned_idx: self.pinned_baseline_idx,
+                    selected_range: self.selected_range,
+                    cursor_norm_x,
+                    cursor_norm_y,
+                    reveal_t,
+                    plot_bounds: self.plot_bounds.clone(),
                 },
                 cx,
             )
@@ -348,7 +435,7 @@ impl Dashboard {
                 &heatmap,
                 &weekday_hour,
                 self.heatmap_tab,
-                self.hovered_heatmap.as_deref(),
+                self.hovered_heatmap.as_ref(),
                 cx,
             )
             .into_any_element();
@@ -484,8 +571,5 @@ fn render_rates_banner(message: String) -> impl IntoElement {
 }
 
 pub fn toggle_chart_style(current: ChartStyle) -> ChartStyle {
-    match current {
-        ChartStyle::StackedBar => ChartStyle::AreaLine,
-        ChartStyle::AreaLine => ChartStyle::StackedBar,
-    }
+    current.next()
 }
