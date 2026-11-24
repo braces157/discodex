@@ -243,7 +243,6 @@
     }
   }
 
-  // Cycles the preview until the visitor picks a provider themselves.
   var autoplayMs = 4800;
   var autoplayTimer = 0;
   var autoplayStopped = !motion;
@@ -1033,7 +1032,6 @@
       var totalFresh = Math.max(0, totalIn - totalCached - totalWrite);
       var cachePct = totalIn > 0 ? (totalCached / totalIn) * 100 : 0;
 
-      // Provider shares across ALL providers for this period
       var providerTotals = providerOrder.map(function (slug) {
         var sum = 0;
         if (period.providers[slug]) {
@@ -1069,7 +1067,6 @@
       });
       uProviderHint.textContent = currentProvider === "all" ? "Click to filter" : "Filtered · " + providerMeta[currentProvider].name;
 
-      // Hero Bento + Delta + Sparklines
       var points = buildSeriesPoints(period, activeKeys);
       uTokens.textContent = fmtTokens(totalTokens);
       uTokensSub.textContent = fmtTokens(totalIn) + " in · " + fmtTokens(totalOut) + " out";
@@ -1099,13 +1096,11 @@
       renderSparkline(uSparkTokens, points.map(function (pt) { return pt.tokens; }), "#c5f277");
       renderSparkline(uSparkCost, points.map(function (pt) { return pt.cost; }), "#6ee7b7");
 
-      // Telemetry strip
       uCalls.textContent = fmtTokens(totalCalls);
       uCache.textContent = Math.round(cachePct) + "%";
       uSaved.textContent = fmtMoney(totalSaved);
       uTaskTime.textContent = fmtDuration(totalTimeMs);
 
-      // Chart controls & readout
       var canStackByProvider = currentMetric === "tokens" && currentStyle === "bar" && currentProvider === "all";
       uStackGroup.hidden = !canStackByProvider;
       var effectiveStack = canStackByProvider ? currentStack : "mix";
@@ -1140,7 +1135,6 @@
       }
       updateReadout(hoveredIdx);
 
-      // Render chart plot
       uChartPlot.textContent = "";
       var stage = document.createElement("div");
       stage.className = "usage-plot-stage";
@@ -1303,7 +1297,6 @@
       });
       uChartPlot.appendChild(xAxis);
 
-      // Legend & note
       uChartLegend.textContent = "";
       if (currentStyle === "bar" && currentMetric === "tokens") {
         var legItems = effectiveStack === "providers"
@@ -1325,7 +1318,6 @@
       }
       uChartNote.textContent = period.isHourly ? "24h local timeline" : period.truncated ? "Latest 30d · Full range in totals" : "";
 
-      // Token Mix card
       uAvgPerCall.textContent = totalCalls > 0 ? fmtTokens(Math.round(totalTokens / totalCalls)) + " tok / call" : "—";
       var mixTotal = Math.max(1, totalFresh + totalCached + totalWrite + totalOut);
       uMixBar.textContent = "";
@@ -1367,7 +1359,6 @@
         uMixLegend.appendChild(item);
       });
 
-      // Sortable Models list with inline expandable drawer
       var sortedModels = models.slice().sort(function (a, b) {
         if (currentSort === "cost") return b.cost - a.cost || b.tokens - a.tokens;
         if (currentSort === "calls") return b.calls - a.calls || b.tokens - a.tokens;

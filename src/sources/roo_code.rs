@@ -38,21 +38,16 @@ pub fn parse_document(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEven
     let mut events = Vec::new();
 
     match doc {
-        // The transcript: a JSON array of ClineMessage records.
         Value::Array(items) => parse_messages(items, seen, &mut events),
         Value::Object(map) => {
             if let Some(items) = map.get("messages").and_then(Value::as_array) {
-                // An object that wraps the message array.
                 parse_messages(items, seen, &mut events);
             } else if map.get("workspace").is_some() {
-                // The manifest: one task folder with the workspace and mode.
                 parse_history_item(map, seen, &mut events);
             } else if is_message(map) {
-                // A single message record.
                 let items = [Value::Object(map.clone())];
                 parse_messages(&items, seen, &mut events);
             }
-            // Any other shape is unknown and yields no events.
         }
         _ => {}
     }
@@ -60,7 +55,6 @@ pub fn parse_document(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEven
     events
 }
 
-/// Parse the message records of a task.
 fn parse_messages(items: &[Value], seen: &mut HashSet<String>, events: &mut Vec<ParsedEvent>) {
     for (index, item) in items.iter().enumerate() {
         let Some(record) = item.as_object() else {
@@ -108,7 +102,6 @@ fn message_key(index: usize, record: &Map<String, Value>) -> String {
     }
 }
 
-/// Map one ClineMessage to normalized events.
 fn parse_message(
     record: &Map<String, Value>,
     index: usize,
@@ -143,8 +136,6 @@ fn parse_message(
             Some(
                 "api_req_started" | "api_req_finished" | "reasoning" | "text" | "user_edit_todos",
             ) => {
-                // Roo's reasoning is free-form prose, so no reasoning text is
-                // forwarded.
                 events.push(ParsedEvent::Thinking { reasoning: None });
             }
             Some("command_output") | Some("subtask_result") => {
@@ -165,7 +156,6 @@ fn parse_message(
                     language: None,
                 },
             }),
-            // Roo asks the user a question; the model waits for the answer.
             Some("followup") => events.push(ParsedEvent::Thinking { reasoning: None }),
             Some("completion_result") => events.push(ParsedEvent::Completed),
             _ => {}
@@ -210,7 +200,6 @@ fn push_tool(record: &Map<String, Value>, events: &mut Vec<ParsedEvent>) {
     });
 }
 
-/// The JSON payload of a tool request.
 fn tool_payload(record: &Map<String, Value>) -> Option<Value> {
     match record.get("text") {
         Some(Value::String(text)) => serde_json::from_str::<Value>(text).ok(),
@@ -219,7 +208,6 @@ fn tool_payload(record: &Map<String, Value>) -> Option<Value> {
     }
 }
 
-/// The file a tool touched, as a basename only.
 fn tool_file(payload: &Value) -> Option<String> {
     let path = payload.get("path").and_then(Value::as_str).or_else(|| {
         payload
@@ -236,10 +224,6 @@ fn tool_file(payload: &Value) -> Option<String> {
     extract_file_basename(&holder)
 }
 
-/// A fixed label for a Roo tool token.
-///
-/// The token itself is never published; an unknown token falls back to a
-/// generic label.
 fn tool_label(token: &str) -> &'static str {
     match token {
         "appliedDiff" | "editedExistingFile" | "newFileCreated" => "Editing files",
@@ -254,10 +238,6 @@ fn tool_label(token: &str) -> &'static str {
     }
 }
 
-/// Map a shell command request to a safe activity.
-///
-/// The command text is only used to pick a fixed label; it never leaves the
-/// adapter.
 fn push_command(record: &Map<String, Value>, events: &mut Vec<ParsedEvent>) {
     let Some(command) = record.get("text").and_then(Value::as_str) else {
         return;
@@ -317,7 +297,6 @@ fn mode_label(mode: &str) -> Option<String> {
     sanitize_agent(label)
 }
 
-/// Keep only safe model or agent identifiers.
 fn sanitize_agent(value: &str) -> Option<String> {
     if value.is_empty() || value.len() > 128 {
         return None;
@@ -525,7 +504,6 @@ mod tests {
             );
         }
 
-        // The manifest holds the user prompt and the provider profile name.
         let manifest = serde_json::json!({
             "id": "0198f3a2-7c1e-7b44-9f10-2a6c1d5e8b31",
             "number": 1,
@@ -607,7 +585,6 @@ mod tests {
             ]
         );
 
-        // A custom mode is user-authored and is therefore not publishable.
         let custom = serde_json::json!({ "workspace": r"C:\work\Repo", "mode": "my-mode" });
         let mut seen = HashSet::new();
         assert_eq!(
@@ -618,7 +595,6 @@ mod tests {
             }]
         );
 
-        // The timer uses the timestamp of the record that opened the turn.
         let messages = serde_json::json!([{
             "ts": 1_700_000_123_456i64,
             "type": "say",
@@ -634,7 +610,6 @@ mod tests {
             }
         );
 
-        // A mode switch reports the new mode.
         let switch = serde_json::json!([{
             "ts": 1_700_000_123_456i64,
             "type": "ask",
@@ -664,7 +639,6 @@ mod tests {
         assert!(!first.is_empty());
         assert!(parse_document(&document, &mut seen).is_empty());
 
-        // Roo rewrites a streamed record in place when the stream finishes.
         let streamed = serde_json::json!([{
             "ts": 1_700_000_000_000i64,
             "type": "say",
@@ -681,8 +655,6 @@ mod tests {
         }]);
         let mut seen = HashSet::new();
         assert_eq!(parse_document(&streamed, &mut seen).len(), 2);
-        // The final form of the stream is reported again, but the task start
-        // is not repeated.
         assert_eq!(parse_document(&finished, &mut seen).len(), 1);
         assert!(parse_document(&finished, &mut seen).is_empty());
     }

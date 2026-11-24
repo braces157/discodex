@@ -86,7 +86,6 @@ pub enum Provider {
     Perplexity,
     MicrosoftCopilot,
     Poe,
-    // Harnesses with a dedicated local activity store.
     GeminiCli,
     QwenCode,
     CopilotCli,
@@ -353,7 +352,6 @@ impl Provider {
             return None;
         }
 
-        // Terminal / CLI coding agents
         if title_starts_or_is(&title, "deepseek harness")
             || title_ends_or_is(&title, "deepseek harness")
         {
@@ -389,7 +387,6 @@ impl Provider {
             return Some(Self::Crush);
         }
 
-        // Web AI assistants (ChatGPT, Claude, Gemini, Perplexity, Poe)
         if title.contains("chatgpt.com")
             || title.contains("chat.openai.com")
             || title_starts_or_is(&title, "chatgpt")
@@ -417,7 +414,6 @@ impl Provider {
             return Some(Self::Poe);
         }
 
-        // Copilot
         if title.contains("copilot.microsoft.com") || title.contains("microsoft copilot") {
             return Some(Self::MicrosoftCopilot);
         }
@@ -428,7 +424,6 @@ impl Provider {
             return Some(Self::CopilotCli);
         }
 
-        // Dedicated AI Editors & IDEs (match as whole app name or title suffix/prefix)
         if title_ends_or_is(&title, "cursor") {
             return Some(Self::Cursor);
         }
@@ -639,7 +634,6 @@ pub fn session_sources() -> Vec<SessionSource> {
         },
     ];
 
-    // Goose keeps one shared database for every session.
     if let Some(appdata) = dirs::data_dir() {
         sources.push(SessionSource {
             provider: Provider::Goose,
@@ -648,7 +642,6 @@ pub fn session_sources() -> Vec<SessionSource> {
         });
     }
 
-    // Crush keeps one database per project, listed in a project registry.
     if let Some(local) = dirs::data_local_dir() {
         sources.push(SessionSource {
             provider: Provider::Crush,
@@ -657,7 +650,6 @@ pub fn session_sources() -> Vec<SessionSource> {
         });
     }
 
-    // Zed stores agent threads in a SQLite database.
     if let Some(local) = dirs::data_local_dir() {
         sources.push(SessionSource {
             provider: Provider::Zed,
@@ -666,7 +658,6 @@ pub fn session_sources() -> Vec<SessionSource> {
         });
     }
 
-    // Editor extensions keep per-task history in their global storage folder.
     if let Some(appdata) = dirs::data_dir() {
         for app in vscode_app_dirs() {
             let global_storage = appdata.join(&app).join("User").join("globalStorage");
@@ -692,7 +683,6 @@ pub fn session_sources() -> Vec<SessionSource> {
         store: SessionStore::JsonFiles,
     });
 
-    // Amp keeps one log per thread.
     if let Some(local) = dirs::data_local_dir() {
         sources.push(SessionSource {
             provider: Provider::Amp,
@@ -714,7 +704,6 @@ pub fn session_sources() -> Vec<SessionSource> {
     sources
 }
 
-/// Folders that can hold a repository Aider is working in.
 fn aider_roots(home: &Path) -> Vec<PathBuf> {
     let mut roots = vec![home.to_path_buf()];
     for name in [
@@ -777,7 +766,6 @@ pub fn is_session_log(provider: Provider, path: &Path) -> bool {
         }
         Provider::Windsurf => lower_filename.ends_with(".jsonl"),
         Provider::JetBrains => lower_filename == "events.jsonl",
-        // Aider writes a Markdown transcript into the working tree.
         Provider::Aider => lower_filename == ".aider.chat.history.md",
         // Amp writes one JSON lines log per thread. The thread id is the stem
         // of the file, the other logs of the CLI live next to that folder.
@@ -847,14 +835,12 @@ pub fn session_key(provider: Provider, path: &Path) -> PathBuf {
     }
 }
 
-/// True when the file name ends in `.jsonl`.
 fn lower_jsonl_name(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.to_ascii_lowercase().ends_with(".jsonl"))
 }
 
-/// True when any ancestor directory of the path has the given name.
 fn has_ancestor_dir(path: &Path, name: &str) -> bool {
     let mut current = path.parent();
     let mut depth = 0;
@@ -925,7 +911,6 @@ mod tests {
 
     #[test]
     fn avoids_false_positive_window_titles() {
-        // Generic words containing 'cline', 'zed', 'continue', 'cursor', etc.
         assert_eq!(
             Provider::from_window("chrome.exe", "GitLab CI Pipeline - Google Chrome"),
             None
@@ -1120,7 +1105,6 @@ mod tests {
         let mut set = HashSet::new();
         for p in Provider::ALL {
             assert!(set.insert(p), "Duplicate provider in ALL: {p:?}");
-            // Exhaustive match ensures all enum variants are recognized
             match p {
                 Provider::Codex => {}
                 Provider::ClaudeCode => {}

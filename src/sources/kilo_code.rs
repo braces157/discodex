@@ -39,19 +39,14 @@ use crate::events::{
     project_name, timestamp_ms,
 };
 
-/// Number of rows that are read per poll.
 const ROW_LIMIT: i64 = 200;
 
-/// Number of session rows that are read per poll.
 const SESSION_LIMIT: i64 = 200;
 
-/// Longest published basename.
 const MAX_BASENAME: usize = 128;
 
-/// Longest published model or agent id.
 const MAX_AGENT: usize = 128;
 
-/// Longest published tool call id.
 const MAX_CALL_ID: usize = 64;
 
 /// The queries that read the durable event log.
@@ -64,65 +59,47 @@ const EVENT_QUERIES: &[&str] = &[
     "SELECT * FROM event ORDER BY id DESC LIMIT ?",
 ];
 
-/// The queries that read the canonical message stream.
 const MESSAGE_QUERIES: &[&str] = &[
     "SELECT * FROM session_message ORDER BY rowid DESC LIMIT ?",
     "SELECT * FROM session_message ORDER BY seq DESC LIMIT ?",
     "SELECT * FROM session_message ORDER BY id DESC LIMIT ?",
 ];
 
-/// The queries that read the tool projection.
 const PART_QUERIES: &[&str] = &[
     "SELECT * FROM part ORDER BY rowid DESC LIMIT ?",
     "SELECT * FROM part ORDER BY seq DESC LIMIT ?",
     "SELECT * FROM tool ORDER BY rowid DESC LIMIT ?",
 ];
 
-/// The queries that read the session table.
 const SESSION_QUERIES: &[&str] = &[
     "SELECT * FROM session ORDER BY rowid DESC LIMIT ?",
     "SELECT * FROM session ORDER BY time_updated DESC LIMIT ?",
     "SELECT * FROM session LIMIT ?",
 ];
 
-/// Where a record came from.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Source {
-    /// The durable event log.
     Event,
-    /// The canonical message stream.
     Message,
-    /// The tool projection.
     Part,
 }
 
-/// One row of the database.
 struct Record {
     source: Source,
-    /// The conversation the row belongs to.
     session_id: String,
-    /// The stable key of the row.
     key: String,
-    /// The type of the event or of the message.
     kind: String,
-    /// The JSON payload of the row.
     data: Value,
-    /// The per conversation order of the row.
     seq: i64,
-    /// The time the row was written, when the row carries one.
     timestamp_ms: Option<i64>,
 }
 
-/// The facts of a conversation that belong to the session and not to a row.
 #[derive(Default)]
 struct SessionInfo {
-    /// The absolute workspace directory.
     directory: Option<String>,
-    /// The model of the conversation.
     model: Option<String>,
 }
 
-/// The kinds of durable events that the adapter understands.
 enum EventKind {
     Prompted,
     ToolCalled,
@@ -140,7 +117,6 @@ enum EventKind {
 pub fn databases(root: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = Vec::new();
 
-    // The root may already point at the database.
     if root.is_file() {
         return vec![root.to_path_buf()];
     }
@@ -154,7 +130,6 @@ pub fn databases(root: &Path) -> Vec<PathBuf> {
         found.extend(databases_in(&alternative));
     }
 
-    // An explicit database of the environment wins.
     if let Some(path) = std::env::var_os("KILO_DB") {
         let path = PathBuf::from(path);
         if path.is_file() {
@@ -167,11 +142,9 @@ pub fn databases(root: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// The databases of one directory.
 fn databases_in(directory: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = Vec::new();
 
-    // The database of the current channel.
     let primary = directory.join("kilo.db");
     if primary.is_file() {
         found.push(primary);
@@ -197,7 +170,6 @@ fn databases_in(directory: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// The other places where the data directory of the harness may live.
 fn alternative_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(appdata) = dirs::data_dir() {
@@ -232,7 +204,6 @@ pub fn poll(db: &Path, seen: &mut HashSet<String>) -> Vec<StoreEvent> {
         return Vec::new();
     };
 
-    // Group the rows by conversation and restore the order of the session.
     let mut grouped: BTreeMap<String, Vec<Record>> = BTreeMap::new();
     for record in records {
         grouped
@@ -266,7 +237,6 @@ pub fn poll(db: &Path, seen: &mut HashSet<String>) -> Vec<StoreEvent> {
     events
 }
 
-/// The facts of a conversation, reported once.
 fn session_events(
     session_id: &str,
     info: &SessionInfo,
@@ -274,8 +244,6 @@ fn session_events(
 ) -> Vec<StoreEvent> {
     let mut events = Vec::new();
 
-    // The workspace of the session. Only the folder name is published, the
-    // full path stays inside the presence state.
     if let Some(cwd) = info.directory.as_deref()
         && let Some(project) = project_name(cwd)
     {
@@ -292,7 +260,6 @@ fn session_events(
         }
     }
 
-    // The model of the session.
     if let Some(model) = info.model.as_deref() {
         let key = format!("model:{session_id}:{model}");
         if !seen.contains(&key) {
@@ -347,7 +314,6 @@ fn session_model(row: &rusqlite::Row<'_>) -> Option<String> {
     }
     column_text_opt(row, "model").and_then(|text| {
         let trimmed = text.trim();
-        // A broken JSON blob is not a model id.
         if trimmed.starts_with('{') || trimmed.starts_with('[') {
             return None;
         }
@@ -355,7 +321,6 @@ fn session_model(row: &rusqlite::Row<'_>) -> Option<String> {
     })
 }
 
-/// Read the durable event log.
 fn read_event_records(connection: &Connection) -> Option<Vec<Record>> {
     let mut statement = prepare_first(connection, EVENT_QUERIES)?;
     let mut rows = statement.query(rusqlite::params![ROW_LIMIT]).ok()?;
@@ -389,7 +354,6 @@ fn read_event_records(connection: &Connection) -> Option<Vec<Record>> {
     Some(records)
 }
 
-/// Read the canonical message stream.
 fn read_message_records(connection: &Connection) -> Option<Vec<Record>> {
     let mut statement = prepare_first(connection, MESSAGE_QUERIES)?;
     let mut rows = statement.query(rusqlite::params![ROW_LIMIT]).ok()?;
@@ -424,7 +388,6 @@ fn read_message_records(connection: &Connection) -> Option<Vec<Record>> {
     Some(records)
 }
 
-/// Read the tool projection.
 fn read_part_records(connection: &Connection) -> Option<Vec<Record>> {
     let mut statement = prepare_first(connection, PART_QUERIES)?;
     let mut rows = statement.query(rusqlite::params![ROW_LIMIT]).ok()?;
@@ -452,7 +415,6 @@ fn read_part_records(connection: &Connection) -> Option<Vec<Record>> {
     Some(records)
 }
 
-/// Map one row to normalized events.
 fn record_events(
     record: &Record,
     session_id: &str,
@@ -465,9 +427,7 @@ fn record_events(
     }
 }
 
-/// Map one durable event to normalized events.
 fn event_events(record: &Record) -> Vec<ParsedEvent> {
-    // An unknown event type is not a guess: it yields no activity.
     let Some(kind) = classify_event(&record.kind) else {
         return Vec::new();
     };
@@ -475,7 +435,6 @@ fn event_events(record: &Record) -> Vec<ParsedEvent> {
 
     match kind {
         EventKind::Prompted => {
-            // The prompt itself is never read, only the moment of the turn.
             let started_at_ms = data
                 .get("timestamp")
                 .and_then(timestamp_ms)
@@ -485,8 +444,6 @@ fn event_events(record: &Record) -> Vec<ParsedEvent> {
         }
         EventKind::ToolCalled => {
             let name = tool_name(data);
-            // A tool call without a name is a renamed field, not a tool.
-            // It degrades to "no activity" instead of a wrong label.
             if name.trim().is_empty() {
                 return Vec::new();
             }
@@ -501,8 +458,6 @@ fn event_events(record: &Record) -> Vec<ParsedEvent> {
             None => vec![ParsedEvent::ToolFinished],
         },
         EventKind::ShellStarted => {
-            // The command is only used to pick a fixed label; it never
-            // leaves the adapter.
             let input = tool_input(data);
             let command = data
                 .get("command")
@@ -523,7 +478,6 @@ fn event_events(record: &Record) -> Vec<ParsedEvent> {
             Some(call_id) => vec![ParsedEvent::TrackedToolFinished { call_id }],
             None => vec![ParsedEvent::ToolFinished],
         },
-        // The reasoning text is never read.
         EventKind::ReasoningStarted => vec![ParsedEvent::Thinking { reasoning: None }],
         EventKind::TextEnded => vec![ParsedEvent::TerminalCandidate],
         EventKind::StepEnded => vec![ParsedEvent::Completed],
@@ -544,7 +498,6 @@ fn event_events(record: &Record) -> Vec<ParsedEvent> {
     }
 }
 
-/// Map one message of the message stream to normalized events.
 fn message_events(
     record: &Record,
     session_id: &str,
@@ -559,7 +512,6 @@ fn message_events(
 
     match kind {
         "user" => {
-            // The text of the prompt is never read.
             let started_at_ms = data
                 .get("time")
                 .and_then(|time| time.get("created"))
@@ -577,9 +529,7 @@ fn message_events(
             for item in items {
                 match item.get("type").and_then(Value::as_str).unwrap_or("") {
                     "tool" => events.extend(tool_item_events(item, session_id, seen)),
-                    // The reasoning text is never read.
                     "reasoning" => events.push(ParsedEvent::Thinking { reasoning: None }),
-                    // The answer itself is never read.
                     "text" => events.push(ParsedEvent::TerminalCandidate),
                     _ => {}
                 }
@@ -637,7 +587,6 @@ fn tool_item_events(
 
     match status {
         "pending" | "running" => {
-            // A tool without a name is a renamed field, not a tool.
             if name.trim().is_empty() {
                 return Vec::new();
             }
@@ -667,10 +616,8 @@ fn tool_item_events(
     }
 }
 
-/// Map one row of the tool projection to normalized events.
 fn part_events(record: &Record, session_id: &str, seen: &mut HashSet<String>) -> Vec<ParsedEvent> {
     let data = &record.data;
-    // Only a tool part is an activity.
     let kind = data.get("type").and_then(Value::as_str).unwrap_or("tool");
     if kind != "tool" {
         return Vec::new();
@@ -711,7 +658,6 @@ fn classify_event(name: &str) -> Option<EventKind> {
     }
 }
 
-/// The name of the tool of a record.
 fn tool_name(data: &Value) -> &str {
     data.get("tool")
         .and_then(Value::as_str)
@@ -719,12 +665,10 @@ fn tool_name(data: &Value) -> &str {
         .unwrap_or("")
 }
 
-/// The input of a tool of a record.
 fn tool_input(data: &Value) -> Option<&Value> {
     data.get("input").filter(|value| value.is_object())
 }
 
-/// The call id of a record.
 fn call_id(data: &Value) -> Option<String> {
     data.get("callID")
         .and_then(Value::as_str)
@@ -733,7 +677,6 @@ fn call_id(data: &Value) -> Option<String> {
         .and_then(sanitize_call_id)
 }
 
-/// The state of a tool part.
 fn tool_status(data: &Value) -> String {
     data.get("state")
         .and_then(|state| state.get("status"))
@@ -742,13 +685,11 @@ fn tool_status(data: &Value) -> String {
         .to_string()
 }
 
-/// The model of a model switch.
 fn switched_model(data: &Value) -> Option<String> {
     let value = data.get("model")?;
     model_id(value)
 }
 
-/// The model id of a JSON value.
 fn model_id(value: &Value) -> Option<String> {
     let raw = match value {
         Value::Object(map) => map.get("id").and_then(Value::as_str)?,
@@ -758,13 +699,8 @@ fn model_id(value: &Value) -> Option<String> {
     sanitize_agent(raw)
 }
 
-/// Build the activity of a tool call.
-///
-/// The name is only used for a fixed label and the input only for a file
-/// path. The command, the arguments and the result never leave here.
 fn tool_activity(name: &str, input: Option<&Value>) -> ToolActivity {
     let base = name.trim().to_ascii_lowercase();
-    // Only a shell tool reads its command, and only to pick a label.
     let command = if is_shell_tool(&base) {
         input
             .and_then(|value| value.get("command"))
@@ -776,7 +712,6 @@ fn tool_activity(name: &str, input: Option<&Value>) -> ToolActivity {
     activity_from_parts(&base, command, input)
 }
 
-/// Build the activity of a tool call from its parts.
 fn activity_from_parts(name: &str, command: &str, input: Option<&Value>) -> ToolActivity {
     let label = classify_tool(name, command);
     let file = file_basename(name, input);
@@ -791,7 +726,6 @@ fn activity_from_parts(name: &str, command: &str, input: Option<&Value>) -> Tool
     }
 }
 
-/// True for the tools that run a shell command.
 fn is_shell_tool(name: &str) -> bool {
     matches!(
         name,
@@ -836,7 +770,6 @@ fn is_file_tool(name: &str) -> bool {
     )
 }
 
-/// The file a tool touched, as a basename only.
 fn file_basename(name: &str, input: Option<&Value>) -> Option<String> {
     if !is_file_tool(name) {
         return None;
@@ -883,7 +816,6 @@ fn message_signature(data: &Value) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-/// The conversation a row belongs to.
 fn row_session_id(row: &rusqlite::Row<'_>, data: &Value) -> Option<String> {
     column_text_opt(row, "aggregate_id")
         .or_else(|| column_text_opt(row, "session_id"))
@@ -896,20 +828,17 @@ fn row_session_id(row: &rusqlite::Row<'_>, data: &Value) -> Option<String> {
         .and_then(|value| sanitize_session_id(&value))
 }
 
-/// The order of a row inside its conversation.
 fn row_seq(row: &rusqlite::Row<'_>) -> i64 {
     column_text_opt(row, "seq")
         .and_then(|text| text.trim().parse::<i64>().ok())
         .unwrap_or(0)
 }
 
-/// Read a JSON column by name.
 fn json_column(row: &rusqlite::Row<'_>, name: &str) -> Option<Value> {
     let index = row.as_ref().column_index(name).ok()?;
     column_json(row, index)
 }
 
-/// Prepare the first statement that the database accepts.
 fn prepare_first<'a>(
     connection: &'a Connection,
     queries: &[&str],
@@ -922,7 +851,6 @@ fn prepare_first<'a>(
     None
 }
 
-/// Keep only a conversation id that looks like one.
 fn sanitize_session_id(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -937,7 +865,6 @@ fn sanitize_session_id(value: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Keep only a model or agent id that looks like one.
 fn sanitize_agent(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() || trimmed.len() > MAX_AGENT {
@@ -951,7 +878,6 @@ fn sanitize_agent(value: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Keep only a tool call id that looks like an opaque id.
 fn sanitize_call_id(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() || trimmed.len() > MAX_CALL_ID {
@@ -986,7 +912,6 @@ mod tests {
         path
     }
 
-    /// The schema of the upstream database.
     fn create_db(path: &Path) -> Connection {
         let connection = Connection::open(path).expect("create database");
         connection
@@ -1184,7 +1109,6 @@ mod tests {
         let events = poll(&path, &mut seen);
         let parsed: Vec<ParsedEvent> = events.iter().map(|event| event.event.clone()).collect();
 
-        // Every event belongs to the conversation of the row.
         assert!(events.iter().all(|event| event.session == "ses_01J8Q"));
 
         assert_eq!(
@@ -1217,7 +1141,6 @@ mod tests {
             ]
         );
 
-        // The same rows are never reported twice.
         assert!(poll(&path, &mut seen).is_empty());
         let _ = std::fs::remove_file(&path);
     }
@@ -1318,10 +1241,7 @@ mod tests {
             );
         }
 
-        // The basename of the file is the only part of the path that is
-        // published.
         assert!(rendered.contains("secret.rs"));
-        // The shell command is only used to pick a label.
         assert!(rendered.contains("Running command"));
         let _ = std::fs::remove_file(&path);
     }
@@ -1355,7 +1275,6 @@ mod tests {
                 "session.next.tool.called",
                 serde_json::json!({ "tool": "edit", "input": { "path": "src/main.rs" } }),
             );
-            // A row whose payload is not a JSON object at all.
             connection
                 .execute(
                     "INSERT INTO event (id, aggregate_id, seq, type, data) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1368,7 +1287,6 @@ mod tests {
                     ],
                 )
                 .expect("insert event");
-            // A row without a conversation.
             connection
                 .execute(
                     "INSERT INTO event (id, aggregate_id, seq, type, data) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1385,7 +1303,6 @@ mod tests {
 
         let mut seen = HashSet::new();
         let events = poll(&path, &mut seen);
-        // Only the record with a known shape and a known file tool is read.
         assert_eq!(
             events
                 .iter()
@@ -1400,8 +1317,6 @@ mod tests {
             }]
         );
 
-        // A database without the tables of the harness yields no events and
-        // does not panic.
         let empty = temp_db("empty");
         {
             let connection = Connection::open(&empty).expect("create database");
@@ -1412,7 +1327,6 @@ mod tests {
         let mut seen = HashSet::new();
         assert!(poll(&empty, &mut seen).is_empty());
 
-        // A database that does not exist at all.
         let mut seen = HashSet::new();
         assert!(poll(Path::new("does-not-exist.db"), &mut seen).is_empty());
 
@@ -1472,7 +1386,6 @@ mod tests {
             ]
         );
 
-        // A model id that is not a model id is dropped instead of published.
         let other = temp_db("model-bad");
         {
             let connection = create_db(&other);
@@ -1570,7 +1483,6 @@ mod tests {
             ]
         );
 
-        // The prompt of the message is never published.
         let rendered = format!("{events:?}");
         assert!(!rendered.contains("PRIVATE_USER_PROMPT"));
 
@@ -1592,7 +1504,6 @@ mod tests {
         let found = databases(&root);
         assert!(found.contains(&primary));
         assert!(found.contains(&channel));
-        // The WAL sidecar is not a database.
         assert!(!found.contains(&sidecar));
 
         let _ = std::fs::remove_dir_all(&root);

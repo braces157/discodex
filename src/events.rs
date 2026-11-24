@@ -828,7 +828,6 @@ pub fn extract_reasoning_summary(thinking: &str) -> Option<String> {
 
         let stripped = strip_list_prefix(line_trimmed);
 
-        // Markdown headings: # Title, ## Title, ### Title
         if let Some(heading) = stripped.strip_prefix('#') {
             let heading = heading.trim_start_matches('#').trim();
             if !heading.is_empty() && !heading.starts_with('[') {
@@ -840,7 +839,6 @@ pub fn extract_reasoning_summary(thinking: &str) -> Option<String> {
             }
         }
 
-        // Bold step heading at the start of a line: **Title** or **Title:**
         if let Some(rest) = stripped.strip_prefix("**")
             && let Some(end) = rest.find("**")
         {
@@ -1411,12 +1409,10 @@ mod tests {
             parse_line(start),
             Some(ParsedEvent::TaskStarted { .. })
         ));
-        // Raw reasoning tokens without headers must never leak
         assert_eq!(
             parse_line(reasoning_raw),
             Some(ParsedEvent::Thinking { reasoning: None })
         );
-        // Explicit summaries are safely used
         assert_eq!(
             parse_line(reasoning_summary),
             Some(ParsedEvent::Thinking {
@@ -1627,14 +1623,12 @@ mod tests {
             extract_reasoning_summary("## Optimizing Cache Layer:\nWorking on cache..."),
             Some("Optimizing Cache Layer".to_string())
         );
-        // Returns the latest heading in multi-step thought
         assert_eq!(
             extract_reasoning_summary(
                 "**Step 1: Reading Files**\nRead done.\n\n**Step 2: Executing Fix**\nRunning..."
             ),
             Some("Step 2: Executing Fix".to_string())
         );
-        // Supports numbered and bulleted step headings
         assert_eq!(
             extract_reasoning_summary("1. **Evaluating Request and Identity**\nTesting..."),
             Some("Evaluating Request and Identity".to_string())
@@ -1647,7 +1641,6 @@ mod tests {
             extract_reasoning_summary("Step 1: **Fixing Build**\nCompiling..."),
             Some("Fixing Build".to_string())
         );
-        // Ignores generic callouts like Note and Warning
         assert_eq!(
             extract_reasoning_summary("**Note:** This is an implementation detail."),
             None
@@ -1656,7 +1649,6 @@ mod tests {
             extract_reasoning_summary("**Warning:** High memory usage detected."),
             None
         );
-        // Rejects inline bold and raw chain of thought to prevent leaking private thoughts
         assert_eq!(
             extract_reasoning_summary("The function is **deprecated** in this version."),
             None
@@ -1665,7 +1657,6 @@ mod tests {
             extract_reasoning_summary("Looking up secret auth token in environment variable"),
             None
         );
-        // Rejects headers inside code blocks
         assert_eq!(
             extract_reasoning_summary("```rust\n# [derive(Debug)]\nstruct Test;\n```"),
             None

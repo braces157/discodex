@@ -486,12 +486,10 @@ mod tests {
         assert_eq!(hm.active_days, 2);
         assert_eq!(hm.streak_days, 2);
         assert_eq!(hm.max_tokens, 2_500);
-        // 2026-11-21 is Saturday -> 83 days earlier is Sunday -> leading_empty == 0.
         assert_eq!(hm.leading_empty, 0);
         assert_eq!(hm.cells[0].day_name, "Sun");
         assert_eq!(hm.cells[83].day_name, "Sat");
 
-        // Mid-week refresh (Wednesday 2026-11-18): 83 days earlier is Thursday -> leading_empty == 4.
         let wed_at = Local
             .with_ymd_and_hms(2026, 11, 18, 10, 0, 0)
             .single()
@@ -500,11 +498,10 @@ mod tests {
         let hm_wed = build_heatmap_84(&all_daily, wed_at);
         assert_eq!(hm_wed.leading_empty, 4);
         assert_eq!(hm_wed.cells[0].day_name, "Thu");
-        assert_eq!((hm_wed.leading_empty) % 7, 4); // Thu row
+        assert_eq!((hm_wed.leading_empty) % 7, 4);
         assert_eq!(hm_wed.cells[83].day_name, "Wed");
-        assert_eq!((hm_wed.leading_empty + 83) % 7, 3); // Wed row
+        assert_eq!((hm_wed.leading_empty + 83) % 7, 3);
 
-        // Daily sparkline fills inactive calendar days with Some(0.0) and preserves None unknowns.
         let sparse_daily = vec![
             UsageDay {
                 date: "2026-11-15".into(),

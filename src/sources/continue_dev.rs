@@ -26,14 +26,10 @@ use crate::events::{
     project_name, timestamp_ms,
 };
 
-/// Tool states that mean the tool is running or waiting to be approved.
 const ACTIVE_TOOL_STATES: [&str; 2] = ["calling", "generated"];
-/// Tool states that mean the tool will not run again.
 const TERMINAL_TOOL_STATES: [&str; 3] = ["done", "errored", "canceled"];
 
-/// Key of the session wide workspace record.
 const KEY_WORKSPACE: &str = "c:workspace";
-/// Prefix of the session wide model records.
 const KEY_MODEL: &str = "c:model:";
 
 /// Parse the harness' session document and report only records that were not
@@ -93,7 +89,6 @@ pub fn parse_document(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEven
     events
 }
 
-/// Collect the events of a single chat history item.
 fn collect_item(
     item: &Value,
     index: usize,
@@ -111,7 +106,6 @@ fn collect_item(
 
     match role {
         "user" => {
-            // A user message is the start of a new turn.
             let key = format!("c:item:{index}:turn");
             if !seen.contains(&key) {
                 seen.insert(key);
@@ -121,8 +115,6 @@ fn collect_item(
             }
         }
         "assistant" => {
-            // The model is thinking while the reasoning block is active. The
-            // reasoning text itself is never published.
             if item_object
                 .get("reasoning")
                 .and_then(|reasoning| reasoning.get("active"))
@@ -153,20 +145,14 @@ fn collect_item(
                 events.push(ParsedEvent::TerminalCandidate);
             }
         }
-        // Tool results, system messages and unknown roles carry no activity.
         _ => {}
     }
 }
 
-/// A tool call of a history item.
 struct ToolCall {
-    /// Identifier of the call, used to pair start and finish.
     id: Option<String>,
-    /// Name of the tool, used to derive a normalized activity label.
     name: String,
-    /// Parsed arguments, used to derive a file basename and a language.
     arguments: Option<Value>,
-    /// State of the tool call, when the document tracks one.
     state: Option<String>,
 }
 
@@ -192,7 +178,6 @@ fn collect_tools(item: &Value, message: Option<&Value>) -> Vec<ToolCall> {
         .unwrap_or_default()
 }
 
-/// Read one entry of the `toolCallStates` array.
 fn tool_from_state(state: &Value) -> Option<ToolCall> {
     let call = state.get("toolCall");
     let function = call.and_then(|call| call.get("function"));
@@ -221,7 +206,6 @@ fn tool_from_state(state: &Value) -> Option<ToolCall> {
     })
 }
 
-/// Read one entry of the `toolCalls` array of a message.
 fn tool_from_call(call: &Value) -> Option<ToolCall> {
     let function = call.get("function");
     let name = function
@@ -255,7 +239,6 @@ fn call_arguments(call: Option<&Value>, function: Option<&Value>) -> Option<Valu
     parsed_arguments(raw)
 }
 
-/// Parse a JSON encoded argument object.
 fn parsed_arguments(raw: &Value) -> Option<Value> {
     match raw {
         Value::String(text) => serde_json::from_str::<Value>(text).ok(),
@@ -312,11 +295,6 @@ fn report_tool(
     }
 }
 
-/// Build the activity of a tool call.
-///
-/// The label comes from the shared classifier, the file is the basename of the
-/// path in the arguments and the language is inferred from that basename. The
-/// command of a terminal tool is only used to pick a label, never published.
 fn tool_activity(name: &str, arguments: Option<&Value>) -> ToolActivity {
     let lower_name = name.to_ascii_lowercase();
     let command = arguments
@@ -353,7 +331,6 @@ fn directory_basename(arguments: &Value) -> Option<String> {
     None
 }
 
-/// The last component of a path.
 fn basename(path: &str) -> Option<String> {
     path.replace('\\', "/")
         .rsplit('/')
@@ -361,7 +338,6 @@ fn basename(path: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Report the model of the session.
 fn report_model(
     title: Option<&str>,
     seen: &mut HashSet<String>,
@@ -379,7 +355,6 @@ fn report_model(
     true
 }
 
-/// The model of a history item, when the document logs one.
 fn prompt_log_model(item: &Value) -> Option<&str> {
     let logs = item.get("promptLogs")?.as_array()?;
     logs.iter().find_map(|log| {
@@ -407,7 +382,6 @@ fn sanitize_model(title: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Sanitize the identifier of a tool call.
 fn sanitize_call_id(id: &str) -> Option<String> {
     let trimmed = id.trim();
     if trimmed.is_empty() || trimmed.len() > 64 {
@@ -457,7 +431,6 @@ fn started_at_ms(item: &Value, message: Option<&Value>) -> i64 {
     current_time_ms()
 }
 
-/// The current time in milliseconds.
 fn current_time_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -473,7 +446,6 @@ mod tests {
     use crate::state::{ActivityState, Phase};
     use std::path::Path;
 
-    /// A session document with one user turn, one tool call and one answer.
     fn session_document() -> Value {
         serde_json::json!({
             "sessionId": "6f1c1d2e-0b3a-4c5d-8e9f-0011223344aa",
@@ -559,7 +531,6 @@ mod tests {
         );
         assert_eq!(events[4], ParsedEvent::TerminalCandidate);
 
-        // The tool call moves the presence into the running tools phase.
         let mut state = ActivityState::default();
         for event in events.iter().take(4) {
             state.apply(
@@ -646,7 +617,6 @@ mod tests {
             );
         }
 
-        // Only the basename of the tool path is published.
         let files: Vec<String> = events
             .iter()
             .filter_map(|event| match event {
@@ -711,7 +681,6 @@ mod tests {
             }
         );
 
-        // A free text title is dropped instead of being published.
         let document = serde_json::json!({
             "workspaceDirectory": r"C:\Users\PC\Documents\Discodex",
             "history": [{"message": {"role": "user", "content": "PRIVATE"}}],
@@ -735,11 +704,9 @@ mod tests {
         let first = parse_document(&document, &mut seen);
         assert_eq!(first.len(), 5);
 
-        // The same document is rewritten in place and must not replay.
         let second = parse_document(&document, &mut seen);
         assert!(second.is_empty());
 
-        // The tool call finished: exactly one finish and no second start.
         let mut finished = document.clone();
         finished["history"][1]["toolCallStates"][0]["status"] = serde_json::json!("done");
         let third = parse_document(&finished, &mut seen);
@@ -750,7 +717,6 @@ mod tests {
             }]
         );
 
-        // Rewriting it again does not repeat the finish.
         let fourth = parse_document(&finished, &mut seen);
         assert!(fourth.is_empty());
     }

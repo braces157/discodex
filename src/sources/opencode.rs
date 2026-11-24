@@ -43,13 +43,10 @@ use crate::events::{
     language_from_file, project_name, timestamp_ms,
 };
 
-/// Number of rows that are read per poll.
 const ROW_LIMIT: i64 = 200;
 
-/// The name of the machine wide database.
 const DATABASE_FILE: &str = "opencode.db";
 
-/// The columns that may hold the creation time of a row.
 const TIME_COLUMNS: &[&str] = &[
     "created",
     "created_at",
@@ -59,32 +56,21 @@ const TIME_COLUMNS: &[&str] = &[
     "time",
 ];
 
-/// The state of one `session_v2` row.
 #[derive(Clone, Default)]
 struct SessionInfo {
-    /// The absolute working directory of the conversation.
     directory: Option<String>,
-    /// The model reference of the conversation.
     model: Option<Value>,
 }
 
-/// One row of the durable `event` log.
 struct EventRecord {
-    /// The primary key of the row, used as the dedup key.
     id: Option<String>,
-    /// The session the row belongs to.
     session: String,
-    /// The upstream event type.
     kind: String,
-    /// The JSON payload of the row.
     data: Option<Value>,
-    /// The creation time of the row in epoch milliseconds.
     created_ms: Option<i64>,
-    /// The sequence number of the row, used as a fallback dedup key.
     seq: Option<String>,
 }
 
-/// One row of the `session_message` projection.
 struct MessageRecord {
     id: String,
     session: String,
@@ -98,7 +84,6 @@ struct MessageRecord {
 pub fn databases(root: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = Vec::new();
 
-    // The known file name is reported even when the directory cannot be read.
     let known = root.join(DATABASE_FILE);
     if known.is_file() {
         found.push(known);
@@ -202,7 +187,6 @@ fn poll_event_log(
     true
 }
 
-/// Read the message projection, used when the event log is missing.
 fn poll_messages(
     connection: &Connection,
     cache: &mut HashMap<String, Option<SessionInfo>>,
@@ -243,7 +227,6 @@ fn poll_messages(
     }
 }
 
-/// Prepare a `SELECT *` statement that returns the newest rows first.
 fn ordered_statement<'a>(
     connection: &'a Connection,
     table: &str,
@@ -271,7 +254,6 @@ fn ordered_statement<'a>(
     None
 }
 
-/// The columns of a table, or `None` when the table does not exist.
 fn table_columns(connection: &Connection, table: &str) -> Option<HashSet<String>> {
     let sql = format!("PRAGMA table_info({table})");
     let Ok(mut statement) = connection.prepare(&sql) else {
@@ -293,7 +275,6 @@ fn table_columns(connection: &Connection, table: &str) -> Option<HashSet<String>
     }
 }
 
-/// Read one row of the event log.
 fn event_record(row: &rusqlite::Row<'_>) -> Option<EventRecord> {
     let kind = column_text_opt(row, "type")
         .or_else(|| column_text_opt(row, "event_type"))?
@@ -320,7 +301,6 @@ fn event_record(row: &rusqlite::Row<'_>) -> Option<EventRecord> {
     })
 }
 
-/// The session id inside an event payload.
 fn data_session(data: &Value) -> Option<String> {
     for key in [
         "sessionID",
@@ -338,7 +318,6 @@ fn data_session(data: &Value) -> Option<String> {
     None
 }
 
-/// The stable key of an event row.
 fn record_key(record: &EventRecord) -> String {
     if let Some(id) = record
         .id
@@ -357,7 +336,6 @@ fn record_key(record: &EventRecord) -> String {
     )
 }
 
-/// The creation time of a row in epoch milliseconds.
 fn row_time_ms(row: &rusqlite::Row<'_>) -> Option<i64> {
     for name in TIME_COLUMNS {
         let Some(text) = column_text_opt(row, name) else {
@@ -379,13 +357,11 @@ fn row_time_ms(row: &rusqlite::Row<'_>) -> Option<i64> {
     None
 }
 
-/// Read a JSON column by name, tolerating a missing column.
 fn json_column(row: &rusqlite::Row<'_>, name: &str) -> Option<Value> {
     let index = row.as_ref().column_index(name).ok()?;
     column_json(row, index)
 }
 
-/// The state of one `session_v2` row.
 fn query_session_info(connection: &Connection, session: &str) -> Option<SessionInfo> {
     query_session_info_by_id(connection, session)
         .or_else(|| query_session_info_by_scan(connection, session))
@@ -397,7 +373,6 @@ fn query_session_info(connection: &Connection, session: &str) -> Option<SessionI
 /// `session`. Both hold the workspace in `directory` and the model in `model`.
 const SESSION_TABLES: [&str; 2] = ["session_v2", "session"];
 
-/// Look the session up by its primary key.
 fn query_session_info_by_id(connection: &Connection, session: &str) -> Option<SessionInfo> {
     for table in SESSION_TABLES {
         let Ok(mut statement) = connection.prepare(&format!("SELECT * FROM {table} WHERE id = ?1"))
@@ -418,7 +393,6 @@ fn query_session_info_by_id(connection: &Connection, session: &str) -> Option<Se
     None
 }
 
-/// Look the session up by scanning the (small) session table.
 fn query_session_info_by_scan(connection: &Connection, session: &str) -> Option<SessionInfo> {
     for table in SESSION_TABLES {
         let Ok(mut statement) = connection.prepare(&format!("SELECT * FROM {table}")) else {
@@ -439,7 +413,6 @@ fn query_session_info_by_scan(connection: &Connection, session: &str) -> Option<
     None
 }
 
-/// The cached state of a session.
 fn session_info(
     connection: &Connection,
     cache: &mut HashMap<String, Option<SessionInfo>>,
@@ -453,7 +426,6 @@ fn session_info(
     info
 }
 
-/// Convert one event row into normalized events.
 fn record_events(
     connection: &Connection,
     cache: &mut HashMap<String, Option<SessionInfo>>,
@@ -464,7 +436,6 @@ fn record_events(
     let data = record.data.clone().unwrap_or(Value::Null);
     let info = session_info(connection, cache, &record.session);
 
-    // The workspace and the model belong to the conversation, not to a row.
     let workspace = session_workspace(&data, info.as_ref());
     let labels = model_labels(&data, info.as_ref());
     push_session_facts(&record.session, workspace, &labels, seen, &mut events);
@@ -533,7 +504,6 @@ fn record_events(
     events
 }
 
-/// Report the workspace and the model of a conversation once.
 fn push_session_facts(
     session: &str,
     workspace: Option<(String, String)>,
@@ -579,7 +549,6 @@ fn session_workspace(data: &Value, info: Option<&SessionInfo>) -> Option<(String
     detect_project_root(path)
 }
 
-/// The working directory inside an event payload.
 fn payload_directory(data: &Value) -> Option<String> {
     data.get("location")
         .and_then(|location| location.get("directory"))
@@ -589,11 +558,9 @@ fn payload_directory(data: &Value) -> Option<String> {
         .filter(|directory| !directory.is_empty())
 }
 
-/// The model labels that are known for a row.
 fn model_labels(data: &Value, info: Option<&SessionInfo>) -> Vec<String> {
     let mut labels: Vec<String> = Vec::new();
 
-    // The model of the session row.
     if let Some(label) = info
         .and_then(|info| info.model.as_ref())
         .and_then(model_label)
@@ -601,7 +568,6 @@ fn model_labels(data: &Value, info: Option<&SessionInfo>) -> Vec<String> {
         labels.push(label);
     }
 
-    // The model of the payload.
     for key in ["model", "modelID", "model_id", "modelRef"] {
         if let Some(label) = data.get(key).and_then(model_label)
             && !labels.contains(&label)
@@ -610,7 +576,6 @@ fn model_labels(data: &Value, info: Option<&SessionInfo>) -> Vec<String> {
         }
     }
 
-    // The name of the selected agent.
     if let Some(label) = data
         .get("agent")
         .and_then(Value::as_str)
@@ -657,7 +622,6 @@ fn model_label(model: &Value) -> Option<String> {
     }
 }
 
-/// Keep only a model id that looks like a model id.
 fn sanitize_model_id(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -672,7 +636,6 @@ fn sanitize_model_id(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Keep only a tool call id that looks like an opaque id.
 fn sanitize_call_id(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > 64 {
@@ -687,19 +650,16 @@ fn sanitize_call_id(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// The call id of a tool event.
 fn call_id(data: &Value) -> Option<String> {
     data.get("id")
         .and_then(Value::as_str)
         .and_then(sanitize_call_id)
 }
 
-/// Whether a payload carries nothing that could be reported.
 fn is_empty_payload(data: &Value) -> bool {
     data.as_object().is_none_or(|object| object.is_empty())
 }
 
-/// The command of a shell event.
 fn shell_command(data: &Value) -> &str {
     data.get("command")
         .and_then(Value::as_str)
@@ -711,10 +671,6 @@ fn shell_command(data: &Value) -> &str {
         .unwrap_or_default()
 }
 
-/// Build the activity of a tool call.
-///
-/// The arguments are only inspected for a file path, the tool name only for a
-/// fixed label. The command, the arguments and the result never leave here.
 fn tool_activity(name: &str, input: &Value) -> ToolActivity {
     let base = name.trim().to_ascii_lowercase();
     let command = input
@@ -770,7 +726,6 @@ fn legacy_file_basename(input: &Value) -> Option<String> {
     None
 }
 
-/// Read one row of the message projection.
 fn message_record(row: &rusqlite::Row<'_>) -> Option<MessageRecord> {
     let id = column_text_opt(row, "id")?.trim().to_string();
     if id.is_empty() {
@@ -794,7 +749,6 @@ fn message_record(row: &rusqlite::Row<'_>) -> Option<MessageRecord> {
     })
 }
 
-/// The stable key of a message row.
 fn message_key(record: &MessageRecord) -> String {
     format!(
         "msg:{}:{}",
@@ -803,7 +757,6 @@ fn message_key(record: &MessageRecord) -> String {
     )
 }
 
-/// Convert one message row into normalized events.
 fn message_events(
     connection: &Connection,
     cache: &mut HashMap<String, Option<SessionInfo>>,
@@ -871,7 +824,6 @@ fn message_events(
     events
 }
 
-/// The current time in epoch milliseconds.
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1063,7 +1015,6 @@ mod tests {
             ]
         );
 
-        // The same rows are never reported twice.
         assert!(poll(&path, &mut seen).is_empty());
         let _ = std::fs::remove_file(&path);
     }
@@ -1145,7 +1096,6 @@ mod tests {
             assert!(!debug.contains(secret), "leaked {secret} in {debug}");
         }
 
-        // The basename is the only part of the path that leaves the adapter.
         let activity = events
             .iter()
             .find_map(|event| match &event.event {
@@ -1225,7 +1175,6 @@ mod tests {
         let events = poll(&path, &mut seen);
         assert!(events.is_empty(), "unexpected events {events:?}");
 
-        // A database without the opencode tables is tolerated as well.
         let empty = temp_db("empty");
         {
             let connection = Connection::open(&empty).expect("create database");
@@ -1303,7 +1252,6 @@ mod tests {
             ]
         );
 
-        // A model id that is not a model id is dropped instead of forwarded.
         let debug = format!("{events:?}");
         assert!(!debug.contains("PRIVATE"));
         assert_eq!(sanitize_model_id("PRIVATE prose text"), None);

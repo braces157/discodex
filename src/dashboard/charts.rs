@@ -466,7 +466,6 @@ pub fn render_chart_card(
                                     this.selected_range = Some((anchor, end_idx));
                                     this.pinned_baseline_idx = None;
                                 } else {
-                                    // Single click: clear range if active, otherwise toggle Baseline pin
                                     if this.selected_range.take().is_none()
                                         && known_up.get(anchor).copied().unwrap_or(false)
                                     {

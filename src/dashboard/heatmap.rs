@@ -19,9 +19,7 @@ pub struct HeatmapHover {
     pub intensity_color: u32,
 }
 
-// Pure Vercel / shadcn Monochrome 5-step silver ramp (12-Week Calendar)
 const CAL_RAMP: [u32; 5] = [0x161619, 0x27272A, 0x52525B, 0xA1A1AA, 0xFAFAFA];
-// Calm Slate-Blue 5-step ramp (Peak Hours)
 const HR_RAMP: [u32; 5] = [0x161619, 0x17253B, 0x1E3A5F, 0x3B82F6, 0x60A5FA];
 
 fn tier_for_ratio(active: bool, ratio: f64) -> usize {
@@ -576,7 +574,6 @@ fn render_calendar_grid(
                 )
                 .child(div().flex_1().flex().gap(px(3.)).children(weeks)),
         )
-        // Weekly volume equalizer strip aligned 1:1 under the 12-week columns
         .child(
             div()
                 .pt(px(2.))
@@ -620,7 +617,6 @@ fn render_peak_hours_grid(
     let max_hour = hour_totals.iter().copied().max().unwrap_or(0).max(1);
     let max_day = day_totals.iter().copied().max().unwrap_or(0).max(1);
 
-    // 24-hour marginal density histogram aligned 1:1 above columns
     let hour_hist: Vec<_> = hour_totals
         .iter()
         .map(|&v| {
@@ -702,7 +698,6 @@ fn render_peak_hours_grid(
                         .child(*day_name),
                 )
                 .child(div().flex_1().flex().gap(px(2.)).children(hour_cells))
-                // Right-side weekday marginal share bar
                 .child(
                     div()
                         .w(px(24.))

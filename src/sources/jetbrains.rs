@@ -44,20 +44,16 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     };
 
     match kind {
-        // A new user turn starts the elapsed timer. The prompt text is read
-        // but never published.
         "UserPromptEvent" => vec![ParsedEvent::TaskStarted {
             started_at_ms: record_timestamp_ms(&value).unwrap_or_else(current_time_ms),
         }],
         "TaskStartedEvent" => vec![ParsedEvent::Thinking { reasoning: None }],
         "TaskState" => task_state(&value),
         "SessionA2uxEvent" => parse_session_aux(&value),
-        // "UserMessagesCommittedToHistory" and every unknown kind are ignored.
         _ => Vec::new(),
     }
 }
 
-/// The end of a task, as reported by the `TaskState` record.
 fn task_state(value: &Value) -> Vec<ParsedEvent> {
     match value.get("state").and_then(Value::as_str) {
         Some("COMPLETED") | Some("FAILED") | Some("CANCELED") | Some("CANCELLED") => {
@@ -67,7 +63,6 @@ fn task_state(value: &Value) -> Vec<ParsedEvent> {
     }
 }
 
-/// Parse a `SessionA2uxEvent` and the agent block it carries.
 fn parse_session_aux(value: &Value) -> Vec<ParsedEvent> {
     let Some(event) = value.get("event") else {
         return Vec::new();
@@ -85,21 +80,15 @@ fn parse_session_aux(value: &Value) -> Vec<ParsedEvent> {
     };
 
     match kind {
-        // The workspace of the session. Only the folder name is published,
-        // the path itself stays local.
         "CurrentDirectoryUpdatedEvent" => current_directory(agent_event),
-        // The model of the answer. The id is sanitized before it is used.
         "LlmResponseMetadataEvent" => model_detected(agent_event),
         "TerminalBlockUpdatedEvent" => terminal_block(agent_event),
         "ViewFilesBlockUpdatedEvent" => view_files_block(agent_event),
         "FileChangesBlockUpdatedEvent" => file_changes_block(agent_event),
         "ToolBlockUpdatedEvent" => tool_block(agent_event),
-        // The prose of the agent, the compaction notice and the status line.
-        // Their text stays private.
         "MarkdownBlockUpdatedEvent"
         | "ContextCompactionBlockUpdatedEvent"
         | "AgentCurrentStatusUpdatedEvent" => vec![ParsedEvent::Thinking { reasoning: None }],
-        // The result of the task. Its title and text stay private.
         "ResultBlockUpdatedEvent" => vec![ParsedEvent::TerminalCandidate],
         // "AgentTaskNameUpdatedEvent" carries the user visible task name and
         // every unknown kind is ignored.
@@ -107,7 +96,6 @@ fn parse_session_aux(value: &Value) -> Vec<ParsedEvent> {
     }
 }
 
-/// The session metadata, when the record names the workspace directory.
 fn current_directory(agent_event: &Value) -> Vec<ParsedEvent> {
     let Some(cwd) = agent_event
         .get("currentDirectory")
@@ -126,7 +114,6 @@ fn current_directory(agent_event: &Value) -> Vec<ParsedEvent> {
     }]
 }
 
-/// The model id of the session, when the record names one.
 fn model_detected(agent_event: &Value) -> Vec<ParsedEvent> {
     let mut candidates: Vec<&str> = Vec::new();
     if let Some(usage) = agent_event.get("modelUsage").and_then(Value::as_array) {
@@ -165,9 +152,7 @@ fn sanitize_model(model: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// A terminal block: a command that runs in the shell.
 fn terminal_block(agent_event: &Value) -> Vec<ParsedEvent> {
-    // The command is only used to pick a fixed label, it never leaves here.
     let command = agent_event
         .get("command")
         .and_then(Value::as_str)
@@ -180,7 +165,6 @@ fn terminal_block(agent_event: &Value) -> Vec<ParsedEvent> {
     block_events(agent_event, activity)
 }
 
-/// A block that shows the files the agent reads.
 fn view_files_block(agent_event: &Value) -> Vec<ParsedEvent> {
     let file = first_basename(agent_event.get("files"), &["relativePath", "path"]);
     let activity = ToolActivity {
@@ -194,7 +178,6 @@ fn view_files_block(agent_event: &Value) -> Vec<ParsedEvent> {
     block_events(agent_event, activity)
 }
 
-/// A block that shows the files the agent changes.
 fn file_changes_block(agent_event: &Value) -> Vec<ParsedEvent> {
     let file = first_basename(
         agent_event.get("changes"),
@@ -263,16 +246,12 @@ fn block_events(agent_event: &Value, activity: ToolActivity) -> Vec<ParsedEvent>
     }
 }
 
-/// The status of an agent block.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BlockStatus {
-    /// The block is still running.
     Running,
-    /// The block reached a final status.
     Finished,
 }
 
-/// The status of a block, when it is one Junie is known to write.
 fn block_status(agent_event: &Value) -> Option<BlockStatus> {
     match agent_event.get("status").and_then(Value::as_str)? {
         "IN_PROGRESS" => Some(BlockStatus::Running),
@@ -281,7 +260,6 @@ fn block_status(agent_event: &Value) -> Option<BlockStatus> {
     }
 }
 
-/// The call id of a block, when it has a usable one.
 fn step_id(agent_event: &Value) -> Option<String> {
     let raw = agent_event.get("stepId").and_then(Value::as_str)?;
     let trimmed = raw.trim();
@@ -314,7 +292,6 @@ fn first_basename(items: Option<&Value>, keys: &[&str]) -> Option<String> {
     None
 }
 
-/// The last component of a path.
 fn safe_basename(path: &str) -> Option<String> {
     let trimmed = path.trim().trim_matches('"');
     if trimmed.is_empty() {
@@ -327,7 +304,6 @@ fn safe_basename(path: &str) -> Option<String> {
     Some(name)
 }
 
-/// The timestamp of a record, in milliseconds.
 fn record_timestamp_ms(value: &Value) -> Option<i64> {
     value
         .get("timestampMs")
@@ -337,7 +313,6 @@ fn record_timestamp_ms(value: &Value) -> Option<i64> {
         .and_then(timestamp_ms)
 }
 
-/// The current time in milliseconds, used when a record has no timestamp.
 fn current_time_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -371,7 +346,6 @@ mod tests {
 
     #[test]
     fn parses_turn_blocks_files_and_completion() {
-        // The prompt starts the turn and the timer uses the record timestamp.
         assert_eq!(
             parse_line(PROMPT),
             vec![ParsedEvent::TaskStarted {
@@ -379,7 +353,6 @@ mod tests {
             }]
         );
 
-        // The workspace of the session: the folder name is published.
         assert_eq!(
             parse_line(DIRECTORY),
             vec![ParsedEvent::SessionMetadata {
@@ -388,7 +361,6 @@ mod tests {
             }]
         );
 
-        // A running command is announced with a fixed label.
         assert_eq!(
             parse_line(TERMINAL_RUN),
             vec![ParsedEvent::TrackedToolStarted {
@@ -401,9 +373,6 @@ mod tests {
             }]
         );
 
-        // A failed command closes the tracked call, its output stays private.
-        // The block is written again with its final status, so the activity
-        // is announced once more and the call is closed.
         assert_eq!(
             parse_line(TERMINAL_FAILED),
             vec![
@@ -421,7 +390,6 @@ mod tests {
             ]
         );
 
-        // A read block publishes the basename and the inferred language.
         assert_eq!(
             parse_line(VIEW_FILES),
             vec![
@@ -439,7 +407,6 @@ mod tests {
             ]
         );
 
-        // A change block publishes the edited basename as well.
         assert_eq!(
             parse_line(FILE_CHANGES),
             vec![
@@ -457,7 +424,6 @@ mod tests {
             ]
         );
 
-        // The model id is published as it is.
         assert_eq!(
             parse_line(MODEL),
             vec![ParsedEvent::AgentDetected {
@@ -465,17 +431,11 @@ mod tests {
             }]
         );
 
-        // The task-end replay must not fire the tools a second time.
         assert!(parse_line(REPLAY).is_empty());
 
-        // The end of the task.
         assert_eq!(parse_line(TASK_STATE), vec![ParsedEvent::Completed]);
     }
 
-    /// The debug form of the events without the local working directory.
-    ///
-    /// The `cwd` of the session metadata stays on the machine and is never
-    /// published, so it is left out of the leak check.
     fn published_form(events: &[ParsedEvent]) -> String {
         events
             .iter()
@@ -535,7 +495,6 @@ mod tests {
             }
         }
 
-        // Only the folder name of the workspace is published.
         let events = parse_line(DIRECTORY);
         assert_eq!(
             events,
@@ -563,19 +522,12 @@ mod tests {
             r#"{"kind":"UnknownKind","prompt":"REDACTED"}"#,
             r#"{"kind":"UserMessagesCommittedToHistory","messages":["REDACTED"]}"#,
             r#"{"kind":"AgentTaskNameUpdatedEvent","taskName":"REDACTED"}"#,
-            // A record without a kind is not a Junie record.
             r#"{"event":{"state":"IN_PROGRESS"}}"#,
-            // A renamed wrapper field yields no activity at all.
             r#"{"kind":"SessionA2uxEvent","payload":{"agentEvent":{"kind":"TerminalBlockUpdatedEvent","stepId":"s1","status":"IN_PROGRESS","command":"cargo test"}}}"#,
-            // A renamed block kind yields no activity at all.
             r#"{"kind":"SessionA2uxEvent","event":{"state":"IN_PROGRESS","agentEvent":{"kind":"TerminalBlock","stepId":"s1","status":"IN_PROGRESS","command":"cargo test"}}}"#,
-            // A block without a status is not published.
             r#"{"kind":"SessionA2uxEvent","event":{"state":"IN_PROGRESS","agentEvent":{"kind":"TerminalBlockUpdatedEvent","stepId":"s1","command":"cargo test"}}}"#,
-            // A renamed status value is not published either.
             r#"{"kind":"SessionA2uxEvent","event":{"state":"IN_PROGRESS","agentEvent":{"kind":"TerminalBlockUpdatedEvent","stepId":"s1","status":"RUNNING","command":"cargo test"}}}"#,
-            // The task-end replay of every block kind is ignored.
             r#"{"kind":"SessionA2uxEvent","event":{"state":"COMPLETED","agentEvent":{"kind":"ViewFilesBlockUpdatedEvent","stepId":"s1","status":"COMPLETED","files":[{"relativePath":"C:\\secret\\main.rs"}]}}}"#,
-            // The session index is not an event log: its task name is content.
             r#"{"sessionId":"s1","createdAt":1788257701000,"updatedAt":1788257709000,"projectDir":"C:\\Users\\PC\\Documents\\RetryDemo","taskName":"REDACTED_TASK_NAME"}"#,
         ] {
             assert!(
@@ -587,7 +539,6 @@ mod tests {
 
     #[test]
     fn reads_model_ids_and_timestamps() {
-        // The model id is published as it is.
         assert_eq!(
             parse_line(MODEL),
             vec![ParsedEvent::AgentDetected {
@@ -595,7 +546,6 @@ mod tests {
             }]
         );
 
-        // Prose, control characters and overlong ids are dropped.
         for model in [
             "bad model\ntext",
             "gpt 5 pro",
@@ -623,7 +573,6 @@ mod tests {
             );
         }
 
-        // A model id with the allowed punctuation is kept.
         let record = r#"{"kind":"SessionA2uxEvent","event":{"state":"IN_PROGRESS","agentEvent":{"kind":"LlmResponseMetadataEvent","modelUsage":[{"model":"openai/gpt-5.1-codex"}]}},"timestampMs":1788257705100}"#;
         assert_eq!(
             parse_line(record),
@@ -632,7 +581,6 @@ mod tests {
             }]
         );
 
-        // The timestamp of a record is read in milliseconds.
         assert_eq!(
             record_timestamp_ms(&serde_json::json!({"timestampMs": 1788257701000i64})),
             Some(1_788_257_701_000)
@@ -643,7 +591,6 @@ mod tests {
         );
         assert_eq!(record_timestamp_ms(&serde_json::json!({})), None);
 
-        // The task starts with the timestamp of its own record.
         assert_eq!(
             parse_line(PROMPT),
             vec![ParsedEvent::TaskStarted {

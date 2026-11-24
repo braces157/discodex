@@ -19,7 +19,6 @@ use crate::events::{
     project_name, timestamp_ms,
 };
 
-/// Maximum length of a published model / agent id.
 const MAX_AGENT_ID_LEN: usize = 128;
 
 /// Parse one line of the harness' append-only activity log.
@@ -43,7 +42,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     if subtype.starts_with("managed_session") {
         return Vec::new();
     }
-    // Unknown record shapes are ignored entirely.
     if !matches!(record_type, "user" | "assistant" | "tool_result" | "system") {
         return Vec::new();
     }
@@ -166,9 +164,7 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
             }
         }
         "system" => match subtype {
-            // The turn settled.
             "turn_result" => events.push(ParsedEvent::Completed),
-            // The last known session model.
             "session_model" => {
                 if let Some(agent) = value
                     .pointer("/systemPayload/modelId")
@@ -197,9 +193,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     events
 }
 
-/// Build the session metadata event from the record's workspace path.
-///
-/// Only the folder name is published; the full path stays local.
 fn session_metadata(value: &Value) -> Option<ParsedEvent> {
     let cwd = value.get("cwd").and_then(Value::as_str)?.trim();
     if cwd.is_empty() || is_internal_path(cwd) {
@@ -218,7 +211,6 @@ fn is_internal_path(path: &str) -> bool {
         .any(|segment| segment.eq_ignore_ascii_case(".qwen"))
 }
 
-/// The model (or sub agent) id shown in the presence.
 fn agent_label(value: &Value) -> Option<String> {
     let is_sidechain = value
         .get("isSidechain")
@@ -259,7 +251,6 @@ fn sanitize_agent_id(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// The normalized activity for one tool call.
 fn tool_activity(name: &str, args: Option<&Value>) -> ToolActivity {
     let lower = name.trim().to_ascii_lowercase();
     let canonical = canonical_tool_name(&lower);
@@ -511,8 +502,6 @@ mod tests {
         ] {
             assert!(!debug.contains(secret), "leaked secret: {secret}");
         }
-        // Only the session metadata may hold a path, and it stays local: every
-        // other event carries the folder name, a basename or a label.
         let public_debug = events
             .iter()
             .filter(|event| !matches!(event, ParsedEvent::SessionMetadata { .. }))
@@ -535,7 +524,6 @@ mod tests {
                 _ => unreachable!(),
             }
         }
-        // The basename of the edited file is allowed, the path is not.
         assert!(debug.contains("private_notes.md"));
     }
 
@@ -560,8 +548,6 @@ mod tests {
             assert!(parse_line(line).is_empty(), "unexpected events for {line}");
         }
 
-        // A tool call without a call id cannot be tracked, it still reports
-        // the activity.
         let untracked = r#"{"type":"assistant","cwd":"C:\\Users\\PC\\Documents\\Discodex","message":{"parts":[{"functionCall":{"name":"read_file","args":{"file_path":"C:\\Users\\PC\\Documents\\Discodex\\src\\events.rs"}}}]}}"#;
         let events = parse_line(untracked);
         assert!(events.contains(&ParsedEvent::ToolStarted {
@@ -591,10 +577,8 @@ mod tests {
         assert!(events.contains(&ParsedEvent::AgentDetected {
             agent: "qwen3-coder-plus".to_string()
         }));
-        // A plain text answer is a final answer candidate, not a leak.
         assert!(events.contains(&ParsedEvent::TerminalCandidate));
 
-        // A model id that is prose, or too long, is dropped entirely.
         for bad in [
             "PRIVATE prose with spaces",
             "model/with spaces",
@@ -615,7 +599,6 @@ mod tests {
             );
         }
 
-        // The session model is reported through a system record.
         let session_model = serde_json::json!({
             "type": "system",
             "subtype": "session_model",
@@ -628,7 +611,6 @@ mod tests {
             })
         );
 
-        // The turn start uses the record's own timestamp.
         let turn = serde_json::json!({
             "type": "user",
             "provenance": "real_user",

@@ -23,10 +23,8 @@ use crate::events::{
     project_name, timestamp_ms,
 };
 
-/// Number of message rows that are read per poll.
 const ROW_LIMIT: i64 = 200;
 
-/// Places below the goose root where the shared database may live.
 const DATABASE_PATHS: &[&str] = &[
     "data/sessions/sessions.db",
     "sessions/sessions.db",
@@ -46,7 +44,6 @@ struct SessionInfo {
     session_type: Option<String>,
 }
 
-/// One row of the `messages` table.
 struct MessageRow {
     id: i64,
     session_id: String,
@@ -173,7 +170,6 @@ fn session_row(row: &rusqlite::Row<'_>) -> SessionInfo {
     }
 }
 
-/// Read one message row by name.
 fn message_row(
     row: &rusqlite::Row<'_>,
     session: Option<SessionInfo>,
@@ -202,18 +198,14 @@ fn message_timestamp_ms(row: &rusqlite::Row<'_>) -> Option<i64> {
         .or_else(|| column_text_opt(row, "timestamp").and_then(|text| sqlite_utc_ms(&text)))
 }
 
-/// Convert a SQLite UTC timestamp (`YYYY-MM-DD HH:MM:SS`) into milliseconds.
 fn sqlite_utc_ms(text: &str) -> Option<i64> {
     let naive = chrono::NaiveDateTime::parse_from_str(text.trim(), "%Y-%m-%d %H:%M:%S").ok()?;
     Some(naive.and_utc().timestamp_millis())
 }
 
-/// Convert one message row into normalized events.
 fn row_events(row: &MessageRow, seen: &mut HashSet<String>) -> Vec<ParsedEvent> {
     let mut events = Vec::new();
 
-    // Facts that belong to the conversation and not to a single message are
-    // reported once per session.
     if seen.insert(format!("meta:{}", row.session_id)) {
         if let Some(cwd) = row.session.working_dir.as_deref()
             && let Some(project) = project_name(cwd)
@@ -299,8 +291,6 @@ fn row_events(row: &MessageRow, seen: &mut HashSet<String>) -> Vec<ParsedEvent> 
                     None => tool_events.push(ParsedEvent::ToolFinished),
                 }
             }
-            // Every other block type (image, document, error, actionRequired,
-            // toolConfirmationRequest, systemNotification, ...) is ignored.
             _ => {}
         }
     }
@@ -316,17 +306,12 @@ fn row_events(row: &MessageRow, seen: &mut HashSet<String>) -> Vec<ParsedEvent> 
         events.push(ParsedEvent::Thinking { reasoning: None });
     }
     events.extend(tool_events);
-    // An assistant message that only carries text ends the turn.
     if turn_completed || (role == "assistant" && has_text && !has_tool_request) {
         events.push(ParsedEvent::Completed);
     }
     events
 }
 
-/// Build the activity of a tool call.
-///
-/// The arguments are only inspected for a file path, the tool name only for a
-/// fixed label. The command, the prompt and the result never leave here.
 fn tool_activity(name: &str, arguments: Option<&Value>) -> ToolActivity {
     let base = base_tool_name(name).to_ascii_lowercase();
     let label = match base.as_str() {
@@ -356,7 +341,6 @@ fn base_tool_name(name: &str) -> &str {
     }
 }
 
-/// The model id of a session, if the session names one.
 fn model_id(session: &SessionInfo) -> Option<String> {
     let config = session.model_config_json.as_deref()?;
     let value: Value = serde_json::from_str(config).ok()?;
@@ -367,7 +351,6 @@ fn model_id(session: &SessionInfo) -> Option<String> {
     sanitize_model_id(raw)
 }
 
-/// Keep only a model id that looks like a model id.
 fn sanitize_model_id(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -382,7 +365,6 @@ fn sanitize_model_id(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Keep only a tool call id that looks like an opaque id.
 fn sanitize_call_id(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > 64 {
@@ -559,7 +541,6 @@ mod tests {
             ]
         );
 
-        // The same rows are never reported twice.
         assert!(poll(&path, &mut seen).is_empty());
         let _ = std::fs::remove_file(&path);
     }
@@ -632,12 +613,9 @@ mod tests {
         ] {
             assert!(!debug.contains(secret), "leaked {secret} in {debug}");
         }
-        // The directory of an edited file never leaves the adapter, only the
-        // basename does.
         assert!(!debug.contains(r"C:\\Users\\PC\\Documents\\Discodex\\src\\provider.rs"));
         assert!(!debug.contains("Documents"));
 
-        // The tool activity keeps the label and the basename only.
         let write = events
             .iter()
             .find(|event| {
@@ -727,7 +705,6 @@ mod tests {
         let events = poll(&path, &mut seen);
         assert!(events.is_empty(), "unexpected events {events:?}");
 
-        // A database without the goose tables is tolerated as well.
         let empty = temp_db("empty");
         {
             let connection = Connection::open(&empty).expect("create database");
@@ -784,7 +761,6 @@ mod tests {
             ]
         );
 
-        // A model id that is not a model id is dropped.
         assert_eq!(sanitize_model_id("gpt 5 codex"), None);
         assert_eq!(sanitize_model_id(""), None);
         assert_eq!(sanitize_model_id(&"a".repeat(129)), None);

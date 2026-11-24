@@ -588,7 +588,6 @@ mod tests {
             2_000,
         );
 
-        // The session running tools wins even if thinking has a slightly newer event
         let selected = state.selected_presence().unwrap();
         assert_eq!(selected.provider, Provider::Codex);
         assert_eq!(selected.phase, Phase::RunningTools);
@@ -666,7 +665,6 @@ mod tests {
             1_500,
         );
 
-        // Session selection uses log activity alone.
         assert_eq!(
             state.selected_presence().unwrap().provider,
             Provider::Antigravity
@@ -687,7 +685,6 @@ mod tests {
         start(&mut state, "one", 1_000);
         start(&mut state, "two", 3_000);
 
-        // Earliest stale deadline should be 1_000 + 60_000 = 61_000
         assert_eq!(state.next_stale_deadline_ms(60_000), Some(61_000));
     }
 
@@ -736,7 +733,6 @@ mod tests {
             1_000,
         );
 
-        // Worker session starts thinking before any tools are called
         state.apply(
             worker_path,
             Provider::Antigravity,
@@ -757,7 +753,6 @@ mod tests {
             Some("Validating requirements")
         );
 
-        // Worker session receives tools without containing any agent name in its own lines
         state.apply(
             worker_path,
             Provider::Antigravity,

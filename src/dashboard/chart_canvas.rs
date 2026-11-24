@@ -106,7 +106,6 @@ pub fn paint_plot_canvas(bounds: Bounds<Pixels>, window: &mut Window, spec: &Plo
     let slot_w = w / n as f32;
     let x_for = |i: usize| -> Pixels { origin.x + px((i as f32 + 0.5) * slot_w) };
 
-    // Drag-to-select range band backdrop (behind series geometry)
     if let Some((a, b)) = spec.selected_range {
         let lo = a.min(b).min(n - 1);
         let hi = a.max(b).min(n - 1);
@@ -139,7 +138,6 @@ pub fn paint_plot_canvas(bounds: Bounds<Pixels>, window: &mut Window, spec: &Plo
         }
     }
 
-    // Pinned Baseline anchor rule + hollow machined ring
     let mut pin_y_px: Option<Pixels> = None;
     if let (Some(pin_idx), Some(pin_v)) = (spec.pinned_idx, pinned_val) {
         let px_x = x_for(pin_idx);
@@ -240,7 +238,6 @@ fn paint_active_cursor(
                 ));
             }
 
-            // Dashed horizontal value trace connecting active point -> right Y-axis pill
             let trace_start = (cur_x + px(5.0)).min(origin.x + px(w));
             paint_dashed_hline(
                 trace_start,
@@ -252,7 +249,6 @@ fn paint_active_cursor(
                 window,
             );
 
-            // Detent Caliper I-Beam Bracket vs Pinned Baseline or Period Avg
             let ref_pair = if Some(h_idx) != spec.pinned_idx {
                 pin_y_px.zip(pinned_val).or_else(|| {
                     spec.avg_val
@@ -297,7 +293,6 @@ fn paint_active_cursor(
 }
 
 fn paint_backdrop_grid(origin: Point<Pixels>, w: f32, _h: f32, usable_h: f32, window: &mut Window) {
-    // Crisp shadcn/Vercel horizontal gridlines aligned 1:1 with Y-axis ticks + solid baseline
     for (frac, color, dashed) in [
         (0.0_f32, GRID_LINE, true),
         (0.25_f32, 0x1D1D22FF, true),
@@ -415,7 +410,6 @@ fn paint_bar_series(
                     }
                 }
 
-                // Subtle diagonal hatch over live in-progress bucket, flush with baseline
                 if is_live_buffer && !dimmed && total_h >= 6.0 {
                     let hatch_r = 3.0_f32.min(total_h * 0.8).min(bar_w * 0.4);
                     let mut hatch = fill(
@@ -432,7 +426,6 @@ fn paint_bar_series(
                 }
             }
             Some(_) => {
-                // Zero-usage tick seated flush on the baseline
                 window.paint_quad(fill(
                     Bounds::new(point(bar_x, px(base_y_f - 2.0)), size(px(bar_w), px(2.0))),
                     rgba(BORDER_SUBTLE),
@@ -470,7 +463,6 @@ fn paint_bar_series(
     }
 }
 
-/// Detent Evals / Lollipop Dot Plot mode: gradient stems rising to luminous glowing beacons.
 fn paint_lollipop_series(
     base_y: Pixels,
     usable_h: f32,
@@ -637,7 +629,6 @@ fn paint_anchor_ring(x: Pixels, y: Pixels, color: u32, window: &mut Window) {
 }
 
 fn paint_glowing_reticle(x: Pixels, y: Pixels, color: u32, window: &mut Window) {
-    // Crisp shadcn/Apple solid active point with recessed ring cutout (zero glow)
     for (r, bg) in [
         (5.2_f32, rgba((BG_RECESSED << 8) | 0xFF)),
         (3.4, rgba((color << 8) | 0xFF)),

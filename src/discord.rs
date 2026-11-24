@@ -424,7 +424,6 @@ mod tests {
             "Google Antigravity • DeepCoder"
         );
 
-        // When running tools with agent
         let tool_snapshot = PresenceSnapshot {
             provider: Provider::Antigravity,
             project: "Discodex".to_string(),

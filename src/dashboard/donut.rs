@@ -70,7 +70,6 @@ fn paint_donut_ring(bounds: Bounds<Pixels>, slices: &[DonutSlice], window: &mut 
     let cx = f32::from(bounds.origin.x) + w * 0.5;
     let cy = f32::from(bounds.origin.y) + h * 0.5;
 
-    // Quiet recessed background track ring (isolated layer)
     window.paint_layer(bounds, |window| {
         paint_annulus_arc(cx, cy, r_inner, r_outer, 0.0, TAU, rgba(TRACK_BG), window);
     });
@@ -93,7 +92,6 @@ fn paint_donut_ring(bounds: Bounds<Pixels>, slices: &[DonutSlice], window: &mut 
         let draw_start = angle + gap * 0.5;
         let draw_end = (angle + sweep - gap * 0.5).max(draw_start + 0.015);
 
-        // Clean flat matte 4x MSAA ring segment (zero halo/specular glow)
         window.paint_layer(bounds, |window| {
             paint_annulus_arc(
                 cx,

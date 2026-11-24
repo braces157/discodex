@@ -30,7 +30,6 @@ use crate::events::{
     project_name, timestamp_ms,
 };
 
-/// Longest model id or call id that is accepted.
 const MAX_ID_LEN: usize = 128;
 
 /// Parse the harness' session document and report only records that were not
@@ -56,7 +55,6 @@ pub fn parse_document(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEven
             } else if looks_like_manifest(map) {
                 parse_manifest(doc, seen)
             } else {
-                // An unknown document shape yields no activity at all.
                 Vec::new()
             }
         }
@@ -86,12 +84,9 @@ fn looks_like_manifest(map: &Map<String, Value>) -> bool {
     MANIFEST_KEYS.iter().any(|key| map.contains_key(*key))
 }
 
-/// The session manifest: workspace, model, start time and session state.
 fn parse_manifest(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEvent> {
     let mut events = Vec::new();
 
-    // The workspace of the session. Only the folder name is published, the
-    // path itself stays local.
     if let Some(cwd) = manifest_workspace(doc)
         && let Some(project) = project_name(&cwd)
     {
@@ -101,7 +96,6 @@ fn parse_manifest(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEvent> {
         }
     }
 
-    // The model of the session.
     if let Some(agent) = manifest_model(doc) {
         let key = format!("manifest:model:{}", fingerprint(&agent));
         if seen.insert(key) {
@@ -109,7 +103,6 @@ fn parse_manifest(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEvent> {
         }
     }
 
-    // The start of the session drives the elapsed timer.
     if let Some(started_at_ms) = manifest_started_at(doc) {
         let key = format!("manifest:started:{started_at_ms}");
         if seen.insert(key) {
@@ -117,7 +110,6 @@ fn parse_manifest(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEvent> {
         }
     }
 
-    // A session that reached a final state ends the turn.
     if let Some(status) = doc.get("status").and_then(Value::as_str) {
         let status = status.trim().to_ascii_lowercase();
         if matches!(
@@ -134,7 +126,6 @@ fn parse_manifest(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEvent> {
     events
 }
 
-/// The workspace of the session, if the manifest names one.
 fn manifest_workspace(doc: &Value) -> Option<String> {
     for key in [
         "cwd",
@@ -152,7 +143,6 @@ fn manifest_workspace(doc: &Value) -> Option<String> {
     None
 }
 
-/// The model of the session, if the manifest names one.
 fn manifest_model(doc: &Value) -> Option<String> {
     for key in ["model", "modelId", "model_id"] {
         if let Some(agent) = doc.get(key).and_then(Value::as_str).and_then(sanitize_id) {
@@ -167,7 +157,6 @@ fn manifest_model(doc: &Value) -> Option<String> {
     None
 }
 
-/// The start time of the session, if the manifest names one.
 fn manifest_started_at(doc: &Value) -> Option<i64> {
     for key in ["started_at", "startedAt", "ts", "created_at", "createdAt"] {
         if let Some(millis) = doc
@@ -181,10 +170,8 @@ fn manifest_started_at(doc: &Value) -> Option<i64> {
     None
 }
 
-/// The SDK transcript: a document with a `messages` array.
 fn parse_transcript(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEvent> {
     let Some(messages) = doc.get("messages").and_then(Value::as_array) else {
-        // A transcript without a message array is not a transcript.
         return Vec::new();
     };
 
@@ -195,7 +182,6 @@ fn parse_transcript(doc: &Value, seen: &mut HashSet<String>) -> Vec<ParsedEvent>
     events
 }
 
-/// One message of the transcript.
 fn parse_transcript_message(
     message: &Value,
     index: usize,
@@ -206,7 +192,6 @@ fn parse_transcript_message(
     let blocks = message.get("content").and_then(Value::as_array);
     let key = message_key(message, index);
 
-    // The model of the request, when the harness stored one next to it.
     if let Some(agent) = message
         .get("modelInfo")
         .and_then(|info| info.get("id"))
@@ -242,8 +227,6 @@ fn parse_transcript_message(
                 }
             }
 
-            // A user message without a tool result is a new turn. Its text is
-            // never read.
             if !tool_result && has_text_content(message) {
                 let seen_key = format!("turn:{key}");
                 if seen.insert(seen_key) {
@@ -273,8 +256,6 @@ fn parse_transcript_message(
                 }
             }
 
-            // The phase of an assistant message: thinking first, then the
-            // tools that follow.
             if thinking {
                 let seen_key = format!("msg:{key}:thinking");
                 if seen.insert(seen_key) {
@@ -346,10 +327,6 @@ fn tool_input(block: &Value) -> Option<Value> {
     }
 }
 
-/// The normalized activity of one tool call.
-///
-/// Only the label, the basename and the language leave the adapter. The
-/// arguments themselves are never published.
 fn tool_activity(name: &str, input: &Value) -> ToolActivity {
     let command = tool_command(input).unwrap_or_default();
     let file = cline_file_basename(input);
@@ -364,9 +341,6 @@ fn tool_activity(name: &str, input: &Value) -> ToolActivity {
     }
 }
 
-/// The command of a tool call.
-///
-/// The command is only used to pick a fixed label, it is never published.
 fn tool_command(input: &Value) -> Option<String> {
     for key in ["command", "cmd", "commands", "commandLine", "CommandLine"] {
         match input.get(key) {
@@ -382,13 +356,11 @@ fn tool_command(input: &Value) -> Option<String> {
     None
 }
 
-/// The basename of the file a tool call works on.
 fn cline_file_basename(input: &Value) -> Option<String> {
     if let Some(name) = extract_file_basename(input) {
         return Some(name);
     }
 
-    // `read_files` and friends carry a list of paths.
     for key in ["files", "file_paths", "paths"] {
         let Some(items) = input.get(key).and_then(Value::as_array) else {
             continue;
@@ -458,7 +430,6 @@ fn normalize_tool_name(name: &str) -> String {
         .collect()
 }
 
-/// The tool that ends a turn with its final answer.
 fn is_completion_tool(name: &str) -> bool {
     matches!(
         normalize_tool_name(name).as_str(),
@@ -466,7 +437,6 @@ fn is_completion_tool(name: &str) -> bool {
     )
 }
 
-/// The legacy task log of Cline 3 and older: an array of task messages.
 fn parse_legacy_messages(items: &[Value], seen: &mut HashSet<String>) -> Vec<ParsedEvent> {
     let mut events = Vec::new();
     for (index, item) in items.iter().enumerate() {
@@ -475,7 +445,6 @@ fn parse_legacy_messages(items: &[Value], seen: &mut HashSet<String>) -> Vec<Par
     events
 }
 
-/// One message of the legacy task log.
 fn parse_legacy_message(
     item: &Value,
     index: usize,
@@ -490,7 +459,6 @@ fn parse_legacy_message(
         .unwrap_or("");
     let text = item.get("text").and_then(Value::as_str).unwrap_or("");
 
-    // The model of the request, when the harness stored one.
     if let Some(agent) = item
         .get("modelInfo")
         .and_then(|info| info.get("id"))
@@ -553,18 +521,12 @@ fn legacy_tool_activity(text: &str) -> ToolActivity {
     tool_activity(&name, &input)
 }
 
-/// The activity of a legacy command message.
-///
-/// The command itself is only used to pick a fixed label.
 fn legacy_command_activity(text: &str) -> ToolActivity {
     let mut input = Map::new();
     input.insert("command".to_string(), Value::String(text.to_string()));
     tool_activity("execute_command", &Value::Object(input))
 }
 
-/// True when the message carries text content.
-///
-/// The text itself is never read, only its presence.
 fn has_text_content(message: &Value) -> bool {
     match message.get("content") {
         Some(Value::String(text)) => !text.trim().is_empty(),
@@ -594,7 +556,6 @@ fn message_key(message: &Value, index: usize) -> String {
     format!("index:{index}")
 }
 
-/// The time of a message, if it carries one.
 fn message_timestamp_ms(message: &Value) -> Option<i64> {
     for key in ["ts", "timestamp", "created_at", "createdAt", "time"] {
         if let Some(millis) = message
@@ -753,17 +714,13 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                // The user turn starts the elapsed timer.
                 ParsedEvent::TaskStarted {
                     started_at_ms: 1_758_430_000_000
                 },
-                // The model of the request.
                 ParsedEvent::AgentDetected {
                     agent: "claude-sonnet-4-5".to_string()
                 },
-                // The reasoning text itself is never published.
                 ParsedEvent::Thinking { reasoning: None },
-                // A tool call carries a label, a basename and a language.
                 ParsedEvent::TrackedToolStarted {
                     call_id: "toolu_01ABC".to_string(),
                     activity: ToolActivity {
@@ -772,7 +729,6 @@ mod tests {
                         language: Some("Rust".to_string()),
                     }
                 },
-                // The result closes the call it belongs to.
                 ParsedEvent::TrackedToolFinished {
                     call_id: "toolu_01ABC".to_string()
                 },
@@ -784,12 +740,10 @@ mod tests {
                         language: Some("Rust".to_string()),
                     }
                 },
-                // The final answer ends the turn.
                 ParsedEvent::Completed,
             ]
         );
 
-        // The manifest of the same session carries the workspace and the model.
         let mut manifest_seen = HashSet::new();
         let events = parse_document(&manifest(), &mut manifest_seen);
         assert_eq!(
@@ -852,7 +806,6 @@ mod tests {
 
         let mut seen = HashSet::new();
         let mut events = parse_document(&transcript, &mut seen);
-        // The manifest of the same session is a second document.
         events.extend(parse_document(&manifest, &mut HashSet::new()));
 
         let debug = events
@@ -865,14 +818,10 @@ mod tests {
             assert!(!debug.contains(secret), "leaked secret: {secret}");
         }
 
-        // The full path of a tool never leaves the adapter, only the basename
-        // does.
         assert!(!debug.contains(SECRET_PATH));
         assert!(!debug.contains("Documents\\Discodex\\src"));
         assert!(debug.contains("secret_notes.md"));
 
-        // The workspace path may only appear in the session metadata, and the
-        // published name is the folder alone.
         let public_debug = events
             .iter()
             .filter(|event| !matches!(event, ParsedEvent::SessionMetadata { .. }))
@@ -911,7 +860,6 @@ mod tests {
 
     #[test]
     fn reads_model_ids_and_timestamps() {
-        // The manifest names the model and the start of the session.
         let mut seen = HashSet::new();
         let events = parse_document(&manifest(), &mut seen);
         assert!(events.contains(&ParsedEvent::AgentDetected {
@@ -921,7 +869,6 @@ mod tests {
             started_at_ms: 1_792_545_600_000
         }));
 
-        // A model id that is prose, or too long, is dropped entirely.
         for bad in [
             "evil prose\ntext",
             "model/with spaces",
@@ -938,7 +885,6 @@ mod tests {
             );
         }
 
-        // The turn of a message uses the time of the record itself.
         let document = serde_json::json!({
             "messages": [
                 { "id": "u1", "role": "user", "ts": 1758430000000_i64,
@@ -961,12 +907,9 @@ mod tests {
         let first = parse_document(&transcript(), &mut seen);
         assert!(!first.is_empty());
 
-        // The provider rewrites the whole document, the same records must not
-        // be reported a second time.
         let second = parse_document(&transcript(), &mut seen);
         assert!(second.is_empty());
 
-        // A new tool call is reported once.
         let mut document = transcript();
         document["messages"]
             .as_array_mut()
@@ -1034,7 +977,6 @@ mod tests {
             ]
         );
 
-        // The legacy history item of a task names the workspace and the model.
         let document = serde_json::json!({
             "id": "1758430000000",
             "ts": 1758430000000_i64,

@@ -204,7 +204,6 @@ mod tests {
         assert!(!is_running_named(mutex_name));
         assert!(!pid_file.exists());
 
-        // Never delete a PID file if another PID now owns it.
         let guard2 = SingleInstance::acquire_named(mutex_name, event_name, pid, pid_file.clone())
             .unwrap()
             .unwrap();

@@ -54,7 +54,6 @@ pub fn parse_snapshot_at(path: &Path, text: &str, seen: &mut HashSet<String>) ->
     events
 }
 
-/// The workspace of a session, read from the ownership marker of the project.
 fn project_root(path: &Path) -> Option<(String, String)> {
     let marker = project_root_marker(path)?;
     let contents = std::fs::read_to_string(marker).ok()?;
@@ -96,7 +95,6 @@ pub fn parse_snapshot(text: &str, seen: &mut HashSet<String>) -> Vec<ParsedEvent
             continue;
         };
 
-        // Snapshot record: {$set: {messages: [...], lastUpdated}}.
         if let Some(set) = record.get("$set") {
             let Some(messages) = set.get("messages").and_then(Value::as_array) else {
                 continue;
@@ -116,7 +114,6 @@ pub fn parse_snapshot(text: &str, seen: &mut HashSet<String>) -> Vec<ParsedEvent
             continue;
         }
 
-        // Session metadata record: {sessionId, projectHash, ...}.
         if record.get("sessionId").and_then(Value::as_str).is_some()
             && record.get("projectHash").and_then(Value::as_str).is_some()
         {
@@ -132,7 +129,6 @@ pub fn parse_snapshot(text: &str, seen: &mut HashSet<String>) -> Vec<ParsedEvent
             continue;
         }
 
-        // Tool result patch: {$patch:{id, toolCalls: [{id, result}]}}.
         if let Some(patch) = record.get("$patch") {
             let patch_id = patch
                 .get("id")
@@ -155,7 +151,6 @@ pub fn parse_snapshot(text: &str, seen: &mut HashSet<String>) -> Vec<ParsedEvent
             continue;
         }
 
-        // Plain message record: {id, timestamp, type, ...}.
         let Some(id) = record.get("id").and_then(Value::as_str) else {
             continue;
         };
@@ -179,15 +174,12 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
         return Vec::new();
     };
 
-    // Session metadata record: {sessionId, projectHash, ...}.
     if record.get("sessionId").and_then(Value::as_str).is_some()
         && record.get("projectHash").and_then(Value::as_str).is_some()
     {
         return parse_session_metadata(record);
     }
 
-    // Tool result patch: {$patch:{id, toolCalls:[{id, result}]}}. Only the
-    // call ids are read; the result payload is never inspected.
     if let Some(patch) = record.get("$patch") {
         let mut events = Vec::new();
         push_tool_finishes(patch, &mut events);
@@ -197,14 +189,12 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     // {$set: ...} and {$rewindTo: ...} carry no activity. A $set record can
     // hold a conversation summary, so it is never looked at.
 
-    // Message record: {id, timestamp, type, ...}.
     if record.get("id").and_then(Value::as_str).is_none() {
         return Vec::new();
     }
     parse_message_record(record)
 }
 
-/// Handle a message record of the harness.
 fn parse_message_record(record: &Map<String, Value>) -> Vec<ParsedEvent> {
     let Some(record_type) = record.get("type").and_then(Value::as_str) else {
         return Vec::new();
@@ -216,8 +206,6 @@ fn parse_message_record(record: &Map<String, Value>) -> Vec<ParsedEvent> {
     let mut events = Vec::new();
     match record_type {
         "user" => {
-            // The prompt itself is never read, only the turn boundary and the
-            // record's own timestamp, so the elapsed timer starts correctly.
             let started_at_ms = record
                 .get("timestamp")
                 .and_then(timestamp_ms)
@@ -225,7 +213,6 @@ fn parse_message_record(record: &Map<String, Value>) -> Vec<ParsedEvent> {
             events.push(ParsedEvent::TaskStarted { started_at_ms });
         }
         "gemini" => parse_model_turn(record, &mut events),
-        // "info", "error", "warning" and unknown types carry no activity.
         _ => {}
     }
     events
@@ -269,7 +256,6 @@ fn parse_session_metadata(record: &Map<String, Value>) -> Vec<ParsedEvent> {
     events
 }
 
-/// Handle a `gemini` message record: the model turn of the harness.
 fn parse_model_turn(record: &Map<String, Value>, events: &mut Vec<ParsedEvent>) {
     if let Some(model) = record.get("model").and_then(Value::as_str)
         && let Some(agent) = sanitize_model(model)
@@ -315,17 +301,13 @@ fn parse_model_turn(record: &Map<String, Value>, events: &mut Vec<ParsedEvent>) 
         return;
     }
 
-    // A model turn that carries text and no tool call is the final answer of
-    // the turn. The text itself is never read, only its presence.
     if has_text(record.get("content")) || has_text(record.get("message")) {
         events.push(ParsedEvent::TerminalCandidate);
     } else {
-        // Thought-only turns land here. The thought text stays unread.
         events.push(ParsedEvent::Thinking { reasoning: None });
     }
 }
 
-/// Report the tool calls of a `{$patch: ...}` record as finished.
 fn push_tool_finishes(patch: &Value, events: &mut Vec<ParsedEvent>) {
     let Some(calls) = patch.get("toolCalls").and_then(Value::as_array) else {
         return;
@@ -337,10 +319,6 @@ fn push_tool_finishes(patch: &Value, events: &mut Vec<ParsedEvent>) {
     }
 }
 
-/// Build the activity of a tool call from its name and its arguments.
-///
-/// Only the label, the file basename and the inferred language are kept. The
-/// arguments' body, the tool description and the tool result are dropped.
 fn tool_activity(name: &str, args: Option<&Value>) -> ToolActivity {
     let file = args.and_then(extract_file_basename);
     let language = file
@@ -379,12 +357,10 @@ fn tool_label(name: &str, args: Option<&Value>) -> String {
                 .unwrap_or_default();
             classify_tool(&lower, command).to_string()
         }
-        // Unknown and MCP tools collapse to a neutral label.
         _ => "Using development tools".to_string(),
     }
 }
 
-/// Check whether a record part carries text without reading the text.
 fn has_text(content: Option<&Value>) -> bool {
     match content {
         Some(Value::String(text)) => !text.trim().is_empty(),
@@ -400,7 +376,6 @@ fn has_text(content: Option<&Value>) -> bool {
     }
 }
 
-/// Model ids are metadata, not prose: a narrow charset only, or drop it.
 fn sanitize_model(model: &str) -> Option<String> {
     let trimmed = model.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -415,7 +390,6 @@ fn sanitize_model(model: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Session and tool call ids are opaque identifiers, never free text.
 fn sanitize_id(id: &str) -> Option<String> {
     let trimmed = id.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -442,7 +416,6 @@ fn now_ms() -> i64 {
 mod tests {
     use super::*;
 
-    /// A model turn that rewrote its message with a completed tool call.
     const TOOL_TURN: &str = r#"{"id":"a1b2c3d4-5e6f-4071-8293-a4b5c6d7e8f9","timestamp":"2026-06-13T05:26:15.310Z","type":"gemini","content":"REDACTED_ASSISTANT_TEXT","model":"gemini-2.5-pro","toolCalls":[{"id":"tc-1","name":"write_file","args":{"file_path":"src/main.rs","content":"REDACTED_FILE_BODY"},"result":[{"functionResponse":{"id":"tc-1","name":"write_file","response":{"output":"REDACTED_TOOL_OUTPUT"}}}],"status":"success","timestamp":"2026-06-13T05:26:15.300Z"}]}"#;
 
     #[test]
@@ -503,7 +476,6 @@ mod tests {
             );
         }
 
-        // The shell tool keeps the shared cargo/npm/git special cases.
         let shell = r#"{"id":"m2","type":"gemini","toolCalls":[{"id":"tc-3","name":"run_shell_command","args":{"command":"cargo test --release"}}]}"#;
         let events = parse_line(shell);
         assert!(events.iter().any(|event| matches!(
@@ -587,8 +559,6 @@ mod tests {
             r#"{"$set":{"summary":"REDACTED","lastUpdated":"2026-06-13T05:26:16.001Z"}}"#,
             r#"{"$rewindTo":"2026-06-13T05:26:16.001Z"}"#,
             r#"{"$patch":{"id":"x"}}"#,
-            // A main session record carries no workspace path, so no session
-            // metadata is invented for it.
             r#"{"sessionId":"b2e9ca8f-0c5a-496b-bc47-6d59f34497e8","projectHash":"3f9ac41b","startTime":"2026-06-13T05:26:11.412Z","lastUpdated":"2026-06-13T05:26:12.004Z","kind":"main"}"#,
         ] {
             assert!(parse_line(line).is_empty(), "unexpected events for {line}");
@@ -616,7 +586,6 @@ mod tests {
             ]
         );
 
-        // A model id that is not an id is dropped instead of being published.
         let prose = r#"{"id":"a1b2c3d4","type":"gemini","content":"REDACTED","model":"Gemini wrote a poem"}"#;
         let events = parse_line(prose);
         assert!(
@@ -625,7 +594,6 @@ mod tests {
                 .any(|event| matches!(event, ParsedEvent::AgentDetected { .. }))
         );
 
-        // A tool call without a name cannot be classified and is skipped.
         let nameless = r#"{"id":"a1b2c3d4","type":"gemini","toolCalls":[{"id":"tc-1","args":{"file_path":"src/main.rs"}}]}"#;
         assert!(parse_line(nameless).is_empty());
     }

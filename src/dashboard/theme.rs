@@ -2,7 +2,6 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use gpui::{Image, ImageFormat};
 
-// Neutral Zinc dark palette (Vercel / shadcn Monochrome)
 pub const BG_CANVAS: u32 = 0x09090B;
 pub const BG_SURFACE: u32 = 0x111113;
 pub const BG_RECESSED: u32 = 0x0B0B0D;
@@ -21,7 +20,6 @@ pub const TEXT_PRIMARY: u32 = 0xFAFAFA;
 pub const TEXT_SECONDARY: u32 = 0xA1A1AA;
 pub const TEXT_MUTED: u32 = 0x71717A;
 
-// Monochrome primary + soft slate-blue secondary; quiet sage/rose strictly for +/- deltas
 pub const ACCENT_LIME: u32 = 0xE4E4E7;
 pub const ACCENT_LIME_SOFT: u32 = 0xE4E4E716;
 pub const ACCENT_LIME_BORDER: u32 = 0xE4E4E733;

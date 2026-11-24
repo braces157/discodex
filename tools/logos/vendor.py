@@ -60,7 +60,6 @@ def find_browser() -> str:
 
 
 def rasterize(svg_bytes: bytes, out_png: str) -> None:
-    """Render an SVG to a square, transparent PNG with a headless browser."""
     browser = find_browser()
     body = svg_bytes.decode("utf-8")
     body = body[body.index("<svg"):]
