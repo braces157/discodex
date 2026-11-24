@@ -33,7 +33,10 @@ enum Step {
     /// `file` marks the steps that work on a single file: only those may
     /// publish the basename of a path. The path of a search or a directory
     /// step names a folder, and a folder name is not published as a file.
-    Tool { label: &'static str, file: bool },
+    Tool {
+        label: &'static str,
+        file: bool,
+    },
 }
 
 /// Parse one line of the harness' append-only activity log.
