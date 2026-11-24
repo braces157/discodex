@@ -235,13 +235,13 @@ fn message_events(
                         event: ParsedEvent::Thinking { reasoning: None },
                     });
                 }
-            } else if block.contains_key("Text") {
-                if seen.insert(format!("text:{session}:{index}:{slot}")) {
-                    events.push(StoreEvent {
-                        session: session.to_string(),
-                        event: ParsedEvent::TerminalCandidate,
-                    });
-                }
+            } else if block.contains_key("Text")
+                && seen.insert(format!("text:{session}:{index}:{slot}"))
+            {
+                events.push(StoreEvent {
+                    session: session.to_string(),
+                    event: ParsedEvent::TerminalCandidate,
+                });
             }
         }
     }
