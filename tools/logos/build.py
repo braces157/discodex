@@ -47,7 +47,7 @@ SHEET = os.path.join(ROOT, "assets", "_preview", "logos-contact-sheet.png")
 PLATE_SIZE = 0.86      # plate edge as a fraction of the canvas
 PLATE_RADIUS = 0.235   # corner radius as a fraction of the plate edge
 GLYPH_INSET = 0.60     # glyph edge as a fraction of the plate edge
-TILE_INSET = 0.98      # a brand tile fills nearly all of its plate
+TILE_INSET = 0.98
 
 REFERENCE_DENSITY = 0.45
 DENSITY_EXPONENT = 0.20
@@ -62,7 +62,6 @@ def load_rgba(path: str) -> Image.Image:
 
 
 def ink_bbox(image: Image.Image, threshold: int = 8) -> tuple[int, int, int, int]:
-    """Bounding box of everything that is not (nearly) transparent."""
     alpha = image.getchannel("A").point(lambda value: 255 if value > threshold else 0)
     box = alpha.getbbox()
     if box is None:
@@ -79,7 +78,6 @@ def density(image: Image.Image) -> float:
 
 
 def fit(image: Image.Image, target: int) -> Image.Image:
-    """Scale so the longest side of the artwork is ``target`` pixels."""
     width, height = image.size
     factor = target / max(width, height)
     size = (max(1, round(width * factor)), max(1, round(height * factor)))
@@ -101,7 +99,6 @@ def plate(canvas: int, colour: str) -> Image.Image:
 
 
 def place(canvas: int, artwork: Image.Image, reference: Image.Image) -> Image.Image:
-    """Centre ``artwork`` on ``reference``, which already carries the plate."""
     out = reference.copy()
     out.alpha_composite(
         artwork,
@@ -235,7 +232,6 @@ def main() -> int:
 
 
 def write_sheet(records: list[dict], canvas: int) -> None:
-    """Review sheet: every mark on both card tones, at profile and tray sizes."""
     columns = 6
     cell = 172
     label = 24

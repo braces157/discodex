@@ -687,7 +687,6 @@ mod tests {
         }]);
         let mut activity = ActivityState::default();
 
-        // Seed transcript B before DB row is visible or with an inherited project from A.
         activity.apply(
             &transcript_b,
             Provider::Antigravity,
@@ -706,11 +705,9 @@ mod tests {
             },
             1_000,
         );
-        // Transcript B temporarily inherited ProjectA from A.
         assert_eq!(activity.selected_presence().unwrap().project, "ProjectA");
         assert!(!activity.has_direct_project(&transcript_b));
 
-        // Now B receives a log line and resolves its own workspace ProjectB from the DB.
         ingestion.handle_path(&mut activity, &transcript_b);
         let presence = activity.selected_presence().unwrap();
         assert_eq!(presence.project, "ProjectB");

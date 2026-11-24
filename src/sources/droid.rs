@@ -24,7 +24,6 @@ use crate::events::{
     project_name, timestamp_ms,
 };
 
-/// Longest identifier (model id, tool call id) that may leave the adapter.
 const MAX_TOKEN_LEN: usize = 128;
 
 /// Parse one line of the harness' append-only activity log.
@@ -94,11 +93,6 @@ fn parse_session_start(record: &Value) -> Vec<ParsedEvent> {
     events
 }
 
-/// One message of the conversation.
-///
-/// The role decides what a message means: a user turn starts the task, a user
-/// message that only carries tool results closes those calls, and an
-/// assistant message either runs tools, thinks, or produces the answer.
 fn parse_message(record: &Value) -> Vec<ParsedEvent> {
     let message = record.get("message").unwrap_or(&Value::Null);
     let role = message
@@ -163,7 +157,6 @@ fn parse_message(record: &Value) -> Vec<ParsedEvent> {
             }
 
             if thinking {
-                // The reasoning itself is private, only the phase is published.
                 events.push(ParsedEvent::Thinking { reasoning: None });
             }
 
@@ -171,7 +164,6 @@ fn parse_message(record: &Value) -> Vec<ParsedEvent> {
                 events.extend(tool_started_event(block));
             }
 
-            // Text without a tool call is the answer of the turn.
             if tool_blocks.is_empty() && has_text {
                 events.push(ParsedEvent::TerminalCandidate);
             }
@@ -182,10 +174,6 @@ fn parse_message(record: &Value) -> Vec<ParsedEvent> {
     events
 }
 
-/// A tool call that has started.
-///
-/// The call id pairs the call with its result; without one the call is
-/// reported as an untracked activity.
 fn tool_started_event(block: &Value) -> Vec<ParsedEvent> {
     let Some(name) = block.get("name").and_then(Value::as_str) else {
         return Vec::new();
@@ -201,7 +189,6 @@ fn tool_started_event(block: &Value) -> Vec<ParsedEvent> {
     }
 }
 
-/// A tool call that has finished.
 fn tool_result_event(block: &Value) -> Vec<ParsedEvent> {
     if let Some(call_id) = call_id_of_result(block).and_then(sanitize_token) {
         return vec![ParsedEvent::TrackedToolFinished { call_id }];
@@ -240,7 +227,6 @@ fn tool_activity(name: &str, input: &Value) -> ToolActivity {
     }
 }
 
-/// Translate a Droid tool id into the vocabulary of [`classify_tool`].
 fn map_tool_name(name: &str) -> String {
     let lower = name.to_ascii_lowercase();
     match lower.as_str() {
@@ -265,7 +251,6 @@ fn map_tool_name(name: &str) -> String {
     }
 }
 
-/// The content blocks of a message.
 fn content_blocks(content: Option<&Value>) -> Vec<Value> {
     match content {
         Some(Value::Array(items)) => items.clone(),
@@ -275,12 +260,10 @@ fn content_blocks(content: Option<&Value>) -> Vec<Value> {
     }
 }
 
-/// The type of a content block.
 fn block_type(block: &Value) -> &str {
     block.get("type").and_then(Value::as_str).unwrap_or("")
 }
 
-/// The input of a tool call.
 fn tool_input(block: &Value) -> Value {
     match block.get("input") {
         Some(Value::String(text)) => serde_json::from_str::<Value>(text).unwrap_or(Value::Null),
@@ -289,7 +272,6 @@ fn tool_input(block: &Value) -> Value {
     }
 }
 
-/// The call id of a tool call.
 fn call_id_of_use(block: &Value) -> Option<&str> {
     block
         .get("id")
@@ -310,7 +292,6 @@ fn call_id_of_result(block: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-/// True when a tool result carries a payload besides its type.
 fn has_result_payload(block: &Value) -> bool {
     [
         "content",
@@ -323,7 +304,6 @@ fn has_result_payload(block: &Value) -> bool {
     .any(|key| block.get(key).is_some())
 }
 
-/// The model id of a message, if the build records one.
 fn message_model(record: &Value) -> Option<String> {
     let message = record.get("message").unwrap_or(&Value::Null);
     record
@@ -349,7 +329,6 @@ fn sanitize_token(value: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// The start of the current turn, taken from the record's own timestamp.
 fn turn_start_ms(record: &Value) -> i64 {
     record
         .get("timestamp")
@@ -369,7 +348,6 @@ fn current_time_ms() -> i64 {
 mod tests {
     use super::*;
 
-    /// Every event as text, so the privacy tests can look for leaks.
     fn debug_of(events: &[ParsedEvent]) -> String {
         format!("{events:?}")
     }
@@ -468,14 +446,10 @@ mod tests {
             assert!(!debug.contains(secret), "private text leaked: {secret}");
         }
 
-        // The full path and its directories must not leak, only the basename.
-        // The workspace path itself is part of SessionMetadata by design: it
-        // stays local, only the folder name is ever published.
         assert!(!debug.contains(r"C:\\Users\\me\\Documents\\Workspace\\src\\tray.rs"));
         assert!(!debug.contains(r"Workspace\\src"));
         assert!(!debug.contains(r"src\\tray.rs"));
 
-        // The safe parts are still published.
         assert!(debug.contains("tray.rs"));
         assert!(debug.contains("Workspace"));
     }
@@ -516,7 +490,6 @@ mod tests {
             "model id missing: {events:?}"
         );
 
-        // A model id that is not id-like is dropped instead of published.
         let prose =
             r#"{"type":"session_start","cwd":"C:\\w\\p","model":"private prose about my project"}"#;
         assert!(
@@ -525,7 +498,6 @@ mod tests {
                 .any(|event| matches!(event, ParsedEvent::AgentDetected { .. }))
         );
 
-        // An over long id is dropped as well.
         let long = format!(
             r#"{{"type":"session_start","cwd":"C:\\w\\p","model":"{}"}}"#,
             "a".repeat(200)
@@ -536,7 +508,6 @@ mod tests {
                 .any(|event| matches!(event, ParsedEvent::AgentDetected { .. }))
         );
 
-        // A new user turn starts the elapsed timer with the record timestamp.
         let user = r#"{"type":"message","id":"m1","seq":0,"timestamp":"2026-10-20T09:30:00.000Z","message":{"role":"user","content":[{"type":"text","text":"PRIVATE_PROMPT"}]}}"#;
         assert_eq!(
             parse_line(user),
@@ -545,7 +516,6 @@ mod tests {
             }]
         );
 
-        // A message that carries a tool result continues the turn instead.
         let result = r#"{"type":"message","id":"m2","seq":1,"timestamp":"2026-10-20T09:30:01.000Z","message":{"role":"user","content":[{"type":"tool_result","toolUseId":"call_1","isError":false,"content":"PRIVATE"}]}}"#;
         assert_eq!(
             parse_line(result),

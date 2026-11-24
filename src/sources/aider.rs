@@ -39,19 +39,14 @@ use crate::events::{
     ParsedEvent, ToolActivity, basename, classify_tool, language_from_file, project_name,
 };
 
-/// The prefix of the session header.
 const SESSION_HEADER: &str = "# aider chat started at ";
 
-/// The prefix of a user turn.
 const USER_TURN: &str = "####";
 
-/// The prefix of every tool line.
 const TOOL_LINE: &str = "> ";
 
-/// The longest model id that is published.
 const MAX_MODEL_ID_LEN: usize = 128;
 
-/// The longest file name that is published.
 const MAX_BASENAME_LEN: usize = 128;
 
 /// Parse one line of the harness' Markdown transcript.
@@ -81,12 +76,10 @@ pub fn parse_line_at(path: &Path, line: &str) -> Vec<ParsedEvent> {
         return session_metadata(path);
     }
 
-    // Every tool line is a blockquote.
     if let Some(rest) = line.strip_prefix(TOOL_LINE) {
         return parse_tool_line(rest);
     }
 
-    // Everything else is assistant prose and is dropped.
     Vec::new()
 }
 
@@ -108,31 +101,22 @@ fn session_metadata(path: &Path) -> Vec<ParsedEvent> {
     vec![ParsedEvent::SessionMetadata { project, cwd }]
 }
 
-/// Parse the text of a blockquote line.
-///
-/// Only the fixed prefixes of the upstream messages are known. Everything else
-/// is dropped, so a line of the assistant that looks like a tool line cannot
-/// smuggle text into an event.
 fn parse_tool_line(text: &str) -> Vec<ParsedEvent> {
-    // An edit that was applied to a file.
     if let Some(path) = text.strip_prefix("Applied edit to ") {
         return file_activity(path, "Editing files", true);
     }
 
-    // An edit that was only tried out.
     if let Some(path) = text.strip_prefix("Did not apply edit to ") {
         let path = path.strip_suffix(" (--dry-run)").unwrap_or(path);
         return file_activity(path, "Editing files", true);
     }
 
-    // A file that joined the context of the chat.
     if let Some(rest) = text.strip_prefix("Added ")
         && let Some(path) = rest.strip_suffix(" to the chat.")
     {
         return file_activity(path, "Reading project files", true);
     }
 
-    // A commit before the edits are applied.
     if let Some(rest) = text.strip_prefix("Committing ")
         && let Some(path) = rest.strip_suffix(" before applying edits.")
     {
@@ -154,7 +138,6 @@ fn parse_tool_line(text: &str) -> Vec<ParsedEvent> {
         ];
     }
 
-    // The end of a model turn.
     if let Some(rest) = text.strip_prefix("Tokens:") {
         return if is_token_report(rest) {
             vec![ParsedEvent::TerminalCandidate]
@@ -176,14 +159,9 @@ fn parse_tool_line(text: &str) -> Vec<ParsedEvent> {
         }
     }
 
-    // Unknown shape.
     Vec::new()
 }
 
-/// The activity of a file of the repository.
-///
-/// Only the name of the file is published, the path of the repository is
-/// dropped.
 fn file_activity(path: &str, label: &str, with_language: bool) -> Vec<ParsedEvent> {
     let file = basename(path).and_then(publishable_basename);
     let language = if with_language {
@@ -262,7 +240,6 @@ fn is_session_timestamp(text: &str) -> bool {
     if bytes.len() != 19 {
         return false;
     }
-    // The separators of the shape.
     let separators = [4usize, 7, 10, 13, 16];
     for index in separators {
         if !matches!(bytes[index], b'-' | b' ' | b':') {
@@ -319,12 +296,10 @@ mod tests {
 
     use super::*;
 
-    /// The path of a transcript inside a repository.
     fn transcript() -> PathBuf {
         PathBuf::from(r"C:\Users\PC\Documents\MyRepo").join(".aider.chat.history.md")
     }
 
-    /// The workspace of the transcript of the tests.
     fn workspace() -> String {
         r"C:\Users\PC\Documents\MyRepo".to_string()
     }
@@ -350,8 +325,6 @@ mod tests {
             .flat_map(|line| parse_line_at(&path, line))
             .collect();
 
-        // The transcript has no timestamp for a turn, so the time of the
-        // observation starts the elapsed timer.
         let turns: Vec<&ParsedEvent> = events
             .iter()
             .filter(|event| matches!(event, ParsedEvent::TaskStarted { .. }))
@@ -439,8 +412,6 @@ mod tests {
             assert!(!debug.contains(secret), "leaked {secret} in {debug}");
         }
 
-        // The path of the edited file never leaves the adapter, only its name
-        // does.
         let edit = events
             .iter()
             .find_map(|event| match event {
@@ -453,7 +424,6 @@ mod tests {
         assert_eq!(edit.file.as_deref(), Some("important.rs"));
         assert_eq!(edit.language.as_deref(), Some("Rust"));
 
-        // The command of the shell line only decides the label.
         let shell = events
             .iter()
             .find_map(|event| match event {
@@ -466,8 +436,6 @@ mod tests {
         assert_eq!(shell.file, None);
         assert_eq!(shell.language, None);
 
-        // Only the turn and the two tools are reported, no line of the
-        // transcript is forwarded.
         assert_eq!(events.len(), 5);
     }
 
@@ -503,7 +471,6 @@ mod tests {
     fn reads_the_model_of_the_banner_and_drops_prose() {
         let path = transcript();
 
-        // The banner of the current version.
         assert_eq!(
             parse_line_at(&path, "> Main model: gpt-4o with diff edit format"),
             vec![ParsedEvent::AgentDetected {
@@ -511,7 +478,6 @@ mod tests {
             }]
         );
 
-        // The banner of the older versions.
         assert_eq!(
             parse_line_at(
                 &path,
@@ -522,7 +488,6 @@ mod tests {
             }]
         );
 
-        // A model of another vendor keeps its prefix.
         assert_eq!(
             parse_line_at(
                 &path,
@@ -533,7 +498,6 @@ mod tests {
             }]
         );
 
-        // A banner that looks like prose is dropped.
         assert!(
             parse_line_at(
                 &path,
@@ -542,7 +506,6 @@ mod tests {
             .is_empty()
         );
 
-        // A model id that is not a model id is dropped.
         assert!(parse_line_at(&path, "> Main model: gpt 4o").is_empty());
         assert!(parse_line_at(&path, "> Main model: ").is_empty());
         assert!(parse_line_at(&path, &format!("> Main model: {}", "a".repeat(129))).is_empty());
@@ -560,11 +523,9 @@ mod tests {
             }]
         );
 
-        // A header without a timestamp is not a header.
         assert!(parse_line_at(&path, "# aider chat started at some time").is_empty());
         assert!(parse_line_at(&path, "# aider chat started at 2026-10-21").is_empty());
 
-        // A transcript without a parent directory has no project.
         assert!(
             parse_line_at(
                 Path::new(".aider.chat.history.md"),
@@ -578,7 +539,6 @@ mod tests {
     fn maps_every_tool_shape_of_the_transcript() {
         let path = transcript();
 
-        // An edit that was only tried out.
         assert_eq!(
             parse_line_at(&path, "> Did not apply edit to src/lib.rs (--dry-run)"),
             vec![
@@ -593,7 +553,6 @@ mod tests {
             ]
         );
 
-        // A commit before the edits are applied.
         assert_eq!(
             parse_line_at(&path, "> Committing src/main.rs before applying edits."),
             vec![
@@ -608,7 +567,6 @@ mod tests {
             ]
         );
 
-        // A command of the shell.
         assert_eq!(
             parse_line_at(&path, "> Running git status"),
             vec![
@@ -623,7 +581,6 @@ mod tests {
             ]
         );
 
-        // The end of a model turn.
         assert_eq!(
             parse_line_at(
                 &path,
@@ -632,8 +589,6 @@ mod tests {
             vec![ParsedEvent::TerminalCandidate]
         );
 
-        // The hard break of the Markdown and the line ending of the file do
-        // not change the result.
         assert_eq!(
             parse_line_at(&path, "> Applied edit to src/main.rs  \r"),
             vec![

@@ -46,16 +46,13 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     }
 
     if value.get("payload").is_some() {
-        // IDE / CLI v3 shape.
         let Some(payload) = value.get("payload").and_then(Value::as_object) else {
             return events;
         };
         events.extend(parse_ide_payload(payload, &value));
     } else if let Some(kind) = value.get("kind").and_then(Value::as_str) {
-        // CLI v2 shape.
         events.extend(parse_cli_record(kind, &value));
     } else if let Some(role) = value.get("role").and_then(Value::as_str) {
-        // Flat shape of the older IDE builds.
         events.extend(parse_flat_record(role, &value));
     }
 
@@ -97,7 +94,6 @@ pub fn parse_document(
     events
 }
 
-/// The first workspace path named by the record.
 fn workspace_path(value: &Value) -> Option<String> {
     for holder in [Some(value), value.get("payload"), value.get("data")] {
         let Some(holder) = holder else {
@@ -140,7 +136,6 @@ fn detect_model(value: &Value) -> Option<String> {
             }
         }
     }
-    // The CLI v2 sidecar keeps the model in the session state.
     if let Some(model) = value
         .get("session_state")
         .and_then(|state| state.get("rts_model_state"))
@@ -155,7 +150,6 @@ fn detect_model(value: &Value) -> Option<String> {
         .find_map(|candidate| sanitize_model(candidate.as_str()?))
 }
 
-/// Keep a model id only when it is a short, printable identifier.
 fn sanitize_model(model: &str) -> Option<String> {
     let model = model.trim();
     if model.is_empty() || model.len() > 128 {
@@ -181,14 +175,12 @@ fn is_internal_model(model: &str) -> bool {
     )
 }
 
-/// Parse the `payload` of an IDE / CLI v3 record.
 fn parse_ide_payload(payload: &Map<String, Value>, root: &Value) -> Vec<ParsedEvent> {
     let Some(kind) = payload.get("type").and_then(Value::as_str) else {
         return Vec::new();
     };
 
     match kind {
-        // A new user turn starts the elapsed timer.
         "turn_start" | "user" => {
             let started_at_ms = root
                 .get("timestamp")
@@ -198,7 +190,6 @@ fn parse_ide_payload(payload: &Map<String, Value>, root: &Value) -> Vec<ParsedEv
             vec![ParsedEvent::TaskStarted { started_at_ms }]
         }
         "turn_end" => vec![ParsedEvent::Completed],
-        // The answer text and the signed reasoning blob stay private.
         "assistant" => vec![ParsedEvent::Thinking { reasoning: None }],
         "tool_call" => parse_ide_tool_call(payload),
         "tool_result" => match payload.get("toolCallId").and_then(Value::as_str) {
@@ -257,12 +248,10 @@ fn parse_ide_tool_call(payload: &Map<String, Value>) -> Vec<ParsedEvent> {
     events
 }
 
-/// Parse a CLI v2 record (`sessions/cli/<sessionId>.jsonl`).
 fn parse_cli_record(kind: &str, root: &Value) -> Vec<ParsedEvent> {
     let data = root.get("data").unwrap_or(&Value::Null);
 
     match kind {
-        // A prompt starts the turn; its timestamp is float seconds.
         "Prompt" => {
             let started_at_ms = cli_timestamp_ms(data).unwrap_or_else(current_time_ms);
             vec![ParsedEvent::TaskStarted { started_at_ms }]
@@ -276,7 +265,6 @@ fn parse_cli_record(kind: &str, root: &Value) -> Vec<ParsedEvent> {
                 .flatten()
             {
                 match part.get("kind").and_then(Value::as_str) {
-                    // The answer text is never published.
                     Some("text") => events.push(ParsedEvent::Thinking { reasoning: None }),
                     Some("toolUse") => {
                         let tool = part.get("data").unwrap_or(&Value::Null);
@@ -322,7 +310,6 @@ fn parse_cli_record(kind: &str, root: &Value) -> Vec<ParsedEvent> {
     }
 }
 
-/// Parse a flat record of the older IDE builds (`role` plus `content`).
 fn parse_flat_record(role: &str, root: &Value) -> Vec<ParsedEvent> {
     match role {
         "user" => {
@@ -337,10 +324,6 @@ fn parse_flat_record(role: &str, root: &Value) -> Vec<ParsedEvent> {
     }
 }
 
-/// The safe activity of a Kiro tool call.
-///
-/// The tool name is mapped onto a fixed label. The command only refines a
-/// shell label and never leaves the adapter.
 fn kiro_activity(name: &str, args: Option<&Value>) -> ToolActivity {
     let lower = name.trim().to_ascii_lowercase();
     let command = args
@@ -354,7 +337,6 @@ fn kiro_activity(name: &str, args: Option<&Value>) -> ToolActivity {
         "fs_write" | "fs_append" | "str_replace" | "write" | "edit" | "delete_file"
         | "fs_delete" => "Editing files",
         "read_file" | "fs_read" | "read" => "Reading project files",
-        // Unknown tools keep a fixed generic label.
         other => classify_tool(other, command),
     };
 
@@ -391,7 +373,6 @@ fn kiro_file_basename(args: Option<&Value>) -> Option<String> {
 
     if let Some(operations) = args.get("operations").and_then(Value::as_array) {
         for operation in operations {
-            // A directory is not a file.
             if operation.get("mode").and_then(Value::as_str) == Some("Directory") {
                 continue;
             }
@@ -406,7 +387,6 @@ fn kiro_file_basename(args: Option<&Value>) -> Option<String> {
     None
 }
 
-/// The last path component of a path.
 fn basename_of(path: &str) -> Option<String> {
     let trimmed = path.trim().trim_matches('"');
     if trimmed.is_empty() {
@@ -439,7 +419,6 @@ fn cli_timestamp_ms(data: &Value) -> Option<i64> {
     }
 }
 
-/// The current time in milliseconds, used when a record has no timestamp.
 fn current_time_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -499,7 +478,6 @@ mod tests {
         let end = r#"{"id":"turn-end","timestamp":"2026-10-08T20:32:48.809Z","payload":{"type":"turn_end","stopReason":"end_turn"}}"#;
         assert_eq!(parse_line(end), vec![ParsedEvent::Completed]);
 
-        // The result of the tool closes the tracked call.
         let result = r#"{"id":"fs_write_call-result","timestamp":"2026-10-08T20:32:48.100Z","payload":{"type":"tool_result","toolCallId":"fs_write_call","content":"PRIVATE_OUTPUT","success":true}}"#;
         assert_eq!(
             parse_line(result),
@@ -561,12 +539,9 @@ mod tests {
             r#"{"payload":{"type":"session_event","category":"session_pause"}}"#,
             r#"{"kind":"UnknownKind","data":{"content":"PRIVATE"}}"#,
             r#"{"role":"system","content":"PRIVATE"}"#,
-            // The engine writes one line per action state: only the terminal
-            // states may be published.
             r#"{"payload":{"type":"tool_call","toolName":"execute_bash","args":{"command":"echo PRIVATE"},"status":"awaiting_approval"}}"#,
             r#"{"payload":{"type":"tool_call","toolName":"execute_bash","args":{"command":"echo PRIVATE"},"status":"executing"}}"#,
             r#"{"payload":{"type":"tool_call","toolName":"execute_bash","args":{"command":"echo PRIVATE"},"status":"denied"}}"#,
-            // A renamed tool name yields no activity at all.
             r#"{"payload":{"type":"tool_call","args":{"path":"C:\\Users\\PC\\Documents\\SecretProject\\src\\main.rs"},"status":"completed"}}"#,
         ] {
             assert!(
@@ -592,7 +567,6 @@ mod tests {
             ]
         );
 
-        // Internal placeholders and prose are dropped.
         for model in ["auto", "qdev::auto", "agent", "a model with spaces", ""] {
             let record =
                 serde_json::json!({"model": model, "payload": {"type": "user"}}).to_string();
@@ -605,7 +579,6 @@ mod tests {
             );
         }
 
-        // The CLI v2 store keeps float seconds in `data.meta.timestamp`.
         let prompt = r#"{"version":"v1","kind":"Prompt","data":{"message_id":"p1","content":[{"kind":"text","data":"PRIVATE"}],"meta":{"timestamp":1785600005.42}}}"#;
         assert_eq!(
             parse_line(prompt),
@@ -638,12 +611,9 @@ mod tests {
             agent: "claude-sonnet-4-5".to_string(),
         }));
 
-        // The sidecar is rewritten in place, so the same values are not
-        // reported twice.
         let again = parse_document(&sidecar, &mut seen);
         assert!(again.is_empty());
 
-        // A sidecar without a workspace or a model reports nothing.
         let mut empty_seen = std::collections::HashSet::new();
         assert!(
             parse_document(&serde_json::json!({"session_id": "s2"}), &mut empty_seen).is_empty()
@@ -689,7 +659,6 @@ mod tests {
             }]
         );
 
-        // A directory in the operation list is not a file.
         let read = r#"{"version":"v1","kind":"AssistantMessage","data":{"message_id":"m5","content":[{"kind":"toolUse","data":{"toolUseId":"t3","name":"read","input":{"operations":[{"mode":"Directory","path":"/tmp/proj"},{"mode":"File","path":"/tmp/proj/main.go"}]}}}]}}"#;
         assert_eq!(
             parse_line(read),

@@ -195,13 +195,11 @@ pub(crate) fn column_text(row: &rusqlite::Row<'_>, index: usize) -> Option<Strin
     }
 }
 
-/// Read a column as text without failing when the column does not exist.
 pub(crate) fn column_text_opt(row: &rusqlite::Row<'_>, name: &str) -> Option<String> {
     let index = row.as_ref().column_index(name).ok()?;
     column_text(row, index)
 }
 
-/// Read a column as a JSON value, parsing JSON text columns.
 pub(crate) fn column_json(row: &rusqlite::Row<'_>, index: usize) -> Option<Value> {
     let text = column_text(row, index)?;
     serde_json::from_str(&text).ok()

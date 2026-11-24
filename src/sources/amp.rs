@@ -26,7 +26,6 @@ use serde_json::Value;
 
 use crate::events::{ParsedEvent, ToolActivity, classify_tool};
 
-/// The longest tool name that is accepted.
 const MAX_TOOL_NAME_LEN: usize = 64;
 
 /// Parse one line of the harness' per-thread activity log.
@@ -126,7 +125,6 @@ fn message_added_events(value: &Value) -> Vec<ParsedEvent> {
     }]
 }
 
-/// The block types of a transcript message.
 fn block_types(value: &Value) -> Vec<&str> {
     value
         .get("blockTypes")
@@ -173,7 +171,6 @@ fn current_time_ms() -> i64 {
 mod tests {
     use super::*;
 
-    /// A redacted tool lease of a local Amp thread.
     fn tool_lease(tool_name: &str) -> String {
         format!(
             r#"{{"@timestamp":"2026-10-21T01:23:45.678Z","level":"INFO","message":"websocket message","logger":"amp.cli.thread-client","threadId":"T-f9941a55-3765-421e-972f-05dc1138c3a3","type":"tool_lease","toolName":"{tool_name}","toolCallId":"toolu_019cyniPYrSgaJitUSMyxyNV","parentToolCallId":null,"direction":"receive","clientID":"cli-7f2"}}"#
@@ -235,8 +232,6 @@ mod tests {
 
     #[test]
     fn redacted_tool_arguments_never_leave_the_adapter() {
-        // A record that carries a tool argument, a file path and message
-        // text must not forward any of it.
         let line = r#"{"@timestamp":"2026-10-21T01:23:45.678Z","level":"INFO","message":"PRIVATE_PROMPT_TEXT","logger":"amp.cli.thread-client","threadId":"T-f9941a55-3765-421e-972f-05dc1138c3a3","type":"tool_lease","toolName":"edit_file","toolCallId":"toolu_1","parentToolCallId":null,"direction":"receive","clientID":"cli-7f2","input":{"path":"C:\\Users\\PC\\Documents\\Discodex\\src\\main.rs"},"arguments":{"file_path":"C:\\Users\\PC\\Documents\\Discodex\\src\\main.rs","content":"PRIVATE_CONTENT"},"result":"PRIVATE_OUTPUT","text":"PRIVATE_RESPONSE","cwd":"C:\\Users\\PC\\Documents\\Discodex"}"#;
         let events = parse_line(line);
         let debug = format!("{events:?}");
@@ -257,7 +252,6 @@ mod tests {
             assert!(!debug.contains(secret), "{secret} leaked into {debug}");
         }
 
-        // Only the normalized label and the tool lifecycle leave the adapter.
         assert_eq!(events.len(), 2);
         assert_eq!(
             events[0],
@@ -290,9 +284,7 @@ mod tests {
             r#"{"type":"tool_lease","toolName":"edit file"}"#,
             r#"{"type":"tool_lease","toolName":"edit_file; rm -rf"}"#,
             r#"{"type":"tool_lease","toolName":"toolu_019cyniPYrSgaJitUSMyxyNVtoolu_019cyniPYrSgaJitUSMyxyNVtoolu"}"#,
-            // A lease that the CLI sent to the server is not a running tool.
             r#"{"type":"tool_lease","toolName":"edit_file","direction":"send"}"#,
-            // Only an assistant delta in the generating state is a phase.
             r#"{"type":"delta","role":"user","state":"generating"}"#,
             r#"{"type":"delta","role":"assistant","state":"idle"}"#,
         ] {
@@ -334,8 +326,6 @@ mod tests {
             }]
         );
 
-        // The answer of a tool is delivered as a user message and is not a
-        // new turn of the user.
         let tool_result = r#"{"@timestamp":"2026-10-21T01:23:50.000Z","level":"INFO","message":"websocket message","logger":"amp.cli.thread-client","threadId":"T-f9941a55-3765-421e-972f-05dc1138c3a3","type":"message_added","messageId":"m_02","role":"user","blockCount":1,"blockTypes":["tool_result"],"blockStates":["complete"],"messageState":"done","hasUsage":false}"#;
         assert!(parse_line(tool_result).is_empty());
     }

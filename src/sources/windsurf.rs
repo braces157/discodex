@@ -27,18 +27,16 @@ use crate::events::{
     timestamp_ms,
 };
 
-/// The kind of a transcript step.
 enum Step {
-    /// A new user turn starts the elapsed timer.
     UserTurn,
-    /// The planner produced a message.
     Planner,
-    /// A tool step with its normalized label.
-    ///
     /// `file` marks the steps that work on a single file: only those may
     /// publish the basename of a path. The path of a search or a directory
     /// step names a folder, and a folder name is not published as a file.
-    Tool { label: &'static str, file: bool },
+    Tool {
+        label: &'static str,
+        file: bool,
+    },
 }
 
 /// Parse one line of the harness' append-only activity log.
@@ -56,7 +54,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     let Some(step_type) = record.get("type").and_then(Value::as_str) else {
         return Vec::new();
     };
-    // An unknown step type is an unknown record shape: nothing is published.
     let Some(step) = classify_step(step_type.trim()) else {
         return Vec::new();
     };
@@ -75,16 +72,12 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     }
 
     match step {
-        // The prompt itself is never read, only the turn boundary.
         Step::UserTurn => {
             let started_at_ms = record_timestamp_ms(record).unwrap_or_else(now_ms);
             events.push(ParsedEvent::TaskStarted { started_at_ms });
         }
-        // The answer and the thinking of the planner stay unread: only the
-        // fact that the model produced a message is published.
         Step::Planner => events.push(ParsedEvent::Thinking { reasoning: None }),
         Step::Tool { label, file } => {
-            // Only the steps that work on a single file publish a basename.
             let file = if file {
                 step_file_basename(record)
             } else {
@@ -112,10 +105,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     events
 }
 
-/// Map a step type onto the event it produces.
-///
-/// Only the step types that Cascade writes are known. Everything else is an
-/// unknown shape and yields no activity at all.
 fn classify_step(step_type: &str) -> Option<Step> {
     match step_type {
         "user_input" => Some(Step::UserTurn),
@@ -180,7 +169,6 @@ fn step_file_basename(record: &Map<String, Value>) -> Option<String> {
     None
 }
 
-/// The basename of a path under a key the shared extractor does not know.
 fn extra_path_basename(value: &Value) -> Option<String> {
     for key in [
         "filePath",
@@ -200,7 +188,6 @@ fn extra_path_basename(value: &Value) -> Option<String> {
     None
 }
 
-/// The last component of a path.
 fn basename_of(path: &str) -> Option<String> {
     let trimmed = path.trim().trim_matches('"');
     if trimmed.is_empty() {
@@ -214,7 +201,6 @@ fn basename_of(path: &str) -> Option<String> {
     safe_basename(name.to_string())
 }
 
-/// Reject a basename that cannot be a file name.
 fn safe_basename(name: String) -> Option<String> {
     if name.is_empty() || name.len() > 128 {
         return None;
@@ -261,7 +247,6 @@ fn record_timestamp_ms(record: &Map<String, Value>) -> Option<i64> {
     None
 }
 
-/// Model ids are metadata, not prose: a narrow charset only, or drop it.
 fn sanitize_model(model: &str) -> Option<String> {
     let trimmed = model.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -279,7 +264,6 @@ fn sanitize_model(model: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// True for the placeholders that name no concrete model.
 fn is_placeholder_model(model: &str) -> bool {
     matches!(
         model.to_ascii_lowercase().as_str(),
@@ -287,10 +271,6 @@ fn is_placeholder_model(model: &str) -> bool {
     )
 }
 
-/// The current time in milliseconds.
-///
-/// The transcript line is handed over as soon as it is written, so this is the
-/// closest instant to the start of the turn.
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -315,7 +295,6 @@ mod tests {
             .timestamp_millis()
     }
 
-    /// The presence state after every event of a line was applied.
     fn presence_states(
         line: &str,
         now_ms: i64,
@@ -354,7 +333,6 @@ mod tests {
             ]
         );
 
-        // The tool runs first and the step is over afterwards.
         let states = presence_states(code_action, 1_789_000_000_000);
         assert_eq!(states.len(), 2);
         assert_eq!(states[0].0, Phase::RunningTools);
@@ -363,7 +341,6 @@ mod tests {
         assert_eq!(states[0].3.as_deref(), Some("Rust"));
         assert_eq!(states[1].0, Phase::Thinking);
 
-        // A command step is announced without a file.
         let run_command = r#"{"type":"run_command","status":"done","run_command":{"command":"cargo test","output":"PRIVATE_OUTPUT"}}"#;
         assert_eq!(
             parse_line(run_command),
@@ -379,7 +356,6 @@ mod tests {
             ]
         );
 
-        // A read step keeps the file and infers the language.
         let view_file = r#"{"type":"view_file","status":"done","view_file":{"path":"C:\\work\\Discodex\\src\\provider.rs"}}"#;
         let events = parse_line(view_file);
         assert!(
@@ -396,7 +372,6 @@ mod tests {
             "unexpected events {events:?}"
         );
 
-        // The planner message is a thinking step, its text stays unread.
         let planner = r#"{"type":"planner_response","status":"done","planner_response":{"response":"PRIVATE_ANSWER","thinking":"PRIVATE_THOUGHT"}}"#;
         assert_eq!(
             parse_line(planner),
@@ -447,19 +422,15 @@ mod tests {
     #[test]
     fn malformed_and_unknown_records_produce_no_events() {
         for record in [
-            // Not JSON at all.
             "{",
             "not json",
             "[]",
             "null",
-            // No step type.
             "{}",
             r#"{"status":"done"}"#,
             r#"{"type":"","status":"done"}"#,
-            // A step type that Cascade does not write.
             r#"{"type":"unknown_step","status":"done","unknown_step":{"path":"C:\\work\\p\\src\\main.rs"}}"#,
             r#"{"type":"custom_tool","status":"done","custom_tool":{"path":"C:\\work\\p\\src\\main.rs"}}"#,
-            // A renamed step type degrades to no activity.
             r#"{"kind":"user_input","status":"done","user_input":{"user_response":"PRIVATE"}}"#,
         ] {
             assert!(
@@ -471,7 +442,6 @@ mod tests {
 
     #[test]
     fn a_renamed_status_field_never_guesses_that_a_step_is_over() {
-        // The turn boundary still comes from the step type.
         let turn = r#"{"type":"user_input","state":"done","user_input":{"user_response":"PRIVATE_PROMPT"}}"#;
         assert!(
             parse_line(turn)
@@ -479,8 +449,6 @@ mod tests {
                 .any(|event| matches!(event, ParsedEvent::TaskStarted { .. }))
         );
 
-        // A tool step without a known status stays open instead of claiming
-        // that the tool is over.
         let step =
             r#"{"type":"run_command","state":"done","run_command":{"command":"cargo test"}}"#;
         let events = parse_line(step);
@@ -495,7 +463,6 @@ mod tests {
             }]
         );
 
-        // A status that is not a terminal one keeps the step open as well.
         let running =
             r#"{"type":"run_command","status":"running","run_command":{"command":"cargo test"}}"#;
         assert_eq!(parse_line(running).len(), 1);
@@ -503,7 +470,6 @@ mod tests {
 
     #[test]
     fn the_payload_key_is_never_derived_from_the_step_type() {
-        // The payload key of `grep_search_v2` stays `grep_search`.
         let line = r#"{"type":"grep_search_v2","status":"done","grep_search":{"path":"C:\\work\\p\\src\\lib.rs","pattern":"PRIVATE_PATTERN"}}"#;
         let events = parse_line(line);
         assert_eq!(
@@ -521,7 +487,6 @@ mod tests {
         );
         assert!(!format!("{events:?}").contains("PRIVATE_PATTERN"));
 
-        // A payload key that does not match the step type at all still works.
         let renamed = r#"{"type":"code_action","status":"done","payload":{"path":"C:\\work\\p\\src\\main.rs"}}"#;
         let events = parse_line(renamed);
         assert!(
@@ -550,13 +515,11 @@ mod tests {
             ]
         );
 
-        // A numeric timestamp is normalized to milliseconds.
         let numeric = r#"{"type":"user_input","status":"done","timestamp":1789187508,"user_input":{"user_response":"PRIVATE"}}"#;
         assert!(parse_line(numeric).contains(&ParsedEvent::TaskStarted {
             started_at_ms: 1_789_187_508_000
         }));
 
-        // Prose and placeholders are no model id and yield no agent.
         for model in [
             "a model with spaces",
             "Claude Sonnet 4.5",

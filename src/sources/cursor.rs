@@ -30,13 +30,10 @@ use crate::events::{
     language_from_file, project_name, timestamp_ms,
 };
 
-/// Maximum length of a published model id.
 const MAX_AGENT_ID_LEN: usize = 128;
 
-/// Maximum length of the IDE injected `<timestamp>` block.
 const MAX_TIMESTAMP_BLOCK_LEN: usize = 96;
 
-/// Keys that may carry the record's own timestamp.
 const TIMESTAMP_KEYS: [&str; 6] = [
     "timestamp",
     "created_at",
@@ -46,10 +43,8 @@ const TIMESTAMP_KEYS: [&str; 6] = [
     "createdAtMs",
 ];
 
-/// Keys that may carry the workspace path of a record.
 const CWD_KEYS: [&str; 3] = ["cwd", "workspacePath", "workspace_path"];
 
-/// Keys that may carry the file path of a tool call.
 const PATH_KEYS: [&str; 6] = [
     "path",
     "file_path",
@@ -59,18 +54,14 @@ const PATH_KEYS: [&str; 6] = [
     "absolute_path",
 ];
 
-/// Keys that may carry the workspace directory of a tool call.
 const TOOL_CWD_KEYS: [&str; 3] = ["cwd", "working_directory", "workingDirectory"];
 
-/// Keys that may carry the shell command of a tool call.
 const COMMAND_KEYS: [&str; 3] = ["command", "cmd", "CommandLine"];
 
-/// English month abbreviations of the IDE timestamp block.
 const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-/// English weekday names of the IDE timestamp block.
 const WEEKDAYS: [&str; 7] = [
     "Monday",
     "Tuesday",
@@ -94,11 +85,8 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
         return Vec::new();
     }
 
-    // The control channel. A turn boundary ends the turn, an error record
-    // carries the failure text and never becomes a presence.
     match value.get("type").and_then(Value::as_str) {
         Some("turn_ended") => {
-            // Every tool of the turn is done when the turn ends.
             return vec![ParsedEvent::ToolFinished, ParsedEvent::Completed];
         }
         Some("error") => return Vec::new(),
@@ -114,16 +102,12 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     let mut metadata = None;
 
     if role == "user" {
-        // A user record without any content carries no information.
         if parts.is_empty() {
             return Vec::new();
         }
-        // A user record that carries a tool result closes a tool instead of
-        // starting a turn.
         if parts.iter().any(|part| matches!(part, Part::ToolResult)) {
             return vec![ParsedEvent::ToolFinished];
         }
-        // The tools of the previous turn are done once a new turn starts.
         events.push(ParsedEvent::ToolFinished);
         metadata = session_metadata(&value);
         let started_at_ms = record_timestamp_ms(&value)
@@ -136,7 +120,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
             .unwrap_or_else(current_time_ms);
         events.push(ParsedEvent::TaskStarted { started_at_ms });
     } else {
-        // The model id, when the record happens to carry one.
         if let Some(agent) = model_label(&value) {
             events.push(ParsedEvent::AgentDetected { agent });
         }
@@ -167,7 +150,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
         events.extend(tool_events);
     }
 
-    // The workspace is only announced together with real activity.
     if events.is_empty() {
         return Vec::new();
     }
@@ -184,15 +166,10 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     events
 }
 
-/// A part of a message.
 enum Part<'a> {
-    /// Free text of the user or of the model. The text itself is never read.
     Text(&'a str),
-    /// A reasoning trace. The trace itself is never read.
     Thinking,
-    /// A tool call with its name and its input object.
     ToolUse { name: &'a str, input: Value },
-    /// A tool result. The result itself is never read.
     ToolResult,
 }
 
@@ -222,7 +199,6 @@ fn record_role(value: &Value) -> Option<&str> {
     }
 }
 
-/// The content of a record, either nested in the message or flat.
 fn record_content(value: &Value) -> Option<&Value> {
     for candidate in [value.pointer("/message/content"), value.get("content")] {
         if let Some(content) = candidate
@@ -234,11 +210,9 @@ fn record_content(value: &Value) -> Option<&Value> {
     None
 }
 
-/// Split the content of a record into its parts.
 fn parts_of(value: &Value) -> Vec<Part<'_>> {
     let mut parts = Vec::new();
     match record_content(value) {
-        // The flat shape carries the text as a plain string.
         Some(Value::String(text)) => parts.push(Part::Text(text.as_str())),
         Some(Value::Array(items)) => {
             for item in items {
@@ -299,14 +273,11 @@ fn tool_input(item: &Value) -> Value {
     }
 }
 
-/// The normalized activity for one tool call.
 fn tool_activity(name: &str, input: &Value) -> ToolActivity {
     let command = COMMAND_KEYS
         .iter()
         .find_map(|key| string_field(input, key))
         .unwrap_or_default();
-    // The label always comes from the shared closed table, never from the
-    // tool description, the tool arguments or the raw command text.
     let label = cursor_label(name, &command).to_string();
     let file = extract_file_basename(input);
     let language = file
@@ -343,16 +314,12 @@ fn cursor_label(name: &str, command: &str) -> &'static str {
         "task" | "subagent" | "agent" | "runsubagent" | "dispatchagent" => "Running coding agent",
         "askquestion" | "askuser" | "requestuserinput" => "Waiting for input",
         "viewimage" | "readimage" | "image" => "Inspecting image",
-        // The shell tool is the only one whose label depends on its command.
         "shell" | "bash" | "execute" | "exec" | "runcommand" | "runterminalcommand"
         | "terminal" | "terminalcommand" => classify_tool("shell", command),
         _ => classify_tool(&lower, command),
     }
 }
 
-/// The workspace of a record, if it is known.
-///
-/// Only the folder name is published, the full path stays local.
 fn session_metadata(value: &Value) -> Option<ParsedEvent> {
     for key in CWD_KEYS {
         if let Some(cwd) = string_field(value, key)
@@ -364,7 +331,6 @@ fn session_metadata(value: &Value) -> Option<ParsedEvent> {
     None
 }
 
-/// The workspace of a tool call, recovered from an absolute path.
 fn session_metadata_from_input(input: &Value) -> Option<ParsedEvent> {
     for key in PATH_KEYS.iter().chain(TOOL_CWD_KEYS.iter()) {
         let Some(path) = string_field(input, key) else {
@@ -380,7 +346,6 @@ fn session_metadata_from_input(input: &Value) -> Option<ParsedEvent> {
     None
 }
 
-/// The model id of a record, if it carries one.
 fn model_label(value: &Value) -> Option<String> {
     value
         .get("model")
@@ -420,7 +385,6 @@ fn parent_conversation_id(value: &Value) -> Option<String> {
     None
 }
 
-/// A conversation id is a UUID: eight, four, four, four and twelve hex digits.
 fn is_conversation_id(text: &str) -> bool {
     let groups: Vec<&str> = text.split('-').collect();
     if groups.len() != 5 {
@@ -432,7 +396,6 @@ fn is_conversation_id(text: &str) -> bool {
     })
 }
 
-/// The record's own timestamp, if it has one.
 fn record_timestamp_ms(value: &Value) -> Option<i64> {
     TIMESTAMP_KEYS.iter().find_map(|key| {
         value
@@ -461,7 +424,6 @@ fn timestamp_block_ms(text: &str) -> Option<i64> {
     parse_timestamp_text(inner)
 }
 
-/// Read a timestamp that is either RFC 3339 or the IDE's locale shape.
 fn parse_timestamp_text(text: &str) -> Option<i64> {
     if let Ok(time) = chrono::DateTime::parse_from_rfc3339(text) {
         return Some(time.timestamp_millis());
@@ -584,7 +546,6 @@ fn normalize_offset(text: &str) -> Option<String> {
     Some(format!("{sign}{hours:02}:{minutes:02}"))
 }
 
-/// Read a string field, unquoting it when needed.
 fn string_field(value: &Value, key: &str) -> Option<String> {
     let text = value.get(key).and_then(Value::as_str)?.trim();
     let unquoted = text
@@ -598,7 +559,6 @@ fn string_field(value: &Value, key: &str) -> Option<String> {
     }
 }
 
-/// Whether a path is absolute.
 fn is_absolute_path(path: &str) -> bool {
     let bytes = path.as_bytes();
     if bytes.len() >= 3 && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/') {
@@ -636,8 +596,6 @@ mod tests {
 
     #[test]
     fn maps_cursor_records_to_normalized_events() {
-        // A new user turn starts the elapsed timer. The IDE injects the only
-        // in band time the transcript carries.
         let events = parse_line(&user_record(
             "<timestamp>Sunday, Jul 26, 2026, 1:06 PM (UTC+3)</timestamp>\n<user_query>\nRead provider.rs\n</user_query>",
         ));
@@ -651,8 +609,6 @@ mod tests {
             ]
         );
 
-        // A tool call becomes an activity, a basename and a language, and the
-        // absolute path recovers the workspace.
         let assistant = serde_json::json!({
             "role": "assistant",
             "message": {"content": [
@@ -682,7 +638,6 @@ mod tests {
             ]
         );
 
-        // The shell tool keeps the command based labels of the shared table.
         let shell = serde_json::json!({
             "role": "assistant",
             "message": {"content": [
@@ -711,7 +666,6 @@ mod tests {
             ]
         );
 
-        // The turn boundary closes the tools and ends the turn.
         assert_eq!(
             parse_line(r#"{"type":"turn_ended","status":"success"}"#),
             vec![ParsedEvent::ToolFinished, ParsedEvent::Completed]
@@ -766,8 +720,6 @@ mod tests {
             assert!(!debug.contains(secret), "leaked secret: {secret}");
         }
 
-        // Only the session metadata may hold a path, and it stays local: every
-        // other event carries a folder name, a basename or a label.
         let public_debug = events
             .iter()
             .filter(|event| !matches!(event, ParsedEvent::SessionMetadata { .. }))
@@ -777,7 +729,6 @@ mod tests {
         assert!(!public_debug.contains("private-workspace"));
         assert!(!public_debug.contains("cursor_demo"));
         assert!(!public_debug.contains("Z:"));
-        // The basename of the edited file is allowed, the path is not.
         assert!(public_debug.contains("secret_notes.md"));
 
         let metadata: Vec<&ParsedEvent> = events
@@ -821,7 +772,6 @@ mod tests {
                 .any(|event| format!("{event:?}").contains("PRIVATE_ERROR"))
         );
 
-        // The legacy flat and type nested shapes are still accepted.
         let flat = parse_line(r#"{"role":"user","content":"PRIVATE_PROMPT"}"#);
         assert!(matches!(flat[0], ParsedEvent::ToolFinished));
         assert!(matches!(flat[1], ParsedEvent::TaskStarted { .. }));
@@ -832,7 +782,6 @@ mod tests {
 
     #[test]
     fn reads_model_ids_and_timestamps() {
-        // A record that carries its own timestamp drives the elapsed timer.
         let turn = serde_json::json!({
             "role": "user",
             "timestamp": "2026-10-21T09:30:00.000Z",
@@ -843,7 +792,6 @@ mod tests {
             started_at_ms: 1_792_575_000_000
         }));
 
-        // The model id is published when the record carries one.
         let model = serde_json::json!({
             "role": "assistant",
             "model": "gpt-5.4-high",
@@ -854,7 +802,6 @@ mod tests {
             agent: "gpt-5.4-high".to_string()
         }));
 
-        // A prose model id and an over long one are dropped entirely.
         for bad in [
             "PRIVATE prose with spaces",
             "model/with spaces",
@@ -874,7 +821,6 @@ mod tests {
             );
         }
 
-        // A timestamp block that is not the documented shape is ignored.
         assert!(timestamp_block_ms("<timestamp>not a date</timestamp>").is_none());
         assert!(timestamp_block_ms("PRIVATE <timestamp>not a date</timestamp>").is_none());
     }

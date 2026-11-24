@@ -42,7 +42,6 @@ pub fn paint_monotone_area_and_stroke(
             bounds: clip_bounds,
         }),
         |window| {
-            // Pass 1: Clean flat translucent area tint (zero gradients)
             if style.fill_alpha > 0 {
                 let mut area = PathBuilder::fill();
                 area.move_to(point(pts[0].x, base_y));
@@ -64,7 +63,6 @@ pub fn paint_monotone_area_and_stroke(
                 }
             }
 
-            // Pass 2: Razor-sharp 4x MSAA solid stroke (zero neon glow)
             window.paint_layer(clip_bounds, |window| {
                 paint_cubic_stroke(
                     &segs,
@@ -302,7 +300,6 @@ fn paint_single_area_series(
         );
         paint_runs(range_clip, 1.0, window);
     } else if let Some(h_idx) = spec.hovered_idx {
-        // Liveline signature: crisp 100% left of cursor, smoothly dimmed right of cursor!
         let split_x = spec
             .cursor_norm_x
             .map(|nx| (nx.clamp(0.0, 1.0) * full_w).clamp(1.0, reveal_w))
@@ -342,7 +339,6 @@ fn paint_single_area_series(
                     spec.metric_color
                 };
 
-                // Clean solid live endpoint dot + dashed trace to right Y-axis when idle
                 if last_idx == Some(i)
                     && spec.hovered_idx.is_none()
                     && spec.selected_range.is_none()
@@ -424,7 +420,6 @@ fn paint_single_area_series(
     }
 }
 
-/// Detent-inspired Baseline Split curve with layer-isolated DX11 paths.
 fn paint_baseline_split_curve(
     clip_bounds: Bounds<Pixels>,
     pts: &[Point<Pixels>],

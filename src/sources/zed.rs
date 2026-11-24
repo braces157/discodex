@@ -29,16 +29,12 @@ use crate::events::{
     project_name, timestamp_ms,
 };
 
-/// Number of thread rows that are read per poll.
 const ROW_LIMIT: i64 = 200;
 
-/// Largest thread blob that is decoded, in bytes.
 const MAX_BLOB_BYTES: usize = 32 * 1024 * 1024;
 
-/// Places below the Zed root where the thread database may live.
 const DATABASE_PATHS: &[&str] = &["threads.db", "threads/threads.db"];
 
-/// One row of the `threads` table.
 struct ThreadRow {
     id: String,
     folder_paths: Option<String>,
@@ -112,7 +108,6 @@ fn read_rows(connection: &Connection) -> Option<Vec<ThreadRow>> {
     None
 }
 
-/// Read one thread row by column name.
 fn thread_row(row: &rusqlite::Row<'_>) -> Option<ThreadRow> {
     let id = column_text_opt(row, "id")?;
     let data = column_bytes(row, "data")?;
@@ -138,10 +133,8 @@ fn column_bytes(row: &rusqlite::Row<'_>, name: &str) -> Option<Vec<u8>> {
     }
 }
 
-/// Convert one thread row into the events that are new since the last poll.
 fn row_events(row: &ThreadRow, seen: &mut HashSet<String>) -> Vec<StoreEvent> {
     let Some(session) = sanitize_session_id(&row.id) else {
-        // A thread id that is not an opaque id cannot key a presence.
         return Vec::new();
     };
 
@@ -170,8 +163,6 @@ fn row_events(row: &ThreadRow, seen: &mut HashSet<String>) -> Vec<StoreEvent> {
 
     let mut events = Vec::new();
 
-    // The workspace of the conversation. Only the folder name is published, the
-    // path itself stays local.
     if let Some(cwd) = workspace_path(row.folder_paths.as_deref())
         && let Some(project) = project_name(&cwd)
         && seen.insert(format!("meta:{session}"))
@@ -182,7 +173,6 @@ fn row_events(row: &ThreadRow, seen: &mut HashSet<String>) -> Vec<StoreEvent> {
         });
     }
 
-    // The model of the conversation.
     if let Some(agent) = model_id(&snapshot)
         && seen.insert(format!("model:{session}:{agent}"))
     {
@@ -192,8 +182,6 @@ fn row_events(row: &ThreadRow, seen: &mut HashSet<String>) -> Vec<StoreEvent> {
         });
     }
 
-    // The messages of the conversation. A user message starts a turn, an
-    // agent message carries the tool calls, their results and the answer.
     if let Some(Value::Array(messages)) = snapshot.get("messages") {
         for (index, message) in messages.iter().enumerate() {
             events.extend(message_events(&session, index, message, row, seen));
@@ -204,7 +192,6 @@ fn row_events(row: &ThreadRow, seen: &mut HashSet<String>) -> Vec<StoreEvent> {
     events
 }
 
-/// Convert one message of a thread into the events that are new.
 fn message_events(
     session: &str,
     index: usize,
@@ -234,7 +221,6 @@ fn message_events(
         return events;
     };
 
-    // The content of the answer: tool calls, thinking and the final text.
     if let Some(Value::Array(blocks)) = agent.get("content") {
         for (slot, block) in blocks.iter().enumerate() {
             let Some(block) = block.as_object() else {
@@ -243,28 +229,23 @@ fn message_events(
             if let Some(tool_use) = block.get("ToolUse").and_then(Value::as_object) {
                 events.extend(tool_started_events(session, index, slot, tool_use, seen));
             } else if block.contains_key("Thinking") || block.contains_key("RedactedThinking") {
-                // The reasoning itself never leaves the adapter.
                 if seen.insert(format!("think:{session}:{index}:{slot}")) {
                     events.push(StoreEvent {
                         session: session.to_string(),
                         event: ParsedEvent::Thinking { reasoning: None },
                     });
                 }
-            } else if block.contains_key("Text") {
-                // The text of the answer is private, only its presence is
-                // reported: it ends the turn after the debounce.
-                if seen.insert(format!("text:{session}:{index}:{slot}")) {
-                    events.push(StoreEvent {
-                        session: session.to_string(),
-                        event: ParsedEvent::TerminalCandidate,
-                    });
-                }
+            } else if block.contains_key("Text")
+                && seen.insert(format!("text:{session}:{index}:{slot}"))
+            {
+                events.push(StoreEvent {
+                    session: session.to_string(),
+                    event: ParsedEvent::TerminalCandidate,
+                });
             }
         }
     }
 
-    // The results of the tool calls. The results are a map of the tool call
-    // id, a list of results is read as well.
     match agent.get("tool_results") {
         Some(Value::Object(results)) => {
             for (key, result) in results {
@@ -288,7 +269,6 @@ fn message_events(
     events
 }
 
-/// Report the start of a tool call.
 fn tool_started_events(
     session: &str,
     index: usize,
@@ -326,7 +306,6 @@ fn tool_started_events(
     events
 }
 
-/// Report the end of a tool call.
 fn tool_finished_events(
     session: &str,
     index: usize,
@@ -389,10 +368,6 @@ fn tool_arguments(tool_use: &Map<String, Value>) -> Vec<Value> {
     candidates
 }
 
-/// The activity of a tool call.
-///
-/// Only a fixed label, the basename of the file and its language leave the
-/// adapter. The command, the arguments and the result stay behind.
 fn tool_activity(name: &str, arguments: &[Value]) -> ToolActivity {
     let command = arguments
         .iter()
@@ -442,7 +417,6 @@ fn turn_started_ms(row: &ThreadRow) -> i64 {
         .unwrap_or_else(now_ms)
 }
 
-/// The model of a conversation.
 fn model_id(snapshot: &Value) -> Option<String> {
     let model = snapshot.get("model")?;
     let raw = match model {
@@ -456,7 +430,6 @@ fn model_id(snapshot: &Value) -> Option<String> {
     sanitize_model_id(raw)
 }
 
-/// Keep only a model id that looks like a model id.
 fn sanitize_model_id(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -470,7 +443,6 @@ fn sanitize_model_id(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Keep only a conversation id that looks like an opaque id.
 fn sanitize_session_id(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -484,7 +456,6 @@ fn sanitize_session_id(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Keep only a tool call id that looks like an opaque id.
 fn sanitize_call_id(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -516,7 +487,6 @@ fn decode_snapshot(data_type: Option<&str>, data: &[u8]) -> Option<Value> {
     }
 }
 
-/// Decode a compressed thread blob.
 fn decode_zstd(data: &[u8]) -> Option<Value> {
     if data.is_empty() {
         return None;
@@ -542,7 +512,6 @@ fn known_version(snapshot: &Value) -> bool {
     }
 }
 
-/// Whether a text looks like a `major.minor.patch` version.
 fn is_version_text(text: &str) -> bool {
     let mut parts = text.split('.');
     let numbered = (0..3).all(|_| {
@@ -553,7 +522,6 @@ fn is_version_text(text: &str) -> bool {
     numbered && parts.next().is_none()
 }
 
-/// A cheap fingerprint of a blob, used to notice a rewritten row.
 fn fingerprint(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
@@ -563,7 +531,6 @@ fn fingerprint(bytes: &[u8]) -> u64 {
     hash
 }
 
-/// The current time in milliseconds since the epoch.
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -572,7 +539,6 @@ fn now_ms() -> i64 {
         .min(i64::MAX as u128) as i64
 }
 
-/// A writer that refuses to buffer more than the given number of bytes.
 struct CappedBuffer {
     bytes: Vec<u8>,
     limit: usize,
@@ -630,9 +596,6 @@ mod tests {
         connection
     }
 
-    /// Insert one thread row with a compressed blob.
-    ///
-    /// Zed rewrites the whole row of a thread, so the row is upserted.
     fn insert_thread(
         connection: &Connection,
         id: &str,
@@ -662,7 +625,6 @@ mod tests {
             .expect("insert thread");
     }
 
-    /// A thread snapshot in the shape Zed stores.
     fn snapshot() -> String {
         serde_json::json!({
             "version": "0.3.0",
@@ -723,7 +685,6 @@ mod tests {
         assert_eq!(
             parsed,
             vec![
-                // The workspace folder name, never the path itself.
                 ParsedEvent::SessionMetadata {
                     project: "Discodex".to_string(),
                     cwd: WORKSPACE.to_string(),
@@ -731,11 +692,9 @@ mod tests {
                 ParsedEvent::AgentDetected {
                     agent: "claude-sonnet-4-5".to_string(),
                 },
-                // A user message starts the turn.
                 ParsedEvent::TaskStarted {
                     started_at_ms: updated_at_ms(),
                 },
-                // The tool call carries the label, the basename and the language.
                 ParsedEvent::TrackedToolStarted {
                     call_id: "toolu_01".to_string(),
                     activity: ToolActivity {
@@ -747,12 +706,10 @@ mod tests {
                 ParsedEvent::TrackedToolFinished {
                     call_id: "toolu_01".to_string(),
                 },
-                // The answer of the agent ends the turn after the debounce.
                 ParsedEvent::TerminalCandidate,
             ]
         );
 
-        // The same row is never reported twice.
         assert!(poll(&path, &mut seen).is_empty());
 
         let _ = std::fs::remove_file(&path);
@@ -824,7 +781,6 @@ mod tests {
             assert!(!debug.contains(secret), "leaked {secret} in {debug}");
         }
 
-        // Only the basename of the file and a fixed label leave the adapter.
         let write = events
             .iter()
             .find_map(|event| match &event.event {
@@ -838,7 +794,6 @@ mod tests {
         assert_eq!(write.file.as_deref(), Some("notes.md"));
         assert_eq!(write.language.as_deref(), Some("Markdown"));
 
-        // The command is reduced to a label, the command itself stays behind.
         let shell = events
             .iter()
             .find_map(|event| match &event.event {
@@ -852,7 +807,6 @@ mod tests {
         assert_eq!(shell.file, None);
         assert_eq!(shell.language, None);
 
-        // The reasoning is never forwarded.
         assert!(
             events
                 .iter()
@@ -867,7 +821,6 @@ mod tests {
         let path = temp_db("malformed");
         {
             let connection = create_db(&path);
-            // A blob that is not valid JSON at all.
             connection
                 .execute(
                     "INSERT INTO threads (id, summary, updated_at, data_type, data)
@@ -875,7 +828,6 @@ mod tests {
                     rusqlite::params![UPDATED_AT],
                 )
                 .expect("insert broken row");
-            // A blob that claims a different encoding.
             connection
                 .execute(
                     "INSERT INTO threads (id, summary, updated_at, data_type, data)
@@ -883,7 +835,6 @@ mod tests {
                     rusqlite::params![UPDATED_AT, b"whatever".to_vec()],
                 )
                 .expect("insert unknown row");
-            // A blob with compressed garbage.
             connection
                 .execute(
                     "INSERT INTO threads (id, summary, updated_at, data_type, data)
@@ -891,7 +842,6 @@ mod tests {
                     rusqlite::params![UPDATED_AT, b"\x28\xb5\x2f\xfd\x00".to_vec()],
                 )
                 .expect("insert broken zstd row");
-            // An empty object, an unknown version and an unknown message.
             for (id, snapshot) in [
                 ("empty", "{}"),
                 ("no-messages", r#"{"version":"0.3.0"}"#),
@@ -920,7 +870,6 @@ mod tests {
         let events = poll(&path, &mut seen);
         assert!(events.is_empty(), "unexpected events {events:?}");
 
-        // A database without the threads table is tolerated as well.
         let empty = temp_db("no-table");
         {
             let connection = Connection::open(&empty).expect("create database");
@@ -970,7 +919,6 @@ mod tests {
             ]
         );
 
-        // A model id that is not a model id is dropped.
         assert_eq!(sanitize_model_id("gpt 5 codex"), None);
         assert_eq!(sanitize_model_id(""), None);
         assert_eq!(sanitize_model_id(&"a".repeat(129)), None);
@@ -1004,10 +952,8 @@ mod tests {
         let mut seen = HashSet::new();
         let first = poll(&path, &mut seen);
         assert_eq!(first.len(), 3, "unexpected events {first:?}");
-        // The same snapshot is not reported again.
         assert!(poll(&path, &mut seen).is_empty());
 
-        // Zed rewrites the whole row when the thread grows.
         {
             let connection = Connection::open(&path).expect("open database");
             insert_thread(
@@ -1090,7 +1036,6 @@ mod tests {
                 ParsedEvent::TrackedToolFinished {
                     call_id: "toolu_01".to_string(),
                 },
-                // A result without a call id cannot be tracked.
                 ParsedEvent::ToolFinished,
             ]
         );

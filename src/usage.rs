@@ -4754,7 +4754,6 @@ mod tests {
         assert_eq!(snap2.rows[0].input_tokens, Some(500));
         drop(conn);
 
-        // Kilo Code shares the same DB format.
         fs::copy(&db_path, f.0.join("kilo.db")).unwrap();
         let kilo_snap = f
             .scanner_store(Provider::KiloCode, SessionStore::Sqlite)
@@ -4765,7 +4764,6 @@ mod tests {
 
     #[test]
     fn factory_droid_copilot_junie_cline_roo_zed_crush_and_aider_parse_correctly() {
-        // Factory Droid: reads tokenUsage (not inclusiveTokenUsage), ignores .bak
         let f_droid = Fixture::new();
         f_droid.write_text(
             "proj/sess-1.settings.json",
@@ -4792,7 +4790,6 @@ mod tests {
         assert_eq!(droid_snap.rows[0].output_tokens, Some(40));
         assert_eq!(droid_snap.rows[0].task_time_ms, None);
 
-        // Copilot CLI
         let f_cop = Fixture::new();
         f_cop.write(
             "sess-abc/events.jsonl",
@@ -4809,7 +4806,6 @@ mod tests {
         assert_eq!(cop_snap.rows[0].task_time_ms, Some(5000));
         assert!(cop_snap.rows[0].estimated_cost_usd.is_some());
 
-        // Junie (skips COMPLETED replay)
         let f_junie = Fixture::new();
         f_junie.write(
             "j1/events.jsonl",
@@ -4823,7 +4819,6 @@ mod tests {
         assert_eq!(junie_snap.rows[0].input_tokens, Some(1200));
         assert_eq!(junie_snap.rows[0].requests, 1);
 
-        // Cline & Roo Code
         let f_cline = Fixture::new();
         f_cline.write_text(
             "tasks/t1/history_item.json",
@@ -4843,7 +4838,6 @@ mod tests {
         assert_eq!(cline_snap.rows[0].input_tokens, Some(200));
         assert!(!format!("{cline_snap:?}").contains("SECRET_PROMPT_TEXT"));
 
-        // Zed SQLite zstd thread blob
         let f_zed = Fixture::new();
         let zed_db = f_zed.0.join("threads.db");
         let zconn = rusqlite::Connection::open(&zed_db).unwrap();
@@ -4874,7 +4868,6 @@ mod tests {
         assert_eq!(zed_snap.rows[0].input_tokens, Some(160));
         assert_eq!(zed_snap.rows[0].output_tokens, Some(25));
 
-        // Crush SQLite optional columns
         let f_crush = Fixture::new();
         let crush_db = f_crush.0.join("crush.db");
         let cconn = rusqlite::Connection::open(&crush_db).unwrap();
@@ -4894,7 +4887,6 @@ mod tests {
         assert_eq!(crush_snap.rows[0].input_tokens, Some(420));
         assert_eq!(crush_snap.rows[0].output_tokens, Some(80));
 
-        // Aider Markdown
         let f_aider = Fixture::new();
         f_aider.write_text(
             "repo/.aider.chat.history.md",

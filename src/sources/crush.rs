@@ -32,23 +32,18 @@ use crate::events::{
     project_name, timestamp_ms,
 };
 
-/// Number of message rows that are read per poll.
 const ROW_LIMIT: i64 = 200;
 
-/// Name of the project registry inside the Crush data directory.
 const REGISTRY_FILE: &str = "projects.json";
 
-/// Name of the session database inside a project data directory.
 const DATABASE_FILE: &str = "crush.db";
 
-/// Name of the default data directory inside a project.
 const DATA_DIR_NAME: &str = ".crush";
 
 /// Magic bytes of a zstd frame. Upstream plans to compress the parts column,
 /// so a compressed blob is skipped instead of being guessed at.
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 
-/// Labels of the Crush tools that the shared classifier does not cover.
 const CRUSH_TOOL_LABELS: &[(&str, &str)] = &[
     ("view", "Reading project files"),
     ("ls", "Reading project files"),
@@ -75,7 +70,6 @@ static WORKSPACES: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
 pub fn databases(root: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = Vec::new();
 
-    // Every project of the registry has its own database.
     if let Some(registry) = registry_path(root) {
         for (data_dir, workspace) in read_registry(&registry, root) {
             let database = data_dir.join(DATABASE_FILE);
@@ -86,8 +80,6 @@ pub fn databases(root: &Path) -> Vec<PathBuf> {
         }
     }
 
-    // Fallback: without a usable registry the database of the root itself is
-    // the only candidate.
     if found.is_empty() {
         let fallback = root.join(DATABASE_FILE);
         if let Some(workspace) = workspace_of(&fallback) {
@@ -95,7 +87,6 @@ pub fn databases(root: &Path) -> Vec<PathBuf> {
         }
         found.push(fallback);
 
-        // A project that is used as the root keeps its database in `.crush`.
         let in_project = root.join(DATA_DIR_NAME).join(DATABASE_FILE);
         if in_project.is_file() {
             if let Some(workspace) = workspace_of(&in_project) {
@@ -138,7 +129,6 @@ pub fn poll(db: &Path, seen: &mut HashSet<String>) -> Vec<StoreEvent> {
     events
 }
 
-/// One row of the `messages` table.
 struct MessageRow {
     id: String,
     session_id: String,
@@ -161,7 +151,6 @@ const MESSAGE_QUERIES: &[&str] = &[
     "SELECT * FROM messages LIMIT ?",
 ];
 
-/// Read the newest message rows, tolerating a changed schema.
 fn read_messages(connection: &Connection) -> Option<Vec<MessageRow>> {
     for query in MESSAGE_QUERIES {
         let Ok(mut statement) = connection.prepare(query) else {
@@ -249,9 +238,6 @@ fn is_compressed(row: &rusqlite::Row<'_>, index: usize) -> bool {
     }
 }
 
-/// Read the parent session of every conversation.
-///
-/// A session with a parent is a sub agent of that conversation.
 fn read_parents(connection: &Connection) -> HashMap<String, String> {
     let mut parents = HashMap::new();
     let Ok(mut statement) = connection.prepare("SELECT id, parent_session_id FROM sessions") else {
@@ -276,7 +262,6 @@ fn read_parents(connection: &Connection) -> HashMap<String, String> {
     parents
 }
 
-/// Convert one message row into normalized events.
 fn row_events(
     row: &MessageRow,
     parents: &HashMap<String, String>,
@@ -285,7 +270,6 @@ fn row_events(
 ) -> Vec<ParsedEvent> {
     let mut events = Vec::new();
 
-    // The row was already reported in this state.
     let row_key = format!(
         "row:{}:{}:{}:{}",
         row.session_id,
@@ -297,7 +281,6 @@ fn row_events(
         return events;
     }
 
-    // The workspace of the project, reported once per conversation.
     if seen.insert(format!("meta:{}", row.session_id))
         && let Some(workspace) = workspace
         && let Some(project) = project_name(workspace)
@@ -308,7 +291,6 @@ fn row_events(
         });
     }
 
-    // A conversation with a parent session is a sub agent of it.
     if let Some(parent) = parents.get(&row.session_id)
         && seen.insert(format!("sub:{}", row.session_id))
         && let Some(conversation_id) = sanitize_id(parent)
@@ -324,7 +306,6 @@ fn row_events(
         });
     }
 
-    // The model of the turn.
     if row.role == "assistant"
         && let Some(model) = row.model.as_deref().and_then(sanitize_model_id)
         && seen.insert(format!("model:{}:{}", row.session_id, model))
@@ -332,7 +313,6 @@ fn row_events(
         events.push(ParsedEvent::AgentDetected { agent: model });
     }
 
-    // A new user turn starts the elapsed timer.
     if row.role == "user" && seen.insert(format!("task:{}:{}", row.session_id, row.id)) {
         events.push(ParsedEvent::TaskStarted {
             started_at_ms: row.created_at_ms.unwrap_or_else(now_ms),
@@ -352,7 +332,6 @@ fn row_events(
         };
         match part_type {
             "reasoning" => {
-                // The reasoning text itself never leaves the database.
                 let key = format!("reason:{}:{}", row.session_id, row.id);
                 if seen.insert(key) {
                     events.push(ParsedEvent::Thinking { reasoning: None });
@@ -401,8 +380,6 @@ fn row_events(
                     events.push(ParsedEvent::Completed);
                 }
             }
-            // "text" carries the prompt or the answer and every other type is
-            // unknown: both are ignored.
             _ => {}
         }
     }
@@ -422,10 +399,6 @@ fn part_data(part: &Value) -> Option<&Value> {
     }
 }
 
-/// The activity of a tool call.
-///
-/// The tool name decides the label and the arguments are only inspected for a
-/// file path. The command, the prompt and the result never leave here.
 fn tool_activity(name: &str, input: Option<&Value>) -> ToolActivity {
     let base = name.trim().to_ascii_lowercase();
     let arguments = input.and_then(parse_arguments);
@@ -491,7 +464,6 @@ fn sanitize_model_id(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Keep only an identifier that looks like an opaque id.
 fn sanitize_id(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > 128 {
@@ -524,7 +496,6 @@ fn epoch_ms(text: Option<String>) -> Option<i64> {
     timestamp_ms(&Value::from(text))
 }
 
-/// The current time in milliseconds.
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -532,7 +503,6 @@ fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
-/// The registry that lists the projects of the user.
 fn registry_path(root: &Path) -> Option<PathBuf> {
     let direct = root.join(REGISTRY_FILE);
     if direct.is_file() {
@@ -614,7 +584,6 @@ fn workspace_of(database: &Path) -> Option<String> {
     Some(parent.to_string_lossy().to_string())
 }
 
-/// Remember the workspace of a database.
 fn remember_workspace(database: &Path, workspace: &str) {
     if workspace.is_empty() {
         return;
@@ -624,7 +593,6 @@ fn remember_workspace(database: &Path, workspace: &str) {
     }
 }
 
-/// The workspace of a database.
 fn workspace_of_database(database: &Path) -> Option<String> {
     if let Ok(map) = workspaces().lock()
         && let Some(workspace) = map.get(database)
@@ -634,7 +602,6 @@ fn workspace_of_database(database: &Path) -> Option<String> {
     workspace_of(database)
 }
 
-/// The remembered workspaces.
 fn workspaces() -> &'static Mutex<HashMap<PathBuf, String>> {
     WORKSPACES.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -643,8 +610,6 @@ fn workspaces() -> &'static Mutex<HashMap<PathBuf, String>> {
 mod tests {
     use super::*;
 
-    /// The parts of an assistant turn: a tool call, its result and the end of
-    /// the turn. The arguments are the JSON string that Crush stores.
     const ASSISTANT_PARTS: &str = r#"[{"type":"tool_call","data":{"id":"call_01","name":"view","input":"{\"file_path\":\"C:\\\\Users\\\\PC\\\\Documents\\\\Discodex\\\\src\\\\provider.rs\",\"offset\":0,\"limit\":200}","provider_executed":false,"finished":true}},{"type":"tool_result","data":{"tool_call_id":"call_01","name":"view","content":"<REDACTED>","is_error":false}},{"type":"finish","data":{"reason":"stop","time":1789189714}}]"#;
 
     fn temp_root(name: &str) -> PathBuf {
@@ -875,8 +840,6 @@ mod tests {
             }
         }
 
-        // The directory of an edited file never leaves the adapter, only the
-        // basename does.
         let write = events
             .iter()
             .find_map(|event| match &event.event {
@@ -890,7 +853,6 @@ mod tests {
         assert_eq!(write.file.as_deref(), Some("provider.rs"));
         assert_eq!(write.language.as_deref(), Some("Rust"));
 
-        // The command of a shell tool only decides the label.
         let shell = events
             .iter()
             .find_map(|event| match &event.event {
@@ -942,7 +904,6 @@ mod tests {
                     parts,
                 );
             }
-            // A row without a session cannot be assigned to a conversation.
             insert_message(
                 &connection,
                 "m-orphan",
@@ -958,8 +919,6 @@ mod tests {
 
         let mut seen = HashSet::new();
         let events = poll(&database, &mut seen);
-        // Only the workspace of the project is reported, no record of the
-        // malformed rows turns into an activity.
         assert!(
             events
                 .iter()
@@ -968,7 +927,6 @@ mod tests {
         );
         assert_eq!(events.len(), 1, "unexpected events {events:?}");
 
-        // A database without the crush tables is tolerated as well.
         let unrelated = root.join("unrelated.db");
         {
             let connection = Connection::open(&unrelated).expect("create database");
@@ -990,7 +948,6 @@ mod tests {
         {
             let connection = create_db(&database);
             insert_session(&connection, "session-1", None);
-            // A flat part without a call id cannot be paired with a result.
             insert_message(
                 &connection,
                 "m-1",
@@ -1002,7 +959,6 @@ mod tests {
                 1_789_189_713,
                 r#"[{"type":"tool_call","name":"ls","input":"{\"path\":\"C:\\\\Users\\\\PC\\\\Documents\\\\Discodex\\\\src\\\\events.rs\"}"},{"type":"tool_result","content":"redacted"}]"#,
             );
-            // The end of the turn closes it.
             insert_message(
                 &connection,
                 "m-2",
@@ -1180,15 +1136,11 @@ mod tests {
             found.contains(&database),
             "missing {database:?} in {found:?}"
         );
-        // Every entry of the registry is mapped to its own database.
         assert_eq!(found, vec![database.clone()]);
 
-        // The workspace of a project is the folder name of the registry entry.
         let workspace = workspace_of_database(&database);
         assert_eq!(workspace.as_deref(), Some(r"C:\Users\PC\Documents\MyApp"));
 
-        // A registry that cannot be read yields no project, the database of
-        // the root is the fallback then.
         let broken = temp_root("registry-broken");
         std::fs::write(broken.join("projects.json"), b"not json").expect("write registry");
         let found = databases(&broken);

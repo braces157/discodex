@@ -280,7 +280,6 @@ mod tests {
 
         let mut file = fs::File::create(&path).unwrap();
         writeln!(file, "{{\"step_index\":0,\"content\":\"/boost task\"}}").unwrap();
-        // Write ~300KB of content
         let padding = "x".repeat(1000);
         for i in 1..=300 {
             writeln!(file, "{{\"step_index\":{i},\"data\":\"{padding}\"}}").unwrap();

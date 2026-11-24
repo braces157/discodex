@@ -41,7 +41,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
     let mut events = Vec::new();
 
     match event_type {
-        // The session bootstrap: workspace, timer and the selected model.
         "session.start" => {
             if let Some(cwd) = workspace_cwd(data)
                 && let Some(project) = project_name(cwd)
@@ -61,7 +60,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
                 events.push(ParsedEvent::AgentDetected { agent });
             }
         }
-        // A new agentic turn: the elapsed timer restarts here.
         "assistant.turn_start" => {
             let started_at_ms = value
                 .get("timestamp")
@@ -72,9 +70,7 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
                 events.push(ParsedEvent::AgentDetected { agent });
             }
         }
-        // The model is thinking. The reasoning text is never read.
         "assistant.reasoning" => events.push(ParsedEvent::Thinking { reasoning: None }),
-        // A tool started. Only the name, the call id and the file path leave.
         "tool.execution_start" => {
             let Some(tool_name) = data.get("toolName").and_then(Value::as_str) else {
                 return events;
@@ -83,8 +79,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
                 return events;
             }
             let arguments = tool_arguments(data);
-            // The command is only used to pick a fixed label and is never
-            // published.
             let command = arguments
                 .as_ref()
                 .and_then(|args| args.get("command").or_else(|| args.get("cmd")))
@@ -113,7 +107,6 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
                 None => events.push(ParsedEvent::ToolStarted { activity }),
             }
         }
-        // A tool finished. The result and the error are never read.
         "tool.execution_complete" => {
             match data
                 .get("toolCallId")
@@ -124,13 +117,11 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
                 None => events.push(ParsedEvent::ToolFinished),
             }
         }
-        // The user switched the model.
         "session.model_change" => {
             if let Some(agent) = data.get("newModel").and_then(model_label) {
                 events.push(ParsedEvent::AgentDetected { agent });
             }
         }
-        // A sub-agent was spawned. The description is never read.
         "subagent.started" => {
             let agent = data
                 .get("agentDisplayName")
@@ -150,14 +141,11 @@ pub fn parse_line(line: &str) -> Vec<ParsedEvent> {
                 events.push(ParsedEvent::AgentDetected { agent });
             }
         }
-        // The turn is over.
         "session.task_complete"
         | "assistant.turn_end"
         | "session.idle"
         | "session.shutdown"
         | "session.next.step.ended" => events.push(ParsedEvent::Completed),
-        // Everything else (user messages, assistant messages, permissions,
-        // hooks, deltas, ...) carries conversation text and is dropped.
         _ => {}
     }
 
@@ -185,7 +173,6 @@ fn tool_arguments(data: &Value) -> Option<Value> {
     }
 }
 
-/// A tool call id may only be a short opaque token.
 fn safe_call_id(value: &str) -> Option<String> {
     let id = value.trim();
     if id.is_empty() || id.len() > 64 {
@@ -367,7 +354,6 @@ mod tests {
             }]
         );
 
-        // A shell tool only reports the fixed label, never the command.
         let shell = parse_line(&tool(
             "local_shell",
             serde_json::json!({ "command": "cargo test --all" }),
@@ -384,7 +370,6 @@ mod tests {
             }]
         );
 
-        // Without a call id the tool is reported untracked.
         let untracked = line(serde_json::json!({
             "type": "tool.execution_start",
             "data": { "toolName": "view", "arguments": { "path": "C:\\work\\repo\\README.md" } }
@@ -422,8 +407,6 @@ mod tests {
             );
         }
 
-        // Upstream marks the idle event as transient, so a persisted one is
-        // dropped instead of being guessed at.
         let ephemeral = line(serde_json::json!({
             "timestamp": "2026-10-21T02:00:09.000Z",
             "type": "session.idle",
@@ -580,7 +563,6 @@ mod tests {
             }]
         );
 
-        // A model id that is prose, or too long, is dropped.
         for bad in [
             r#"{"type":"session.model_change","data":{"newModel":"PRIVATE prose text"}}"#,
             r#"{"type":"session.model_change","data":{"newModel":""}}"#,
@@ -594,7 +576,6 @@ mod tests {
         }));
         assert!(parse_line(&too_long).is_empty());
 
-        // An epoch-millisecond timestamp is used verbatim.
         let numeric = line(serde_json::json!({
             "timestamp": 1_792_548_003_500i64,
             "type": "assistant.turn_start",
