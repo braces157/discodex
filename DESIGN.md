@@ -38,7 +38,7 @@ Design tokens, layout geometry, and edge-state contracts for the native Windows 
 ## 3. Window Modes & Layout Architecture
 
 - **Compact Tray Popup (`548 × 756` logical px, clamped to monitor work area):**
-  - Top header with brand mark, action buttons, and full-width Period segmented bar (`Today`, `7 days`, `30 days`, `All`).
+  - Top header with brand mark, action buttons, and full-width Period segmented bar (`Last 24h`, `7 days`, `30 days`, `All`).
   - Single-column scroll flow: `Providers` → `Hero Bento` → `Telemetry Strip` → `Interactive Chart` → `Activity Heatmap` → `Token Mix` → `Models` → `Notes/Info`.
 - **Wide Analytics Cockpit (`940 × 868` logical px, clamped & right-edge-safe on resize):**
   - Single-row header with Period segmented bar centered inline.

@@ -500,12 +500,12 @@
     var metricColors = { tokens: "#c5f277", cost: "#6ee7b7", calls: "#7dd3fc" };
 
     var periodMeta = {
-      today: {
+      "24h": {
         isHourly: true,
         sessions: 6,
-        buckets: ["00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"],
-        hoverTitles: ["Today · 00:00–01:00", "Today · 01:00–02:00", "Today · 02:00–03:00", "Today · 03:00–04:00", "Today · 04:00–05:00", "Today · 05:00–06:00", "Today · 06:00–07:00", "Today · 07:00–08:00", "Today · 08:00–09:00", "Today · 09:00–10:00", "Today · 10:00–11:00", "Today · 11:00–12:00", "Today · 12:00–13:00", "Today · 13:00–14:00", "Today · 14:00–15:00", "Today · 15:00–16:00", "Today · 16:00–17:00", "Today · 17:00–18:00", "Today · 18:00–19:00", "Today · 19:00–20:00", "Today · 20:00–21:00", "Today · 21:00–22:00", "Today · 22:00–23:00", "Today · 23:00–00:00"],
-        weights: [0, 0, 0, 0, 0, 0, 0, 0, 0.03, 0.08, 0.12, 0.10, 0.04, 0.07, 0.13, 0.15, 0.11, 0.06, 0.02, 0.04, 0.03, 0.02, 0, 0],
+        buckets: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00", "00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", "08:00", "09:00", "10:00", "11:00"],
+        hoverTitles: ["Yesterday · 12:00–13:00", "Yesterday · 13:00–14:00", "Yesterday · 14:00–15:00", "Yesterday · 15:00–16:00", "Yesterday · 16:00–17:00", "Yesterday · 17:00–18:00", "Yesterday · 18:00–19:00", "Yesterday · 19:00–20:00", "Yesterday · 20:00–21:00", "Yesterday · 21:00–22:00", "Yesterday · 22:00–23:00", "Yesterday · 23:00–00:00", "Today · 00:00–01:00", "Today · 01:00–02:00", "Today · 02:00–03:00", "Today · 03:00–04:00", "Today · 04:00–05:00", "Today · 05:00–06:00", "Today · 06:00–07:00", "Today · 07:00–08:00", "Today · 08:00–09:00", "Today · 09:00–10:00", "Today · 10:00–11:00", "Today · 11:00–12:00"],
+        weights: [0.04, 0.07, 0.13, 0.15, 0.11, 0.06, 0.02, 0.04, 0.03, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.03, 0.08, 0.12, 0.10],
         providers: {
           codex: {
             models: [
@@ -1072,13 +1072,13 @@
       uTokensSub.textContent = fmtTokens(totalIn) + " in · " + fmtTokens(totalOut) + " out";
       uCost.textContent = fmtMoney(totalCost);
       uPerCall.textContent = totalCalls > 0 ? fmtMoney(totalCost / totalCalls) + " / call" : "Base-rate estimate";
-      var activeDays = currentPeriod === "today" ? 1 : currentPeriod === "7d" ? 7 : currentPeriod === "30d" ? 26 : 68;
+      var activeDays = currentPeriod === "24h" ? 1 : currentPeriod === "7d" ? 7 : currentPeriod === "30d" ? 26 : 68;
       uCostSub.textContent = activeDays > 1 ? "~" + fmtMoney(totalCost / activeDays) + " / active day" : "Base-rate approximation";
 
-      if (currentPeriod === "today") {
-        var todayTok = periodTokenTotal("today", currentProvider);
+      if (currentPeriod === "24h") {
+        var last24hTok = periodTokenTotal("24h", currentProvider);
         var weekAvg = periodTokenTotal("7d", currentProvider) / 7;
-        var pctD = weekAvg > 0 ? Math.round(((todayTok - weekAvg) / weekAvg) * 100) : 0;
+        var pctD = weekAvg > 0 ? Math.round(((last24hTok - weekAvg) / weekAvg) * 100) : 0;
         uDelta.textContent = (pctD >= 0 ? "+" : "") + pctD + "% vs 7d avg";
         uDelta.className = "usage-delta " + (pctD >= 0 ? "positive" : "negative");
       } else if (currentPeriod === "7d") {
@@ -1288,7 +1288,7 @@
       var xAxis = document.createElement("div");
       xAxis.className = "usage-xaxis";
       var xLabels = period.isHourly
-        ? ["00:00", "06:00", "12:00", "18:00", "23:00"]
+        ? [period.buckets[0], period.buckets[6], period.buckets[12], period.buckets[18], period.buckets[23]]
         : [period.buckets[0], period.buckets[Math.floor(period.buckets.length / 2)], period.buckets[period.buckets.length - 1]];
       xLabels.forEach(function (lbl) {
         var sp = document.createElement("span");

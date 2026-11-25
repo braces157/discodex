@@ -358,6 +358,17 @@
       "ink": 0.842,
       "correction": 1.0,
       "bytes": 96449
+    },
+    {
+      "slug": "t3-code",
+      "provider": "T3 Code",
+      "file": "assets/logos/t3-code.png",
+      "source": "https://raw.githubusercontent.com/pingdotgg/t3code/main/assets/prod/logo.svg",
+      "source_sha256": "93790713200b1015c935eb9c80e76a1530aea3c3842082e5e5cdbff64049b0ee",
+      "mode": "tile",
+      "ink": 0.842,
+      "correction": 1.0,
+      "bytes": 10058
     }
   ]
 }

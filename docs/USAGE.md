@@ -11,9 +11,9 @@ The popup closes with Escape, its close button, or a click outside it. Pin (`p`)
 
 ## Read usage for a period
 
-Select Today, 7 days, 30 days, or All. Periods start at local midnight. The scanner reconciles cumulative counters before selecting timestamped usage, so a recent model does not bring its older token totals into the selected period.
+Select Last 24h, 7 days, 30 days, or All. Last 24h spans the rolling last 24 local clock hours ending in the current hour, while 7 days and 30 days start at local midnight. The scanner reconciles cumulative counters before selecting timestamped usage, so a recent model does not bring its older token totals into the selected period.
 
-Hero cards show recorded tokens and base-rate API cost estimates with period delta badges and sparklines, followed by a telemetry strip for logged calls, cache hit rate, cache savings, and task time. The interactive chart switches between tokens, cost, and calls, stacked bars or area curves, token mix or provider stacks, and a 24-hour local timeline on Today. Below it sit a 12-Week streak calendar and 7×24 Peak Hours activity heatmap, a Token Mix composition bar, provider filter chips, and sortable model rows with expandable detail drawers.
+Hero cards show recorded tokens and base-rate API cost estimates with period delta badges and sparklines, followed by a telemetry strip for logged calls, cache hit rate, cache savings, and task time. The interactive chart switches between tokens, cost, and calls, stacked bars or area curves, token mix or provider stacks, and a rolling 24-hour local timeline on Last 24h. Below it sit a 12-Week streak calendar and 7×24 Peak Hours activity heatmap, a Token Mix composition bar, provider filter chips, and sortable model rows with expandable detail drawers.
 
 Calls count distinct logged usage observations. They are not unique sessions, network requests, or failed attempts that left no usage record. Missing fields stay unknown. Charts use the dated records available locally.
 
@@ -45,7 +45,7 @@ Supported local stores include:
 
 - **OpenAI Codex** (`codex`) — plain `.jsonl` and compressed `.jsonl.zst` / `.jsonl.zstd` sessions and archives (`CODEX_HOME` supported)
 - **Claude Code** (`claude-code`) — project `.jsonl` logs (`CLAUDE_CONFIG_DIR` supported)
-- **Google Antigravity** (`antigravity`) — `transcript.jsonl` conversation logs
+- **Google Antigravity** (`antigravity`) — `transcript.jsonl` conversation logs (including T3 Code ACP transcripts under `~\.t3\userdata\providers\antigravity\`)
 - **DeepSeek Harness** (`deepseek-harness`) — `session.v4.jsonl` and compressed `session.v4.jsonl.zstd` logs
 - **Gemini CLI** (`gemini-cli`) — `chats/*.json` and `chats/*.jsonl` transcripts
 - **Qwen Code** (`qwen-code`) — `chats/*.jsonl` telemetry and assistant logs

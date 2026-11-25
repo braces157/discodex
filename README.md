@@ -34,7 +34,7 @@ It runs quietly in the notification area, recovers automatically when Discord or
 | **39 provider targets** | Combines **21 rich session adapters** (project, language, current file basename, phase, elapsed time), **17 focused-app fallbacks**, and **1 activity-only adapter**. |
 | **Native GPUI usage cockpit** | Click the tray icon for a preloaded Compact or Wide GPUI cockpit with tokens, cache savings, stacked/area charts, 12-week &amp; peak-hours heatmaps, sortable models, and base-rate API cost estimates across **16 harnesses**. |
 | **Privacy by design** | Strips conversation content, paths, commands, and tool output before anything reaches local Discord IPC. Reasoning headings require explicit opt-in. |
-| **Unified provider artwork** | 30 provider marks rebuilt onto a consistent 512px plate and hosted from this repository—no mismatched external hotlinks. |
+| **Unified provider artwork** | 31 provider marks rebuilt onto a consistent 512px plate and hosted from this repository—no mismatched external hotlinks. |
 | **Zero-dependency footprint** | Single native Windows `.exe` with automatic Discord reconnection, Explorer tray recovery, startup toggle, and CLI lifecycle controls. |
 | **Built-in diagnostics** | One-click local snapshot of detected providers, store access, watcher state, and Discord connection health without exposing paths or session contents. |
 
@@ -46,7 +46,7 @@ Click the Discodex tray icon—or run `discodex --usage` (or `discodex --usage -
 
 - **Compact &amp; wide cockpit:** Toggle between the compact tray popup and a two-column analytics cockpit (`w`) featuring KPI sparklines, cache-savings telemetry, `12-Week` streak &amp; `Peak Hours` heatmaps, `Token Mix`, and click-to-expand model rows.
 - **Normalized totals &amp; instant preload:** Cached input and reasoning output are normalized to inclusive totals once across every store format (JSONL, Zstandard, JSON, Markdown, SQLite + `-wal`), and a background tray preloader caches all four periods locally so the popup opens instantly.
-- **Interactive filters &amp; charts:** Filter hero cards, stacked or smooth area charts (`c` — `Tokens`, `Cost`, `Calls`, `Mix` vs `Providers`, `24h` hourly on `Today`), heatmaps, and sortable model rows by time period (`Today`, `7d`, `30d`, `All`) and provider.
+- **Interactive filters &amp; charts:** Filter hero cards, stacked or smooth area charts (`c` — `Tokens`, `Cost`, `Calls`, `Mix` vs `Providers`, rolling `24h` hourly on `Last 24h`), heatmaps, and sortable model rows by time period (`Last 24h`, `7d`, `30d`, `All`) and provider.
 - **Automatic official pricing:** Bundles a Standard API base-rate catalog (checked `2026-11-19`) covering OpenAI, Claude, Google Gemini, DeepSeek, and Qwen (including effort-suffixed model fallback), with per-provider/model overrides in `%APPDATA%\Discodex\usage-rates.toml`.
 - **100% local:** Opens no network listener, makes no API calls, and never sends usage totals or costs to Discord.
 
@@ -56,12 +56,12 @@ See [docs/USAGE.md](docs/USAGE.md) for full details on storage schemas, pricing 
 
 Discodex pairs **rich local session adapters** (reading structured local logs and SQLite stores) with **focused-app detection** for broad compatibility across editors, terminals, and web apps.
 
-- **21 Rich session adapters:** OpenAI Codex, Claude Code, Google Antigravity, DeepSeek Harness, Gemini CLI, Qwen Code, GitHub Copilot CLI, Factory Droid, Kiro, Cursor, Windsurf / Cascade, Junie (JetBrains), Aider, Cline, Roo Code, Continue, Block Goose, Charm Crush, OpenCode, Zed, Kilo Code.
-- **17 Focused-app targets:** ChatGPT, Claude, Google Gemini, Cursor, Windsurf, Trae, Kiro, Zed AI, OpenCode, Aider, GitHub Copilot, Cline, Roo Code, Continue, Perplexity, Microsoft Copilot, Poe.
+- **22 Rich session adapters:** OpenAI Codex, Claude Code, Google Antigravity, DeepSeek Harness, Gemini CLI, Qwen Code, GitHub Copilot CLI, Factory Droid, Kiro, Cursor, Windsurf / Cascade, Junie (JetBrains), Aider, Cline, Roo Code, Continue, Block Goose, Charm Crush, OpenCode, Zed, Kilo Code, T3 Code.
+- **18 Focused-app targets:** ChatGPT, Claude, Google Gemini, Cursor, Windsurf, Trae, Kiro, Zed AI, OpenCode, Aider, GitHub Copilot, Cline, Roo Code, Continue, Perplexity, Microsoft Copilot, Poe, T3 Code.
 - **1 Activity-only adapter:** Sourcegraph Amp.
 
 <details>
-<summary><strong>View full 39-target provider matrix</strong></summary>
+<summary><strong>View full 41-target provider matrix</strong></summary>
 
 | Provider | Detection source | Detail level |
 | --- | --- | --- |
@@ -86,6 +86,7 @@ Discodex pairs **rich local session adapters** (reading structured local logs an
 | OpenCode | Local SQLite session database | Rich |
 | Zed | Local SQLite thread database | Rich |
 | Kilo Code | Local SQLite session database | Rich |
+| T3 Code | Local SQLite orchestration database | Rich |
 | Sourcegraph Amp | Local JSONL thread log | Activity only |
 | ChatGPT | Focused app / window | Standard |
 | Claude | Focused app / window | Standard |
@@ -104,6 +105,7 @@ Discodex pairs **rich local session adapters** (reading structured local logs an
 | Perplexity | Focused app / window | Standard |
 | Microsoft Copilot | Focused app / window | Standard |
 | Poe | Focused app / window | Standard |
+| T3 Code | Focused app / window | Standard |
 
 </details>
 

@@ -141,17 +141,11 @@ pub fn build_x_axis_labels(points: &[ChartPoint], is_hourly: bool) -> Vec<(usize
         return Vec::new();
     }
     if is_hourly {
-        return [
-            (0usize, "00:00"),
-            (6, "06:00"),
-            (12, "12:00"),
-            (18, "18:00"),
-            (23, "23:00"),
-        ]
-        .into_iter()
-        .filter(|&(idx, _)| idx < n)
-        .map(|(idx, lbl)| (idx, lbl.to_string()))
-        .collect();
+        return [0usize, 6, 12, 18, 23]
+            .into_iter()
+            .filter(|&idx| idx < n)
+            .map(|idx| (idx, points[idx].label.clone()))
+            .collect();
     }
     if n <= 7 {
         return points
@@ -249,5 +243,36 @@ mod tests {
             ]
         );
         assert!(contiguous_known_runs(&[None, None]).is_empty());
+    }
+
+    #[test]
+    fn hourly_x_axis_labels_follow_rolling_bucket_labels() {
+        let points: Vec<ChartPoint> = (0..24)
+            .map(|i| {
+                let h = (12 + i) % 24;
+                ChartPoint {
+                    label: format!("{h:02}:00"),
+                    hover_title: String::new(),
+                    input: 0,
+                    cached_read: 0,
+                    fresh_input: 0,
+                    output: 0,
+                    cost: Some(0.0),
+                    requests: 0,
+                    by_provider: Vec::new(),
+                    is_incomplete: false,
+                }
+            })
+            .collect();
+        assert_eq!(
+            build_x_axis_labels(&points, true),
+            vec![
+                (0, "12:00".into()),
+                (6, "18:00".into()),
+                (12, "00:00".into()),
+                (18, "06:00".into()),
+                (23, "11:00".into()),
+            ]
+        );
     }
 }

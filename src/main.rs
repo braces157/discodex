@@ -359,10 +359,10 @@ fn worker_loop(
     let mut extra_usage_watched: HashMap<PathBuf, bool> = HashMap::new();
     if let Some(watcher) = fs_watcher.as_mut() {
         for source in ingestion.sources() {
-            if source.provider == Provider::Aider {
-                // Aider writes into the working tree of a repository. Watching
-                // the whole home directory would report every file change of
-                // the machine, so the transcript is polled instead.
+            if source.provider == Provider::Aider || source.provider == Provider::T3Code {
+                // Aider writes into the working tree of a repository, and T3 Code's
+                // userdata folder holds noisy trace logs and browser caches alongside
+                // `statev2.sqlite`; both are polled instead of watched recursively.
                 continue;
             }
             if source.root.exists() {
@@ -409,7 +409,7 @@ fn worker_loop(
 
         if let Some(watcher) = fs_watcher.as_mut() {
             for source in ingestion.sources() {
-                if source.provider == Provider::Aider {
+                if source.provider == Provider::Aider || source.provider == Provider::T3Code {
                     continue;
                 }
                 if source.root.exists() && !matches!(watch_status.get(&source.root), Some(Ok(()))) {

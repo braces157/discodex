@@ -36,6 +36,7 @@
     { "slug": "gemini-cli", "provider": "Gemini CLI", "mode": "tile", "source": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/dark/geminicli-color.png" },
     { "slug": "factory-droid", "provider": "Factory Droid", "mode": "tile", "source": "https://factory.ai/favicon.svg" },
     { "slug": "kilo-code", "provider": "Kilo Code", "mode": "tile", "source": "https://kilocode.ai/favicon/favicon.svg" },
-    { "slug": "amp", "provider": "Amp", "mode": "tile", "source": "https://ampcode.com/app-icon.svg" }
+    { "slug": "amp", "provider": "Amp", "mode": "tile", "source": "https://ampcode.com/app-icon.svg" },
+    { "slug": "t3-code", "provider": "T3 Code", "mode": "tile", "source": "https://raw.githubusercontent.com/pingdotgg/t3code/main/assets/prod/logo.svg" }
   ]
 }

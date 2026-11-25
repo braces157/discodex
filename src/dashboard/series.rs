@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 
-use chrono::{Datelike, Days, Local, NaiveDate, TimeZone};
+use chrono::{Datelike, Days, Local, NaiveDate, TimeZone, Timelike};
 
 use super::format::{Metric, pretty_date};
-use crate::usage::{UsageBundle, UsageDay, UsageHour, UsagePeriod, UsageSnapshot};
+use crate::usage::{
+    HOUR_MS, ROLLING_HOURS, UsageBundle, UsageDay, UsageHour, UsagePeriod, UsageSnapshot,
+};
 
 #[derive(Clone, Debug)]
 pub struct ChartPoint {
@@ -127,7 +129,7 @@ pub fn build_chart_series(
     provider_filter: Option<&str>,
     provider_order: &[String],
 ) -> (Vec<ChartPoint>, bool, bool) {
-    if period == UsagePeriod::Today {
+    if period == UsagePeriod::Last24h {
         return build_hourly_series(snapshot, provider_filter, provider_order);
     }
     let daily = match provider_filter {
@@ -208,10 +210,16 @@ fn build_hourly_series(
     if active_hours.is_empty() {
         return (Vec::new(), false, true);
     }
+    let mut by_start: BTreeMap<i64, &UsageHour> = BTreeMap::new();
     let mut by_hour: BTreeMap<u8, &UsageHour> = BTreeMap::new();
     for h in active_hours {
-        by_hour.insert(h.hour, h);
+        if let Some(start_ms) = h.start_ms {
+            by_start.insert(start_ms, h);
+        } else {
+            by_hour.insert(h.hour, h);
+        }
     }
+    let mut prov_start_tok: BTreeMap<(&str, i64), u64> = BTreeMap::new();
     let mut prov_hour_tok: BTreeMap<(&str, u8), u64> = BTreeMap::new();
     for slug in provider_order {
         if let Some(list) = snapshot.hourly_by_provider.get(slug) {
@@ -220,15 +228,63 @@ fn build_hourly_series(
                     .input_tokens
                     .unwrap_or_default()
                     .saturating_add(item.output_tokens.unwrap_or_default());
-                prov_hour_tok.insert((slug.as_str(), item.hour), tok);
+                if let Some(start_ms) = item.start_ms {
+                    prov_start_tok.insert((slug.as_str(), start_ms), tok);
+                } else {
+                    prov_hour_tok.insert((slug.as_str(), item.hour), tok);
+                }
             }
         }
     }
-    let points = (0..24u8)
-        .map(|h| {
-            let hover_title = format!("Today · {h:02}:00–{:02}:00", (h + 1) % 24);
-            let label = format!("{h:02}:00");
-            let Some(entry) = by_hour.get(&h) else {
+    let window_start = (snapshot.refreshed_at_ms > 0)
+        .then(|| UsagePeriod::Last24h.since_ms(snapshot.refreshed_at_ms))
+        .flatten();
+    let now_date = (snapshot.refreshed_at_ms > 0)
+        .then(|| {
+            Local
+                .timestamp_millis_opt(snapshot.refreshed_at_ms)
+                .single()
+                .map(|dt| dt.date_naive())
+        })
+        .flatten();
+    let points = (0..ROLLING_HOURS)
+        .map(|slot| {
+            let (hour, slot_start_ms, label, hover_title) = if let Some(win_start) = window_start
+                && let Some(start_dt) = Local
+                    .timestamp_millis_opt(win_start + slot * HOUR_MS)
+                    .single()
+                && let Some(end_dt) = Local
+                    .timestamp_millis_opt(win_start + (slot + 1) * HOUR_MS)
+                    .single()
+            {
+                let h = start_dt.hour() as u8;
+                let end_h = end_dt.hour() as u8;
+                let day_prefix = if now_date == Some(start_dt.date_naive()) {
+                    "Today".to_string()
+                } else if now_date.is_some_and(|nd| start_dt.date_naive().succ_opt() == Some(nd)) {
+                    "Yesterday".to_string()
+                } else {
+                    pretty_date(&start_dt.format("%Y-%m-%d").to_string())
+                };
+                (
+                    h,
+                    Some(win_start + slot * HOUR_MS),
+                    format!("{h:02}:00"),
+                    format!("{day_prefix} · {h:02}:00–{end_h:02}:00"),
+                )
+            } else {
+                let h = slot as u8;
+                (
+                    h,
+                    None,
+                    format!("{h:02}:00"),
+                    format!("Last 24h · {h:02}:00–{:02}:00", (h + 1) % 24),
+                )
+            };
+            let entry = slot_start_ms
+                .and_then(|ms| by_start.get(&ms).copied())
+                .or_else(|| by_hour.get(&hour).copied());
+            let Some(entry) = entry else {
                 return ChartPoint {
                     label,
                     hover_title,
@@ -250,13 +306,11 @@ fn build_hourly_series(
             let by_provider = provider_order
                 .iter()
                 .map(|slug| {
-                    (
-                        slug.clone(),
-                        prov_hour_tok
-                            .get(&(slug.as_str(), h))
-                            .copied()
-                            .unwrap_or_default(),
-                    )
+                    let tok = slot_start_ms
+                        .and_then(|ms| prov_start_tok.get(&(slug.as_str(), ms)).copied())
+                        .or_else(|| prov_hour_tok.get(&(slug.as_str(), hour)).copied())
+                        .unwrap_or_default();
+                    (slug.clone(), tok)
                 })
                 .collect();
             ChartPoint {
@@ -282,24 +336,45 @@ pub fn build_sparkline_series(
     period: UsagePeriod,
     provider_filter: Option<&str>,
 ) -> (Vec<Option<f64>>, Vec<Option<f64>>) {
-    if period == UsagePeriod::Today
+    if period == UsagePeriod::Last24h
         && let Some(bundle) = bundle
     {
         let hours = match provider_filter {
             Some(slug) => bundle
-                .today
+                .last_24h
                 .hourly_by_provider
                 .get(slug)
                 .map(Vec::as_slice)
                 .unwrap_or(&[]),
-            None => &bundle.today.hourly,
+            None => &bundle.last_24h.hourly,
         };
         if !hours.is_empty() {
+            let window_start = (bundle.last_24h.refreshed_at_ms > 0)
+                .then(|| UsagePeriod::Last24h.since_ms(bundle.last_24h.refreshed_at_ms))
+                .flatten();
             let mut by_h = [Some(0.0_f64); 24];
             let mut cost_h = [Some(0.0_f64); 24];
             let mut seen_h = [false; 24];
             for h in hours {
-                let idx = usize::from(h.hour).min(23);
+                let Some(idx) =
+                    (if let (Some(win_start), Some(start_ms)) = (window_start, h.start_ms) {
+                        let offset = (start_ms - win_start).div_euclid(HOUR_MS);
+                        (0..ROLLING_HOURS)
+                            .contains(&offset)
+                            .then_some(offset as usize)
+                    } else if let Some(win_start) = window_start {
+                        (0..ROLLING_HOURS).find_map(|slot| {
+                            let dt = Local
+                                .timestamp_millis_opt(win_start + slot * HOUR_MS)
+                                .single()?;
+                            (dt.hour() as u8 == h.hour).then_some(slot as usize)
+                        })
+                    } else {
+                        Some(usize::from(h.hour).min(23))
+                    })
+                else {
+                    continue;
+                };
                 let tok = match (h.input_tokens, h.output_tokens) {
                     (Some(i), Some(o)) => Some(i.saturating_add(o) as f64),
                     _ => None,
@@ -549,26 +624,73 @@ mod tests {
             ]
         );
 
+        let yesterday_22_ms = Local
+            .with_ymd_and_hms(2026, 11, 20, 22, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let today_9_ms = Local
+            .with_ymd_and_hms(2026, 11, 21, 9, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis();
         let snap = UsageSnapshot {
-            hourly: vec![UsageHour {
-                hour: 9,
-                input_tokens: Some(500),
-                cached_input_tokens: Some(300),
-                output_tokens: Some(100),
-                estimated_cost_usd: Some(0.12),
-                requests: 2,
-            }],
+            hourly: vec![
+                UsageHour {
+                    hour: 22,
+                    start_ms: Some(yesterday_22_ms),
+                    input_tokens: Some(300),
+                    cached_input_tokens: Some(100),
+                    output_tokens: Some(50),
+                    estimated_cost_usd: Some(0.05),
+                    requests: 1,
+                },
+                UsageHour {
+                    hour: 9,
+                    start_ms: Some(today_9_ms),
+                    input_tokens: Some(500),
+                    cached_input_tokens: Some(300),
+                    output_tokens: Some(100),
+                    estimated_cost_usd: Some(0.12),
+                    requests: 2,
+                },
+            ],
             refreshed_at_ms: at,
             ..Default::default()
         };
-        let (pts, truncated, is_hourly) = build_chart_series(&snap, UsagePeriod::Today, None, &[]);
+        let (pts, truncated, is_hourly) =
+            build_chart_series(&snap, UsagePeriod::Last24h, None, &[]);
         assert!(!truncated);
         assert!(is_hourly);
         assert_eq!(pts.len(), 24);
-        assert_eq!(pts[9].fresh_input, 200);
-        assert_eq!(pts[9].cached_read, 300);
-        assert_eq!(pts[9].output, 100);
+        // `at` is 2026-11-21 10:00 -> rolling 24h window spans Nov 20 11:00..Nov 21 10:00.
+        assert_eq!(pts[0].label, "11:00");
+        assert_eq!(pts[0].hover_title, "Yesterday · 11:00–12:00");
+        assert_eq!(pts[11].label, "22:00");
+        assert_eq!(pts[11].hover_title, "Yesterday · 22:00–23:00");
+        assert_eq!(pts[11].fresh_input, 200);
+        assert_eq!(pts[11].cached_read, 100);
+        assert_eq!(pts[11].output, 50);
+        assert_eq!(pts[22].label, "09:00");
+        assert_eq!(pts[22].hover_title, "Today · 09:00–10:00");
+        assert_eq!(pts[22].fresh_input, 200);
+        assert_eq!(pts[22].cached_read, 300);
+        assert_eq!(pts[22].output, 100);
+        assert_eq!(pts[23].label, "10:00");
+        assert_eq!(pts[23].hover_title, "Today · 10:00–11:00");
         assert_eq!(pts[0].requests, 0);
+
+        let rolling_bundle = UsageBundle {
+            last_24h: snap,
+            ..Default::default()
+        };
+        let (tok_24h, cost_24h) =
+            build_sparkline_series(Some(&rolling_bundle), &[], UsagePeriod::Last24h, None);
+        assert_eq!(tok_24h.len(), 24);
+        assert_eq!(tok_24h[11], Some(350.0));
+        assert_eq!(tok_24h[22], Some(600.0));
+        assert_eq!(cost_24h[11], Some(0.05));
+        assert_eq!(cost_24h[22], Some(0.12));
         assert_eq!(day_value(&all_daily[0], Metric::Tokens), Some(1_200.0));
     }
 }

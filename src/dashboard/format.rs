@@ -318,11 +318,11 @@ pub fn period_delta_pct(
             .fold(0u64, u64::saturating_add) as f64
     };
     match period {
-        UsagePeriod::Today => {
-            let today = filtered_tok(&bundle.today);
+        UsagePeriod::Last24h => {
+            let last_24h = filtered_tok(&bundle.last_24h);
             let week_avg = filtered_tok(&bundle.week) / 7.0;
-            (week_avg > 0.0 && today > 0.0)
-                .then_some((((today - week_avg) / week_avg) * 100.0, "vs 7d avg"))
+            (week_avg > 0.0 && last_24h > 0.0)
+                .then_some((((last_24h - week_avg) / week_avg) * 100.0, "vs 7d avg"))
         }
         UsagePeriod::Week => {
             let week_avg = filtered_tok(&bundle.week) / 7.0;

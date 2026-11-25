@@ -29,10 +29,10 @@ use windows::{
 use crate::{
     config::AppConfig,
     provider::SessionSource,
-    usage::{UsageBundle, UsageScanner, usage_scope_key},
+    usage::{UsageBundle, UsageScanner, current_hour_start_ms, usage_scope_key},
 };
 
-pub const CACHE_SCHEMA_VERSION: u32 = 2;
+pub const CACHE_SCHEMA_VERSION: u32 = 3;
 pub const CACHE_FILE_NAME: &str = "usage-cache.json";
 pub const RATES_FILE_NAME: &str = "usage-rates.toml";
 
@@ -461,6 +461,7 @@ struct PreloaderState {
     last_scan_completed_at: Option<Instant>,
     last_scan_rates: RatesFingerprint,
     last_scan_local_date: String,
+    last_scan_hour_start_ms: Option<i64>,
 }
 
 /// Cloneable control handle for nudging or marking the background usage preloader dirty.
@@ -504,6 +505,7 @@ impl UsagePreloaderHandle {
                     .is_none_or(|t| t.elapsed() >= DIRTY_DEBOUNCE)
                 || rates_fingerprint(&self.rates_path) != state.last_scan_rates
                 || current_local_date() != state.last_scan_local_date
+                || current_hour_start_ms(crate::now_ms()) != state.last_scan_hour_start_ms
         };
         if should_refresh {
             self.request_refresh();
@@ -678,9 +680,10 @@ fn run_preloader_loop(
             scanner.scan_all_periods_cancellable(&cancel)
         })) {
             Ok(Some(bundle)) => {
+                let fallback_refreshed_at_ms = bundle.refreshed_at_ms();
                 let fallback_date =
-                    local_date_for_ms(bundle.refreshed_at_ms()).unwrap_or_else(current_local_date);
-                let (applied_rates, applied_date) = match publish_cache(
+                    local_date_for_ms(fallback_refreshed_at_ms).unwrap_or_else(current_local_date);
+                let (applied_rates, applied_date, applied_refreshed_at_ms) = match publish_cache(
                     &cache_path,
                     &scope_key,
                     rates_fp.clone(),
@@ -695,7 +698,11 @@ fn run_preloader_loop(
                             cached.bundle.week.scanned_files,
                             started.elapsed().as_millis()
                         ));
-                        (cached.rates_fingerprint, cached.local_date)
+                        (
+                            cached.rates_fingerprint,
+                            cached.local_date,
+                            cached.bundle.refreshed_at_ms(),
+                        )
                     }
                     Ok(PublishOutcome::Superseded(existing)) => {
                         *generation = (*generation).max(existing.generation);
@@ -704,11 +711,15 @@ fn run_preloader_loop(
                             existing.generation,
                             started.elapsed().as_millis()
                         ));
-                        (existing.rates_fingerprint, existing.local_date)
+                        (
+                            existing.rates_fingerprint,
+                            existing.local_date,
+                            existing.bundle.refreshed_at_ms(),
+                        )
                     }
                     Err(err) => {
                         crate::log_line(&format!("usage preloader failed to save cache: {err}"));
-                        (rates_fp, fallback_date)
+                        (rates_fp, fallback_date, fallback_refreshed_at_ms)
                     }
                 };
                 let mut state = shared
@@ -718,6 +729,7 @@ fn run_preloader_loop(
                 state.last_scan_completed_at = Some(Instant::now());
                 state.last_scan_rates = applied_rates;
                 state.last_scan_local_date = applied_date;
+                state.last_scan_hour_start_ms = current_hour_start_ms(applied_refreshed_at_ms);
             }
             Ok(None) => {}
             Err(_) => {
@@ -781,16 +793,17 @@ fn run_preloader_loop(
             if signaled == WAIT_EVENT(WAIT_OBJECT_0.0 + 2) || signaled == WAIT_TIMEOUT {
                 let dirty_due = dirty_scan_due(first_dirty_at, last_dirty_at, Instant::now());
                 let periodic_due = last_scan.elapsed() >= PERIODIC_REFRESH;
-                let (date_changed, rates_changed) = {
+                let (date_changed, hour_changed, rates_changed) = {
                     let state = shared
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     (
                         state.last_scan_local_date != current_local_date(),
+                        state.last_scan_hour_start_ms != current_hour_start_ms(crate::now_ms()),
                         state.last_scan_rates != rates_fingerprint(&rates_path),
                     )
                 };
-                if dirty_due || periodic_due || date_changed || rates_changed {
+                if dirty_due || periodic_due || date_changed || hour_changed || rates_changed {
                     first_dirty_at = None;
                     last_dirty_at = None;
                     last_scan = run_scan(&mut scanner, &mut generation);
@@ -1036,7 +1049,7 @@ mod tests {
     }
 
     fn set_bundle_timestamp(bundle: &mut UsageBundle, ts_ms: i64) {
-        bundle.today.refreshed_at_ms = ts_ms;
+        bundle.last_24h.refreshed_at_ms = ts_ms;
         bundle.week.refreshed_at_ms = ts_ms;
         bundle.month.refreshed_at_ms = ts_ms;
         bundle.all.refreshed_at_ms = ts_ms;

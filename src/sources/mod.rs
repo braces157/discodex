@@ -31,6 +31,7 @@ pub mod kiro;
 pub mod opencode;
 pub mod qwen_code;
 pub mod roo_code;
+pub mod t3_code;
 pub mod windsurf;
 pub mod zed;
 
@@ -140,6 +141,7 @@ pub fn poll_database(provider: Provider, db: &Path, seen: &mut HashSet<String>) 
         Provider::OpenCode => opencode::poll(db, seen),
         Provider::Zed => zed::poll(db, seen),
         Provider::KiloCode => kilo_code::poll(db, seen),
+        Provider::T3Code => t3_code::poll(db, seen),
         _ => Vec::new(),
     }
 }
@@ -152,6 +154,7 @@ pub fn databases(provider: Provider, root: &Path) -> Vec<PathBuf> {
         Provider::OpenCode => opencode::databases(root),
         Provider::Zed => zed::databases(root),
         Provider::KiloCode => kilo_code::databases(root),
+        Provider::T3Code => t3_code::databases(root),
         _ => Vec::new(),
     }
 }

@@ -20,6 +20,17 @@ const MAX_RECORDS: usize = 100_000;
 const MAX_SCAN_RECORDS: usize = 500_000;
 const MAX_ZED_BLOB_BYTES: usize = 32 * 1024 * 1024;
 const AIDER_MAX_DIR_DEPTH: usize = 2;
+pub const HOUR_MS: i64 = 3_600_000;
+pub const ROLLING_HOURS: i64 = 24;
+
+/// Truncates a Unix millisecond timestamp to the start of its local clock hour.
+pub fn current_hour_start_ms(now_ms: i64) -> Option<i64> {
+    let now = Local.timestamp_millis_opt(now_ms).single()?;
+    let elapsed_in_hour_ms = i64::from(now.minute()) * 60_000
+        + i64::from(now.second()) * 1_000
+        + i64::from(now.timestamp_subsec_millis());
+    Some(now_ms - elapsed_in_hour_ms)
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UsageSnapshot {
@@ -42,7 +53,7 @@ pub struct UsageSnapshot {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UsageBundle {
-    pub today: UsageSnapshot,
+    pub last_24h: UsageSnapshot,
     pub week: UsageSnapshot,
     pub month: UsageSnapshot,
     pub all: UsageSnapshot,
@@ -52,7 +63,7 @@ impl UsageBundle {
     /// Returns the snapshot for the requested period.
     pub fn for_period(&self, period: UsagePeriod) -> &UsageSnapshot {
         match period {
-            UsagePeriod::Today => &self.today,
+            UsagePeriod::Last24h => &self.last_24h,
             UsagePeriod::Week => &self.week,
             UsagePeriod::Month => &self.month,
             UsagePeriod::All => &self.all,
@@ -78,6 +89,8 @@ pub struct UsageDay {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UsageHour {
     pub hour: u8,
+    #[serde(default)]
+    pub start_ms: Option<i64>,
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
@@ -87,7 +100,7 @@ pub struct UsageHour {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UsagePeriod {
-    Today,
+    Last24h,
     Week,
     Month,
     All,
@@ -96,7 +109,10 @@ pub enum UsagePeriod {
 impl UsagePeriod {
     pub fn since_ms(self, now_ms: i64) -> Option<i64> {
         let days = match self {
-            Self::Today => 0,
+            Self::Last24h => {
+                return current_hour_start_ms(now_ms)
+                    .map(|hour_start| hour_start - (ROLLING_HOURS - 1) * HOUR_MS);
+            }
             Self::Week => 6,
             Self::Month => 29,
             Self::All => return None,
@@ -403,7 +419,7 @@ impl UsageScanner {
         self.scan_at(period, now_ms())
     }
 
-    /// Scans all four usage periods (`Today`, `Week`, `Month`, `All`) in a single pass.
+    /// Scans all four usage periods (`Last24h`, `Week`, `Month`, `All`) in a single pass.
     pub fn scan_all_periods(&mut self) -> UsageBundle {
         self.scan_all_periods_at(now_ms(), None)
             .expect("uncancelled usage scan must produce a bundle")
@@ -444,7 +460,7 @@ impl UsageScanner {
         let claude_records = reconcile_claude(&self.cache);
         let sessions = collect_sorted_sessions(&self.cache, &claude_records);
         let periods = [
-            UsagePeriod::Today,
+            UsagePeriod::Last24h,
             UsagePeriod::Week,
             UsagePeriod::Month,
             UsagePeriod::All,
@@ -466,7 +482,7 @@ impl UsageScanner {
         }
         let mut iter = snapshots.into_iter();
         Some(UsageBundle {
-            today: iter.next().unwrap_or_default(),
+            last_24h: iter.next().unwrap_or_default(),
             week: iter.next().unwrap_or_default(),
             month: iter.next().unwrap_or_default(),
             all: iter.next().unwrap_or_default(),
@@ -647,6 +663,7 @@ fn aggregate_period(
         hourly_by_provider: BTreeMap::new(),
         weekday_hour: [[0; 24]; 7],
         weekday_hour_by_provider: BTreeMap::new(),
+        rolling_hourly: period == UsagePeriod::Last24h,
         since: period.since_ms(refreshed_at_ms),
         rates,
     };
@@ -814,6 +831,22 @@ fn expand_sources_with_base(
                 {
                     source.root = PathBuf::from(home).join("projects");
                 }
+            }
+            if source.provider == Provider::Antigravity
+                && let Some(home) = dirs::home_dir()
+                && source.root == home.join(".gemini").join("antigravity").join("brain")
+            {
+                expanded.push(SessionSource {
+                    provider: Provider::Antigravity,
+                    root: absolutize_path(
+                        home.join(".t3")
+                            .join("userdata")
+                            .join("providers")
+                            .join("antigravity"),
+                        base_dir,
+                    ),
+                    store: SessionStore::LogFiles,
+                });
             }
             source.root = absolutize_path(source.root, base_dir);
         }
@@ -1086,6 +1119,10 @@ fn should_skip_dir(provider: &str, path: &Path) -> bool {
             name.eq_ignore_ascii_case("browser_sandbox")
                 || name.eq_ignore_ascii_case("scratch")
                 || name.eq_ignore_ascii_case("steps")
+                || name.eq_ignore_ascii_case("cache")
+                || name.eq_ignore_ascii_case("bin")
+                || name.eq_ignore_ascii_case("builtin")
+                || name.eq_ignore_ascii_case("crashes")
                 || name.eq_ignore_ascii_case(".git")
                 || name.eq_ignore_ascii_case("node_modules")
                 || name.eq_ignore_ascii_case("target")
@@ -3181,10 +3218,11 @@ struct Totals<'a> {
     rows: Rows,
     daily: BTreeMap<String, UsageDay>,
     daily_by_provider: BTreeMap<String, BTreeMap<String, UsageDay>>,
-    hourly: BTreeMap<u8, UsageHour>,
-    hourly_by_provider: BTreeMap<String, BTreeMap<u8, UsageHour>>,
+    hourly: BTreeMap<i64, UsageHour>,
+    hourly_by_provider: BTreeMap<String, BTreeMap<i64, UsageHour>>,
     weekday_hour: [[u64; 24]; 7],
     weekday_hour_by_provider: BTreeMap<String, [[u64; 24]; 7]>,
+    rolling_hourly: bool,
     since: Option<i64>,
     rates: &'a RateIndex,
 }
@@ -3349,13 +3387,16 @@ fn add_day_usage(
 }
 
 fn add_hour_usage(
-    hours: &mut BTreeMap<u8, UsageHour>,
+    hours: &mut BTreeMap<i64, UsageHour>,
+    key: i64,
     hour: u8,
+    start_ms: Option<i64>,
     usage: TokenUsage,
     cost: Option<f64>,
 ) {
-    let entry = hours.entry(hour).or_insert_with(|| UsageHour {
+    let entry = hours.entry(key).or_insert_with(|| UsageHour {
         hour,
+        start_ms,
         ..UsageHour::default()
     });
     let first = entry.requests == 0;
@@ -3452,13 +3493,23 @@ fn add_usage(
             cost,
         );
         let hour = dt.hour() as u8;
-        add_hour_usage(&mut totals.hourly, hour, usage, cost);
+        let (hour_key, hour_start) = if totals.rolling_hourly {
+            match current_hour_start_ms(record.time) {
+                Some(start_ms) => (start_ms, Some(start_ms)),
+                None => (i64::from(hour), None),
+            }
+        } else {
+            (i64::from(hour), None)
+        };
+        add_hour_usage(&mut totals.hourly, hour_key, hour, hour_start, usage, cost);
         add_hour_usage(
             totals
                 .hourly_by_provider
                 .entry(provider.to_owned())
                 .or_default(),
+            hour_key,
             hour,
+            hour_start,
             usage,
             cost,
         );
@@ -4186,11 +4237,11 @@ mod tests {
     }
 
     #[test]
-    fn periods_use_inclusive_local_calendar_days() {
+    fn periods_use_rolling_last_24h_and_inclusive_local_calendar_days() {
         let now = local_ms(2026, 1, 8, 0, 1);
         assert_eq!(
-            UsagePeriod::Today.since_ms(now),
-            Some(local_ms(2026, 1, 8, 0, 0))
+            UsagePeriod::Last24h.since_ms(now),
+            Some(local_ms(2026, 1, 7, 1, 0))
         );
         assert_eq!(
             UsagePeriod::Week.since_ms(now),
@@ -4202,7 +4253,7 @@ mod tests {
         );
         assert_eq!(UsagePeriod::All.since_ms(now), None);
         assert_eq!(
-            UsagePeriod::Today.since_ms(local_ms(2026, 1, 7, 23, 59)),
+            UsagePeriod::Last24h.since_ms(local_ms(2026, 1, 7, 23, 59)),
             Some(local_ms(2026, 1, 7, 0, 0))
         );
     }
@@ -4210,8 +4261,9 @@ mod tests {
     #[test]
     fn period_selection_reconciles_baselines_before_cutoff_and_clips_intervals() {
         let f = Fixture::new();
-        let before = local_ms(2026, 1, 7, 23, 59);
-        let after = local_ms(2026, 1, 8, 0, 1);
+        let before = local_ms(2026, 1, 7, 0, 59);
+        let after = local_ms(2026, 1, 7, 1, 1);
+        let now = local_ms(2026, 1, 8, 0, 1);
         let values = vec![
             meta(),
             context("gpt-6.1-sol", "high"),
@@ -4223,19 +4275,25 @@ mod tests {
         f.write("one.jsonl", &values);
         f.write("duplicate.jsonl", &values);
         let mut scanner = f.scanner(Provider::Codex);
-        let today = scanner.scan_at(UsagePeriod::Today, after);
-        assert_eq!(today.rows.len(), 1);
-        assert_eq!(today.rows[0].input_tokens, Some(60));
-        assert_eq!(today.rows[0].output_tokens, Some(20));
-        assert_eq!(today.rows[0].task_time_ms, Some(60_000));
-        assert_eq!(today.rows[0].requests, 1);
-        assert_eq!(today.daily.len(), 1);
-        assert_eq!(today.daily[0].date, "2026-01-08");
-        assert_eq!(today.daily[0].input_tokens, Some(60));
+        let last_24h = scanner.scan_at(UsagePeriod::Last24h, now);
+        assert_eq!(last_24h.rows.len(), 1);
+        assert_eq!(last_24h.rows[0].input_tokens, Some(60));
+        assert_eq!(last_24h.rows[0].output_tokens, Some(20));
+        assert_eq!(last_24h.rows[0].task_time_ms, Some(60_000));
+        assert_eq!(last_24h.rows[0].requests, 1);
+        assert_eq!(last_24h.daily.len(), 1);
+        assert_eq!(last_24h.daily[0].date, "2026-01-07");
+        assert_eq!(last_24h.daily[0].input_tokens, Some(60));
+        assert_eq!(last_24h.hourly.len(), 1);
+        assert_eq!(last_24h.hourly[0].hour, 1);
+        assert_eq!(
+            last_24h.hourly[0].start_ms,
+            Some(local_ms(2026, 1, 7, 1, 0))
+        );
         let all = scanner.scan();
         assert_eq!(all.rows[0].requests, 2);
         assert_eq!(all.rows[0].input_tokens, Some(160));
-        assert_eq!(all.daily.len(), 2);
+        assert_eq!(all.daily.len(), 1);
         assert_eq!(all.rows[0].task_time_ms, Some(120_000));
     }
 
@@ -4357,15 +4415,15 @@ mod tests {
     }
 
     #[test]
-    fn missing_timestamps_are_not_assigned_to_today_or_daily_charts() {
+    fn missing_timestamps_are_not_assigned_to_last_24h_or_daily_charts() {
         let f = Fixture::new();
         let mut event = total("", 100, 20);
         event.as_object_mut().unwrap().remove("timestamp");
         f.write("one.jsonl", &[meta(), context("gpt-6.1-sol", ""), event]);
         let mut scanner = f.scanner(Provider::Codex);
-        let today = scanner.scan_at(UsagePeriod::Today, local_ms(2026, 1, 8, 12, 0));
-        assert!(today.rows.is_empty());
-        assert!(today.daily.is_empty());
+        let last_24h = scanner.scan_at(UsagePeriod::Last24h, local_ms(2026, 1, 8, 12, 0));
+        assert!(last_24h.rows.is_empty());
+        assert!(last_24h.daily.is_empty());
         let all = scanner.scan();
         assert_eq!(all.rows[0].requests, 1);
         assert!(all.daily.is_empty());
@@ -5022,9 +5080,9 @@ mod tests {
         assert_eq!(all.daily.len(), 1);
         assert_eq!(all.daily[0].date, "2026-01-01");
         assert_eq!(all.daily[0].output_tokens, Some(40));
-        let today = scanner.scan_at(UsagePeriod::Today, local_ms(2026, 1, 2, 13, 0));
-        assert!(today.rows.is_empty());
-        assert!(today.daily.is_empty());
+        let last_24h = scanner.scan_at(UsagePeriod::Last24h, local_ms(2026, 1, 2, 13, 0));
+        assert!(last_24h.rows.is_empty());
+        assert!(last_24h.daily.is_empty());
     }
 
     #[test]
@@ -5226,6 +5284,7 @@ mod tests {
             assert_eq!(a_hours.len(), e_hours.len());
             for (a, e) in a_hours.iter().zip(e_hours) {
                 assert_eq!(a.hour, e.hour);
+                assert_eq!(a.start_ms, e.start_ms);
                 assert_eq!(a.input_tokens, e.input_tokens);
                 assert_eq!(a.output_tokens, e.output_tokens);
                 assert_eq!(a.cached_input_tokens, e.cached_input_tokens);
@@ -5281,7 +5340,7 @@ mod tests {
         );
 
         let mut single = f.scanner(Provider::Codex);
-        let expected_today = single.scan_at(UsagePeriod::Today, now);
+        let expected_last_24h = single.scan_at(UsagePeriod::Last24h, now);
         let expected_week = single.scan_at(UsagePeriod::Week, now);
         let expected_month = single.scan_at(UsagePeriod::Month, now);
         let expected_all = single.scan_at(UsagePeriod::All, now);
@@ -5289,7 +5348,7 @@ mod tests {
         let mut multi = f.scanner(Provider::Codex);
         let bundle = multi.scan_all_periods_at(now, None).unwrap();
 
-        assert_snapshot_eq(bundle.for_period(UsagePeriod::Today), &expected_today);
+        assert_snapshot_eq(bundle.for_period(UsagePeriod::Last24h), &expected_last_24h);
         assert_snapshot_eq(bundle.for_period(UsagePeriod::Week), &expected_week);
         assert_snapshot_eq(bundle.for_period(UsagePeriod::Month), &expected_month);
         assert_snapshot_eq(bundle.for_period(UsagePeriod::All), &expected_all);
@@ -5396,6 +5455,28 @@ mod tests {
     }
 
     #[test]
+    fn extra_usage_watch_roots_expands_default_antigravity_to_t3_code_provider_store() {
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        let sources = vec![SessionSource {
+            provider: Provider::Antigravity,
+            root: home.join(".gemini").join("antigravity").join("brain"),
+            store: SessionStore::LogFiles,
+        }];
+        let extras = extra_usage_watch_roots_with_base(&sources, None);
+        assert_eq!(
+            extras,
+            vec![
+                home.join(".t3")
+                    .join("userdata")
+                    .join("providers")
+                    .join("antigravity")
+            ]
+        );
+    }
+
+    #[test]
     fn usage_bundle_round_trips_through_json() {
         let f = Fixture::new();
         f.write(
@@ -5410,7 +5491,7 @@ mod tests {
         let bundle = scanner.scan_all_periods();
         let encoded = serde_json::to_string(&bundle).unwrap();
         let decoded: UsageBundle = serde_json::from_str(&encoded).unwrap();
-        assert_snapshot_eq(&decoded.today, &bundle.today);
+        assert_snapshot_eq(&decoded.last_24h, &bundle.last_24h);
         assert_snapshot_eq(&decoded.week, &bundle.week);
         assert_snapshot_eq(&decoded.month, &bundle.month);
         assert_snapshot_eq(&decoded.all, &bundle.all);
