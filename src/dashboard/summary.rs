@@ -86,7 +86,8 @@ pub fn render_hero_bento(
     let active_days = daily.iter().filter(|d| d.requests > 0).count();
     let cost_footer = if !known || empty {
         None
-    } else if let Some(total_usd) = cost.0
+    } else if period != UsagePeriod::Last24h
+        && let Some(total_usd) = cost.0
         && active_days > 1
     {
         Some(format!(

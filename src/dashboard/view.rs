@@ -39,11 +39,11 @@ impl Dashboard {
             .flex()
             .gap(px(2.))
             .child(segment_button(
-                "today",
-                "Today",
-                self.period == UsagePeriod::Today,
+                "last-24h",
+                "Last 24h",
+                self.period == UsagePeriod::Last24h,
                 None,
-                Action::Period(UsagePeriod::Today),
+                Action::Period(UsagePeriod::Last24h),
                 cx,
             ))
             .child(segment_button(
@@ -143,7 +143,7 @@ impl Dashboard {
                             ),
                     )
                     .when_some(period_inline, |row, selector| {
-                        row.child(div().w(px(296.)).child(selector))
+                        row.child(div().w(px(320.)).child(selector))
                     })
                     .child(
                         div()
@@ -327,7 +327,7 @@ impl Dashboard {
             .bundle
             .as_ref()
             .map(|bundle| {
-                let source_snap = if self.period == UsagePeriod::Today {
+                let source_snap = if self.period == UsagePeriod::Last24h {
                     &bundle.week
                 } else {
                     bundle.for_period(self.period)

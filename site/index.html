@@ -212,7 +212,7 @@
               </div>
               <div class="usage-head-controls">
                 <div class="usage-tabs" role="group" aria-label="Time period">
-                  <button class="usage-tab" type="button" data-period="today" aria-pressed="false">Today</button>
+                  <button class="usage-tab" type="button" data-period="24h" aria-pressed="false">Last 24h</button>
                   <button class="usage-tab active" type="button" data-period="7d" aria-pressed="true">7d</button>
                   <button class="usage-tab" type="button" data-period="30d" aria-pressed="false">30d</button>
                   <button class="usage-tab" type="button" data-period="all" aria-pressed="false">All</button>
@@ -389,19 +389,19 @@
       <div class="wrap">
         <div class="section-heading reveal">
           <div><span class="section-index">03 / Provider coverage</span><h2>Bring your own<br><span class="muted">favorite tool.</span></h2></div>
-          <p>39 provider targets. Two ways to detect them. A presence that works with your stack, not against it.</p>
+          <p>41 provider targets. Two ways to detect them. A presence that works with your stack, not against it.</p>
         </div>
         <div class="coverage-layout reveal">
           <div class="coverage-intro">
-            <span class="big-number"><span class="count-value" data-count="39">39</span><span class="plus">+</span></span>
+            <span class="big-number"><span class="count-value" data-count="41">41</span><span class="plus">+</span></span>
             <p>AI tools, coding agents, and assistants already on the list.</p>
-            <div class="detection-legend"><span><i class="legend-rich"></i>Rich session tracking <b>21</b></span><span><i class="legend-standard"></i>Focused-app detection <b>17</b></span><span><i class="legend-activity"></i>Activity only <b>1</b></span></div>
+            <div class="detection-legend"><span><i class="legend-rich"></i>Rich session tracking <b>22</b></span><span><i class="legend-standard"></i>Focused-app detection <b>18</b></span><span><i class="legend-activity"></i>Activity only <b>1</b></span></div>
             <a class="text-link" href="https://github.com/braces157/discodex/blob/main/docs/PROVIDERS.md" target="_blank" rel="noopener">How detection works<svg class="icon arrow-up"><use href="#i-arrow-up"/></svg></a>
           </div>
           <div class="provider-browser">
             <div class="provider-controls">
               <label class="provider-search" for="providerSearch"><svg class="icon"><use href="#i-search"/></svg><input id="providerSearch" type="search" placeholder="Find your tool…" autocomplete="off"><kbd>/</kbd></label>
-              <div class="provider-filters" role="group" aria-label="Filter providers"><button class="filter active" type="button" data-filter="all" aria-pressed="true">All <span>39</span></button><button class="filter" type="button" data-filter="rich" aria-pressed="false">Rich <span>21</span></button><button class="filter" type="button" data-filter="standard" aria-pressed="false">Focused <span>17</span></button><button class="filter" type="button" data-filter="activity" aria-pressed="false">Activity <span>1</span></button></div>
+              <div class="provider-filters" role="group" aria-label="Filter providers"><button class="filter active" type="button" data-filter="all" aria-pressed="true">All <span>41</span></button><button class="filter" type="button" data-filter="rich" aria-pressed="false">Rich <span>22</span></button><button class="filter" type="button" data-filter="standard" aria-pressed="false">Focused <span>18</span></button><button class="filter" type="button" data-filter="activity" aria-pressed="false">Activity <span>1</span></button></div>
             </div>
             <ul class="provider-list" id="providerList">
               <li data-type="rich" data-name="OpenAI Codex"><img src="assets/logos/codex.png" alt="" width="32" height="32" loading="lazy"><span>OpenAI Codex</span><small>Rich</small></li>
@@ -425,6 +425,7 @@
               <li data-type="rich" data-name="OpenCode"><img src="assets/logos/opencode.png" alt="" width="32" height="32" loading="lazy"><span>OpenCode</span><small>Rich</small></li>
               <li data-type="rich" data-name="Zed"><img src="assets/logos/zed.png" alt="" width="32" height="32" loading="lazy"><span>Zed</span><small>Rich</small></li>
               <li data-type="rich" data-name="Kilo Code"><img src="assets/logos/kilo-code.png" alt="" width="32" height="32" loading="lazy"><span>Kilo Code</span><small>Rich</small></li>
+              <li data-type="rich" data-name="T3 Code"><img src="assets/logos/t3-code.png" alt="" width="32" height="32" loading="lazy"><span>T3 Code</span><small>Rich</small></li>
               <li data-type="standard" data-name="ChatGPT"><img src="assets/logos/chatgpt.png" alt="" width="32" height="32" loading="lazy"><span>ChatGPT</span><small>Focused</small></li>
               <li data-type="standard" data-name="Claude"><img src="assets/logos/claude.png" alt="" width="32" height="32" loading="lazy"><span>Claude</span><small>Focused</small></li>
               <li data-type="standard" data-name="Google Gemini"><img src="assets/logos/gemini.png" alt="" width="32" height="32" loading="lazy"><span>Google Gemini</span><small>Focused</small></li>
@@ -442,10 +443,11 @@
               <li data-type="standard" data-name="Cline"><img src="assets/logos/cline.png" alt="" width="32" height="32" loading="lazy"><span>Cline</span><small>Focused</small></li>
               <li data-type="standard" data-name="Roo Code"><img src="assets/logos/roo-code.png" alt="" width="32" height="32" loading="lazy"><span>Roo Code</span><small>Focused</small></li>
               <li data-type="standard" data-name="Continue"><img src="assets/logos/continue.png" alt="" width="32" height="32" loading="lazy"><span>Continue</span><small>Focused</small></li>
+              <li data-type="standard" data-name="T3 Code"><img src="assets/logos/t3-code.png" alt="" width="32" height="32" loading="lazy"><span>T3 Code</span><small>Focused</small></li>
               <li data-type="activity" data-name="Sourcegraph Amp"><img src="assets/logos/amp.png" alt="" width="32" height="32" loading="lazy"><span>Sourcegraph Amp</span><small>Activity</small></li>
             </ul>
             <div class="provider-empty" id="providerEmpty" hidden><svg class="icon"><use href="#i-search"/></svg><h3>No matches yet.</h3><p>Try a different name, or ask for support on GitHub.</p><button type="button" id="clearSearch">Show all providers</button></div>
-            <div class="provider-result" aria-live="polite"><span id="providerCount">Showing 39 of 39 provider targets</span><span>Don't see yours? <a href="https://github.com/braces157/discodex/issues/new?template=feature_request.yml" target="_blank" rel="noopener">Suggest a provider <svg class="icon"><use href="#i-arrow-up"/></svg></a></span></div>
+            <div class="provider-result" aria-live="polite"><span id="providerCount">Showing 41 of 41 provider targets</span><span>Don't see yours? <a href="https://github.com/braces157/discodex/issues/new?template=feature_request.yml" target="_blank" rel="noopener">Suggest a provider <svg class="icon"><use href="#i-arrow-up"/></svg></a></span></div>
           </div>
         </div>
       </div>

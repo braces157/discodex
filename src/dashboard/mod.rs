@@ -271,13 +271,18 @@ impl Dashboard {
             let rates_changed = rates_path.as_deref().is_some_and(|path| {
                 usage_cache::rates_fingerprint(path) != cached.rates_fingerprint
             });
-            let age_ms = crate::now_ms().saturating_sub(cached.bundle.refreshed_at_ms());
+            let now_ms = crate::now_ms();
+            let age_ms = now_ms.saturating_sub(cached.bundle.refreshed_at_ms());
+            let hour_rolled = crate::usage::current_hour_start_ms(cached.bundle.refreshed_at_ms())
+                != crate::usage::current_hour_start_ms(now_ms);
             dashboard.bundle = Some(cached.bundle);
             dashboard.cache_generation = cached.generation;
             if layout == LayoutMode::Wide {
                 dashboard.maybe_auto_expand_wide();
             }
-            if dashboard.error.is_none() && (rates_changed || age_ms > FRESH_CACHE_MAX_AGE_MS) {
+            if dashboard.error.is_none()
+                && (rates_changed || hour_rolled || age_ms > FRESH_CACHE_MAX_AGE_MS)
+            {
                 dashboard.request_refresh(rates_changed);
             }
         } else if dashboard.error.is_none() {
@@ -699,7 +704,7 @@ impl Render for Dashboard {
                     }
                     "left" => this.act(Action::ScrubChart(-1), cx),
                     "right" => this.act(Action::ScrubChart(1), cx),
-                    "1" => this.act(Action::Period(UsagePeriod::Today), cx),
+                    "1" => this.act(Action::Period(UsagePeriod::Last24h), cx),
                     "2" => this.act(Action::Period(UsagePeriod::Week), cx),
                     "3" => this.act(Action::Period(UsagePeriod::Month), cx),
                     "4" => this.act(Action::Period(UsagePeriod::All), cx),

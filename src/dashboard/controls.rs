@@ -108,6 +108,7 @@ pub fn segment_button<T: Into<gpui::ElementId>, U: Into<gpui::SharedString>>(
         .rounded(px(6.))
         .cursor_pointer()
         .text_size(px(12.))
+        .whitespace_nowrap()
         .border_1()
         .border_color(rgba(if selected { BORDER_STRONG } else { 0x00000000 }))
         .bg(if selected {
@@ -220,13 +221,13 @@ pub fn render_empty_state(
     cx: &mut Context<Dashboard>,
 ) -> impl IntoElement + use<> {
     let heading = match period {
-        UsagePeriod::Today => "No activity recorded today",
+        UsagePeriod::Last24h => "No activity in the last 24 hours",
         UsagePeriod::Week => "No activity in the last 7 days",
         UsagePeriod::Month => "No activity in the last 30 days",
         UsagePeriod::All => "No recorded usage yet",
     };
     let suggestions: Vec<(&'static str, UsagePeriod)> = match period {
-        UsagePeriod::Today => vec![
+        UsagePeriod::Last24h => vec![
             ("View 7 days", UsagePeriod::Week),
             ("View 30 days", UsagePeriod::Month),
             ("View All", UsagePeriod::All),

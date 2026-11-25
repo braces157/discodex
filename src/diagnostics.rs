@@ -132,6 +132,8 @@ impl DiagnosticSnapshot<'_> {
                 }
                 if provider == Provider::Aider {
                     report.push_str("    Monitoring: periodic transcript scan\n");
+                } else if provider == Provider::T3Code {
+                    report.push_str("    Monitoring: periodic database poll\n");
                 } else {
                     let state = match self.watches.get(&source.root) {
                         Some(Ok(())) => "Watching".to_string(),

@@ -191,7 +191,7 @@ html.motion .privacy-boundary.in .boundary-footer svg path{animation:drawCircle 
 .usage-brand span{display:block;font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;color:var(--u-muted);margin-top:2px}
 .usage-head-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .usage-tabs{display:inline-flex;background:var(--u-recessed);border:1px solid var(--u-border);border-radius:9px;padding:2.5px;gap:2px}
-.usage-tab{border:1px solid transparent;background:transparent;color:var(--u-sec);font-family:var(--mono);font-size:.68rem;padding:4px 9px;border-radius:6.5px;cursor:pointer;transition:background .2s var(--ease),color .2s var(--ease),border-color .2s var(--ease)}
+.usage-tab{border:1px solid transparent;background:transparent;color:var(--u-sec);font-family:var(--mono);font-size:.68rem;padding:4px 9px;border-radius:6.5px;cursor:pointer;white-space:nowrap;transition:background .2s var(--ease),color .2s var(--ease),border-color .2s var(--ease)}
 .usage-tab:hover{color:var(--u-text);background:rgba(255,255,255,.05)}
 .usage-tab.active{background:var(--u-elevated);border-color:var(--u-border-strong);color:var(--u-text);font-weight:600}
 .usage-layout-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--u-border);background:var(--u-recessed);color:var(--u-sec);font-family:var(--mono);font-size:.66rem;padding:5px 9px;border-radius:8px;cursor:pointer;transition:background .2s var(--ease),color .2s var(--ease),border-color .2s var(--ease)}

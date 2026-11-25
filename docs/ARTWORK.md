@@ -1,7 +1,7 @@
 # Provider artwork
 
 Discodex ships one mark per harness. Discord renders `assets[large_image]` from
-a URL, so the 30 marks are served from this repository instead of being
+a URL, so the 31 marks are served from this repository instead of being
 hotlinked from vendor sites and third-party icon packages.
 
 ## Why the set is normalised
@@ -57,6 +57,7 @@ Every mark is therefore rebuilt to one geometry:
 | Factory Droid | `assets/logos/factory-droid.png` | tile |
 | Kilo Code | `assets/logos/kilo-code.png` | tile |
 | Amp | `assets/logos/amp.png` | tile |
+| T3 Code | `assets/logos/t3-code.png` | tile |
 
 ## Rebuilding
 

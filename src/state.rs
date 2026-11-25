@@ -316,7 +316,10 @@ impl ActivityState {
             .values()
             .filter(|session| session.active)
             .max_by_key(|session| {
+                // T3 Code orchestrates underlying CLIs (Codex, Claude Code, etc.);
+                // prefer its active thread over simultaneously emitting child logs.
                 (
+                    session.provider == Provider::T3Code,
                     session.phase == Phase::RunningTools,
                     session.last_activity_ms,
                 )
@@ -774,5 +777,51 @@ mod tests {
         assert_eq!(presence.phase, Phase::RunningTools);
         assert_eq!(presence.activity, "Editing files");
         assert_eq!(presence.current_file.as_deref(), Some("main.rs"));
+    }
+
+    #[test]
+    fn active_t3_code_session_takes_priority_over_wrapped_harness_and_yields_on_completion() {
+        let mut state = ActivityState::default();
+        let t3_path = Path::new(r"C:\Users\PC\.t3\userdata\statev2.sqlite#thread-1");
+        let codex_path = Path::new(r"C:\Users\PC\.codex\sessions\rollout-1.jsonl");
+
+        state.apply(
+            t3_path,
+            Provider::T3Code,
+            ParsedEvent::SessionMetadata {
+                project: "Discodex".to_string(),
+                cwd: r"C:\Users\PC\Documents\Discodex".to_string(),
+            },
+            1_000,
+        );
+        state.apply(
+            t3_path,
+            Provider::T3Code,
+            ParsedEvent::TaskStarted {
+                started_at_ms: 1_000,
+            },
+            1_000,
+        );
+        // Child Codex log writes a newer tool event while T3 Code is running.
+        state.apply(
+            codex_path,
+            Provider::Codex,
+            ParsedEvent::ToolStarted {
+                activity: crate::events::ToolActivity {
+                    label: "Running tests".to_string(),
+                    file: None,
+                    language: None,
+                },
+            },
+            2_000,
+        );
+
+        let while_running = state.selected_presence().unwrap();
+        assert_eq!(while_running.provider, Provider::T3Code);
+
+        // Once T3 Code completes, any remaining active harness session takes over cleanly.
+        state.apply(t3_path, Provider::T3Code, ParsedEvent::Completed, 2_500);
+        let after_done = state.selected_presence().unwrap();
+        assert_eq!(after_done.provider, Provider::Codex);
     }
 }

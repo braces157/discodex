@@ -62,6 +62,8 @@ const LOGO_JUNIE: &str =
     "https://raw.githubusercontent.com/braces157/discodex/main/assets/logos/junie.png";
 const LOGO_AMP: &str =
     "https://raw.githubusercontent.com/braces157/discodex/main/assets/logos/amp.png";
+const LOGO_T3_CODE: &str =
+    "https://raw.githubusercontent.com/braces157/discodex/main/assets/logos/t3-code.png";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Provider {
@@ -95,10 +97,11 @@ pub enum Provider {
     KiloCode,
     JetBrains,
     Amp,
+    T3Code,
 }
 
 impl Provider {
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 31] = [
         Self::Codex,
         Self::ClaudeCode,
         Self::DeepSeekHarness,
@@ -129,6 +132,7 @@ impl Provider {
         Self::KiloCode,
         Self::JetBrains,
         Self::Amp,
+        Self::T3Code,
     ];
 
     // Every provider ships one mark from this repository, not a hotlink to a
@@ -171,6 +175,7 @@ impl Provider {
             Self::KiloCode => "kilo-code",
             Self::JetBrains => "junie",
             Self::Amp => "amp",
+            Self::T3Code => "t3-code",
         }
     }
 
@@ -206,6 +211,7 @@ impl Provider {
             Self::KiloCode => LOGO_KILO_CODE,
             Self::JetBrains => LOGO_JUNIE,
             Self::Amp => LOGO_AMP,
+            Self::T3Code => LOGO_T3_CODE,
         }
     }
 
@@ -246,6 +252,7 @@ impl Provider {
             Self::KiloCode => "Kilo Code",
             Self::JetBrains => "Junie",
             Self::Amp => "Amp",
+            Self::T3Code => "T3 Code",
         }
     }
 
@@ -290,7 +297,8 @@ impl Provider {
             | Self::KiloCode
             | Self::JetBrains
             | Self::OpenCode
-            | Self::Aider => "Working with coding agent",
+            | Self::Aider
+            | Self::T3Code => "Working with coding agent",
             Self::Cursor
             | Self::Windsurf
             | Self::Trae
@@ -338,6 +346,8 @@ impl Provider {
             "kilo" | "kilocode" | "kilo-code" => Some(Self::KiloCode),
             "junie" => Some(Self::JetBrains),
             "amp" => Some(Self::Amp),
+            "t3 code" | "t3-code" | "t3code" => Some(Self::T3Code),
+            _ if name.starts_with("t3 code (") && name.ends_with(')') => Some(Self::T3Code),
             _ => None,
         }
     }
@@ -356,6 +366,13 @@ impl Provider {
             || title_ends_or_is(&title, "deepseek harness")
         {
             return Some(Self::DeepSeekHarness);
+        }
+        if title_starts_or_is(&title, "t3 code")
+            || title_ends_or_is(&title, "t3 code")
+            || title_starts_or_is(&title, "t3 code (beta)")
+            || title_ends_or_is(&title, "t3 code (beta)")
+        {
+            return Some(Self::T3Code);
         }
         if title.contains("claude code") || title_starts_or_is(&title, "claude-code") {
             return Some(Self::ClaudeCode);
@@ -631,6 +648,11 @@ pub fn session_sources() -> Vec<SessionSource> {
             provider: Provider::Continue,
             root: home.join(".continue").join("sessions"),
             store: SessionStore::JsonFiles,
+        },
+        SessionSource {
+            provider: Provider::T3Code,
+            root: home.join(".t3").join("userdata"),
+            store: SessionStore::Sqlite,
         },
     ];
 
@@ -1136,8 +1158,41 @@ mod tests {
                 Provider::KiloCode => {}
                 Provider::JetBrains => {}
                 Provider::Amp => {}
+                Provider::T3Code => {}
             }
         }
-        assert_eq!(set.len(), 30);
+        assert_eq!(set.len(), 31);
+    }
+
+    #[test]
+    fn recognizes_t3_code_executables_and_window_titles_without_false_positives() {
+        for exe in [
+            "T3 Code.exe",
+            "T3 Code (Beta).exe",
+            "T3 Code (Nightly).exe",
+            "t3-code.exe",
+            "t3code.EXE",
+        ] {
+            assert_eq!(Provider::from_executable(exe), Some(Provider::T3Code));
+        }
+        for title in [
+            "T3 Code",
+            "T3 Code (Beta)",
+            "Discodex - T3 Code",
+            "Discodex — T3 Code (Beta)",
+            "T3 Code - Discodex",
+        ] {
+            assert_eq!(
+                Provider::from_window("Electron.exe", title),
+                Some(Provider::T3Code)
+            );
+        }
+        for title in [
+            "T3 Code review - Google Chrome",
+            "t3_code.rs - Visual Studio Code",
+        ] {
+            assert_eq!(Provider::from_window("chrome.exe", title), None);
+        }
+        assert!(!Provider::T3Code.has_session_tracking());
     }
 }

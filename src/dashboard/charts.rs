@@ -1,6 +1,5 @@
 use std::{cell::Cell, rc::Rc};
 
-use chrono::{Local, Timelike};
 use gpui::{
     Bounds, Context, FontWeight, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, canvas, div, prelude::*, px, rgb, rgba,
@@ -264,10 +263,7 @@ pub fn render_chart_card(
         params.provider_count,
     );
 
-    let live_bucket_idx = if params.is_hourly {
-        let cur_hour = Local::now().hour() as usize;
-        (cur_hour < point_count).then_some(cur_hour)
-    } else if !params.truncated {
+    let live_bucket_idx = if params.is_hourly || !params.truncated {
         point_count.checked_sub(1)
     } else {
         None

@@ -29,6 +29,7 @@ Rich adapters read local session data and convert only selected metadata into sa
 | OpenCode | `~\.local\share\opencode\opencode.db` | SQLite | Project, model, file basename, activity, phase, timer |
 | Zed | `%LOCALAPPDATA%\Zed\threads\threads.db` | SQLite | Project, model, file basename, activity, phase, timer |
 | Kilo Code | `~\.local\share\kilo\kilo.db` | SQLite | Project, model, file basename, activity, phase, timer |
+| T3 Code | `~\.t3\userdata\statev2.sqlite` | SQLite | Project, model, file basename, activity, phase, timer |
 | Sourcegraph Amp | `%LOCALAPPDATA%\amp\logs\threads\<id>.log` | JSONL | Activity, phase, timer |
 
 Session adapters do not forward prompt text, assistant responses, raw tool arguments, raw tool output, or full paths to Discord.
@@ -90,9 +91,11 @@ Cline 4 stores one directory per session with a transcript (`<id>.messages.json`
 
 Roo Code is a Cline fork and keeps the same per-task layout. It does not persist the model id, so the mode of the task (`architect`, `code`, `ask`, `debug`, `orchestrator`) is published instead. The raw conversation file of a task is never read.
 
-#### Block Goose, Charm Crush, OpenCode, Zed, Kilo Code
+#### Block Goose, Charm Crush, OpenCode, Zed, Kilo Code, T3 Code
 
 These harnesses keep their sessions in a SQLite database that is written while Discodex reads it. The worker opens the database read-only, waits for the writer with a busy timeout, and polls for new rows. The session id of a row is the key of the presence, so several conversations stay separate.
+
+For T3 Code, active orchestration runs in `~\.t3\userdata\statev2.sqlite` take presence priority over simultaneously emitting child harness logs (such as Codex or Claude Code spawned inside T3 Code), while token usage continues to be credited to the underlying harness (including T3 Code's isolated Antigravity transcripts under `~\.t3\userdata\providers\antigravity\`) so totals are never double-counted.
 
 #### Aider
 
@@ -118,6 +121,7 @@ Current recognition includes:
 - Kiro
 - Zed AI
 - OpenCode
+- T3 Code
 - Aider
 - GitHub Copilot
 - Cline
