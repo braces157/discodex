@@ -168,11 +168,20 @@ fn poll_at(db: &Path, seen: &mut HashSet<String>, now_ms: i64) -> Vec<StoreEvent
             ctx.process_rows(rows, initial_poll, now_ms, &mut max_seq);
             store_cursor(ctx.seen, table, max_seq);
         }
-        Some((table, mut cursor_seq)) => {
+        Some((mut table, mut cursor_seq)) => {
             if let Some(max_db_seq) = max_sequence(ctx.connection, table)
                 && max_db_seq < cursor_seq
             {
                 cursor_seq = -1;
+                store_cursor(ctx.seen, table, cursor_seq);
+            }
+            if cursor_seq < 0
+                && max_sequence(ctx.connection, table).unwrap_or(-1) < 0
+                && let Some(active_table) = EVENT_TABLES.iter().copied().find(|&candidate| {
+                    candidate != table && max_sequence(ctx.connection, candidate).unwrap_or(-1) >= 0
+                })
+            {
+                table = active_table;
                 store_cursor(ctx.seen, table, cursor_seq);
             }
             for _ in 0..MAX_BATCHES_PER_POLL {
@@ -220,6 +229,7 @@ fn max_sequence(connection: &Connection, table: &str) -> Option<i64> {
 }
 
 fn read_bootstrap_rows(connection: &Connection) -> Option<(&'static str, Vec<EventRow>)> {
+    let mut first_empty: Option<&'static str> = None;
     for &table in EVENT_TABLES {
         let query = format!("SELECT * FROM {table} ORDER BY sequence DESC LIMIT ?");
         let Ok(mut stmt) = connection.prepare(&query) else {
@@ -232,8 +242,9 @@ fn read_bootstrap_rows(connection: &Connection) -> Option<(&'static str, Vec<Eve
         if !parsed.is_empty() {
             return Some((table, parsed));
         }
+        first_empty.get_or_insert(table);
     }
-    None
+    first_empty.map(|table| (table, Vec::new()))
 }
 
 fn read_event_batch(connection: &Connection, table: &str, after_seq: i64) -> Option<Vec<EventRow>> {
@@ -1095,5 +1106,66 @@ mod tests {
 
         assert_eq!(agents, vec!["model-a", "model-b", "model-a"]);
         assert_eq!(projects, vec!["alpha", "beta", "alpha"]);
+    }
+
+    #[test]
+    fn empty_first_poll_initializes_cursor_and_drains_burst_in_ascending_batches() {
+        let tmp = TempDb::new("empty-first-burst");
+        let conn = tmp.conn();
+        let now = parse_timestamp_str("2026-11-25T10:00:10.000Z").unwrap();
+
+        let mut seen = HashSet::new();
+        assert!(poll_at(&tmp.path, &mut seen, now).is_empty());
+        assert!(seen.contains("cursor:orchestration_events:-1"));
+
+        conn.execute(
+            "INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, event_type, occurred_at, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "evt-first",
+                "thread",
+                "thread-1",
+                "turn-item.updated",
+                "2026-11-25T10:00:11.000Z",
+                r#"{"id":"call-first","threadId":"thread-1","type":"file_search","status":"running"}"#
+            ],
+        )
+        .unwrap();
+        for idx in 0..240 {
+            conn.execute(
+                "INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, event_type, occurred_at, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    format!("evt-empty-burst-{idx}"),
+                    "thread",
+                    "thread-1",
+                    "turn-item.updated",
+                    "2026-11-25T10:00:12.000Z",
+                    r#"{"id":"msg-burst","threadId":"thread-1","type":"reasoning","status":"running"}"#
+                ],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, event_type, occurred_at, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "evt-last",
+                "thread",
+                "thread-1",
+                "run.updated",
+                "2026-11-25T10:00:13.000Z",
+                r#"{"id":"run-1","threadId":"thread-1","status":"completed"}"#
+            ],
+        )
+        .unwrap();
+
+        let polled = poll_at(&tmp.path, &mut seen, now + 2_000);
+        assert!(polled.iter().any(|e| matches!(
+            &e.event,
+            ParsedEvent::TrackedToolStarted { call_id, .. } if call_id == "call-first"
+        )));
+        assert!(matches!(
+            polled.last().map(|e| &e.event),
+            Some(ParsedEvent::Completed)
+        ));
+        assert!(poll_at(&tmp.path, &mut seen, now + 4_000).is_empty());
     }
 }
