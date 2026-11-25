@@ -20,8 +20,14 @@ use crate::events::{
     project_name, timestamp_ms,
 };
 
-/// Maximum orchestration events read per poll.
+/// Maximum orchestration events read per batch.
 const ROW_LIMIT: i64 = 200;
+
+/// Maximum incremental batches drained in a single poll.
+const MAX_BATCHES_PER_POLL: usize = 50;
+
+/// Orchestration event tables in priority order.
+const EVENT_TABLES: &[&str] = &["orchestration_events", "orchestration_v2_events"];
 
 /// Ignore historical events older than 15 minutes during cold startup so a
 /// crashed or force-closed run never surfaces as live presence.
@@ -68,112 +74,202 @@ pub fn poll(db: &Path, seen: &mut HashSet<String>) -> Vec<StoreEvent> {
     poll_at(db, seen, crate::now_ms())
 }
 
+struct PollContext<'a> {
+    connection: &'a Connection,
+    seen: &'a mut HashSet<String>,
+    thread_cache: HashMap<String, ThreadContext>,
+    project_cache: HashMap<String, Option<String>>,
+    out: Vec<StoreEvent>,
+}
+
+impl<'a> PollContext<'a> {
+    fn process_rows(
+        &mut self,
+        rows: Vec<EventRow>,
+        initial_poll: bool,
+        now_ms: i64,
+        cursor_seq: &mut i64,
+    ) {
+        for row in rows {
+            *cursor_seq = (*cursor_seq).max(row.sequence);
+
+            let key = row
+                .event_id
+                .as_deref()
+                .filter(|id| !id.is_empty())
+                .map(|id| format!("event:{id}"))
+                .unwrap_or_else(|| format!("seq:{}", row.sequence));
+            if !self.seen.insert(key) {
+                continue;
+            }
+
+            if row
+                .aggregate_kind
+                .as_deref()
+                .is_some_and(|kind| !kind.eq_ignore_ascii_case("thread"))
+            {
+                continue;
+            }
+
+            let Some(payload) = row.payload.as_ref() else {
+                continue;
+            };
+            let Some(thread_id) = resolve_thread_id(&row, payload) else {
+                continue;
+            };
+
+            let occurred_ms = row.occurred_at.as_deref().and_then(parse_timestamp_str);
+            if initial_poll
+                && occurred_ms.is_some_and(|ts| now_ms.saturating_sub(ts) > STALE_BOOTSTRAP_MS)
+            {
+                continue;
+            }
+
+            let ctx = resolve_thread_context(
+                self.connection,
+                &thread_id,
+                &mut self.thread_cache,
+                &mut self.project_cache,
+            );
+            emit_thread_context(&thread_id, &ctx, payload, self.seen, &mut self.out);
+
+            for event in translate_event(&row.event_type, payload, occurred_ms, now_ms, self.seen) {
+                self.out.push(StoreEvent {
+                    session: thread_id.clone(),
+                    event,
+                });
+            }
+        }
+    }
+}
+
 fn poll_at(db: &Path, seen: &mut HashSet<String>, now_ms: i64) -> Vec<StoreEvent> {
     let Ok(connection) = open_database(db) else {
         return Vec::new();
     };
 
-    let initial_poll = seen.is_empty();
-    let rows = read_event_rows(&connection);
-    if rows.is_empty() {
-        return Vec::new();
-    }
+    let existing_cursor = parse_cursor(seen);
+    let initial_poll = existing_cursor.is_none() && seen.is_empty();
+    let mut ctx = PollContext {
+        connection: &connection,
+        seen,
+        thread_cache: HashMap::new(),
+        project_cache: HashMap::new(),
+        out: Vec::new(),
+    };
 
-    let mut out = Vec::new();
-    let mut thread_cache: HashMap<String, ThreadContext> = HashMap::new();
-    let mut project_cache: HashMap<String, Option<String>> = HashMap::new();
-
-    for row in rows.into_iter().rev() {
-        let key = row
-            .event_id
-            .as_deref()
-            .filter(|id| !id.is_empty())
-            .map(|id| format!("event:{id}"))
-            .unwrap_or_else(|| format!("seq:{}", row.sequence));
-        if !seen.insert(key) {
-            continue;
+    match existing_cursor {
+        None => {
+            let Some((table, mut rows)) = read_bootstrap_rows(ctx.connection) else {
+                return Vec::new();
+            };
+            rows.reverse();
+            let mut max_seq = -1_i64;
+            ctx.process_rows(rows, initial_poll, now_ms, &mut max_seq);
+            store_cursor(ctx.seen, table, max_seq);
         }
-
-        if row
-            .aggregate_kind
-            .as_deref()
-            .is_some_and(|kind| !kind.eq_ignore_ascii_case("thread"))
-        {
-            continue;
-        }
-
-        let Some(payload) = row.payload.as_ref() else {
-            continue;
-        };
-        let Some(thread_id) = resolve_thread_id(&row, payload) else {
-            continue;
-        };
-
-        let occurred_ms = row.occurred_at.as_deref().and_then(parse_timestamp_str);
-        if initial_poll
-            && occurred_ms.is_some_and(|ts| now_ms.saturating_sub(ts) > STALE_BOOTSTRAP_MS)
-        {
-            continue;
-        }
-
-        let ctx = resolve_thread_context(
-            &connection,
-            &thread_id,
-            &mut thread_cache,
-            &mut project_cache,
-        );
-        emit_thread_context(&thread_id, &ctx, payload, seen, &mut out);
-
-        for event in translate_event(&row.event_type, payload, occurred_ms, now_ms, seen) {
-            out.push(StoreEvent {
-                session: thread_id.clone(),
-                event,
-            });
+        Some((table, mut cursor_seq)) => {
+            if let Some(max_db_seq) = max_sequence(ctx.connection, table)
+                && max_db_seq < cursor_seq
+            {
+                cursor_seq = -1;
+                store_cursor(ctx.seen, table, cursor_seq);
+            }
+            for _ in 0..MAX_BATCHES_PER_POLL {
+                let Some(rows) = read_event_batch(ctx.connection, table, cursor_seq) else {
+                    break;
+                };
+                if rows.is_empty() {
+                    break;
+                }
+                let batch_len = rows.len() as i64;
+                ctx.process_rows(rows, false, now_ms, &mut cursor_seq);
+                store_cursor(ctx.seen, table, cursor_seq);
+                if batch_len < ROW_LIMIT {
+                    break;
+                }
+            }
         }
     }
 
-    out
+    ctx.out
 }
 
-fn read_event_rows(connection: &Connection) -> Vec<EventRow> {
-    for table in ["orchestration_events", "orchestration_v2_events"] {
+fn parse_cursor(seen: &HashSet<String>) -> Option<(&'static str, i64)> {
+    seen.iter().find_map(|entry| {
+        let rest = entry.strip_prefix("cursor:")?;
+        let (table_raw, seq_raw) = rest.rsplit_once(':')?;
+        let table = EVENT_TABLES.iter().copied().find(|&t| t == table_raw)?;
+        let seq = seq_raw.parse::<i64>().ok()?;
+        Some((table, seq))
+    })
+}
+
+fn store_cursor(seen: &mut HashSet<String>, table: &str, sequence: i64) {
+    let exact = format!("cursor:{table}:{sequence}");
+    if !seen.contains(&exact) {
+        seen.retain(|entry| !entry.starts_with("cursor:"));
+        seen.insert(exact);
+    }
+}
+
+fn max_sequence(connection: &Connection, table: &str) -> Option<i64> {
+    let query = format!("SELECT COALESCE(MAX(sequence), -1) FROM {table}");
+    let mut stmt = connection.prepare(&query).ok()?;
+    stmt.query_row([], |row| row.get::<_, i64>(0)).ok()
+}
+
+fn read_bootstrap_rows(connection: &Connection) -> Option<(&'static str, Vec<EventRow>)> {
+    for &table in EVENT_TABLES {
         let query = format!("SELECT * FROM {table} ORDER BY sequence DESC LIMIT ?");
         let Ok(mut stmt) = connection.prepare(&query) else {
             continue;
         };
-        let Ok(mut rows) = stmt.query(rusqlite::params![ROW_LIMIT]) else {
+        let Ok(rows) = stmt.query(rusqlite::params![ROW_LIMIT]) else {
             continue;
         };
-        let mut out = Vec::new();
-        while let Ok(Some(row)) = rows.next() {
-            let Some(event_type) = column_text_opt(row, "event_type") else {
-                continue;
-            };
-            let sequence = column_text_opt(row, "sequence")
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or(0);
-            let event_id = column_text_opt(row, "event_id");
-            let stream_id =
-                column_text_opt(row, "thread_id").or_else(|| column_text_opt(row, "stream_id"));
-            let aggregate_kind = column_text_opt(row, "aggregate_kind");
-            let occurred_at = column_text_opt(row, "occurred_at");
-            let payload =
-                column_text_opt(row, "payload_json").and_then(|s| serde_json::from_str(&s).ok());
-            out.push(EventRow {
-                sequence,
-                event_id,
-                stream_id,
-                aggregate_kind,
-                event_type,
-                occurred_at,
-                payload,
-            });
-        }
-        if !out.is_empty() {
-            return out;
+        let parsed = collect_event_rows(rows);
+        if !parsed.is_empty() {
+            return Some((table, parsed));
         }
     }
-    Vec::new()
+    None
+}
+
+fn read_event_batch(connection: &Connection, table: &str, after_seq: i64) -> Option<Vec<EventRow>> {
+    let query = format!("SELECT * FROM {table} WHERE sequence > ? ORDER BY sequence ASC LIMIT ?");
+    let mut stmt = connection.prepare(&query).ok()?;
+    let rows = stmt.query(rusqlite::params![after_seq, ROW_LIMIT]).ok()?;
+    Some(collect_event_rows(rows))
+}
+
+fn collect_event_rows(mut rows: rusqlite::Rows<'_>) -> Vec<EventRow> {
+    let mut out = Vec::new();
+    while let Ok(Some(row)) = rows.next() {
+        let Some(event_type) = column_text_opt(row, "event_type") else {
+            continue;
+        };
+        let sequence = column_text_opt(row, "sequence")
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(0);
+        let event_id = column_text_opt(row, "event_id");
+        let stream_id =
+            column_text_opt(row, "thread_id").or_else(|| column_text_opt(row, "stream_id"));
+        let aggregate_kind = column_text_opt(row, "aggregate_kind");
+        let occurred_at = column_text_opt(row, "occurred_at");
+        let payload =
+            column_text_opt(row, "payload_json").and_then(|s| serde_json::from_str(&s).ok());
+        out.push(EventRow {
+            sequence,
+            event_id,
+            stream_id,
+            aggregate_kind,
+            event_type,
+            occurred_at,
+            payload,
+        });
+    }
+    out
 }
 
 fn resolve_thread_id(row: &EventRow, payload: &Value) -> Option<String> {
@@ -271,6 +367,16 @@ fn resolve_project_workspace(
     workspace
 }
 
+fn update_thread_state(seen: &mut HashSet<String>, prefix: &str, value: &str) -> bool {
+    let exact = format!("{prefix}{value}");
+    if seen.contains(&exact) {
+        return false;
+    }
+    seen.retain(|entry| !entry.starts_with(prefix));
+    seen.insert(exact);
+    true
+}
+
 fn emit_thread_context(
     thread_id: &str,
     ctx: &ThreadContext,
@@ -287,7 +393,7 @@ fn emit_thread_context(
 
     if let Some(cwd) = cwd
         && let Some(project) = project_name(&cwd)
-        && seen.insert(format!("meta:{thread_id}:{project}"))
+        && update_thread_state(seen, &format!("meta:{thread_id}:"), &project)
     {
         out.push(StoreEvent {
             session: thread_id.to_string(),
@@ -300,7 +406,7 @@ fn emit_thread_context(
         .and_then(extract_model_label)
         .or_else(|| ctx.model.clone());
     if let Some(agent) = model
-        && seen.insert(format!("agent:{thread_id}:{agent}"))
+        && update_thread_state(seen, &format!("agent:{thread_id}:"), &agent)
     {
         out.push(StoreEvent {
             session: thread_id.to_string(),
@@ -792,7 +898,7 @@ mod tests {
         assert!(polled.iter().any(|e| matches!(
             &e.event,
             ParsedEvent::TrackedToolStarted { call_id, activity }
-                if call_id == "call-cmd" && activity.label == "Running tests"
+                if call_id == "call-cmd" && activity.label == "Running Rust tests"
         )));
         assert!(polled.iter().any(|e| matches!(
             &e.event,
@@ -862,5 +968,132 @@ mod tests {
             "model": "some invalid model with spaces"
         });
         assert_eq!(extract_model_label(&prose), None);
+    }
+
+    #[test]
+    fn incremental_cursor_reads_more_than_200_events_in_ascending_batches() {
+        let tmp = TempDb::new("cursor-batches");
+        let conn = tmp.conn();
+        let now = parse_timestamp_str("2026-11-25T10:00:10.000Z").unwrap();
+
+        conn.execute(
+            "INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, event_type, occurred_at, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "evt-seed",
+                "thread",
+                "thread-1",
+                "run.created",
+                "2026-11-25T10:00:00.000Z",
+                r#"{"id":"run-0","threadId":"thread-1","status":"starting"}"#
+            ],
+        )
+        .unwrap();
+
+        let mut seen = HashSet::new();
+        let first = poll_at(&tmp.path, &mut seen, now);
+        assert_eq!(first.len(), 1);
+
+        conn.execute(
+            "INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, event_type, occurred_at, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "evt-early-tool",
+                "thread",
+                "thread-1",
+                "turn-item.updated",
+                "2026-11-25T10:00:01.000Z",
+                r#"{"id":"call-early","threadId":"thread-1","type":"file_search","status":"running"}"#
+            ],
+        )
+        .unwrap();
+        for idx in 0..240 {
+            conn.execute(
+                "INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, event_type, occurred_at, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    format!("evt-burst-{idx}"),
+                    "thread",
+                    "thread-1",
+                    "turn-item.updated",
+                    "2026-11-25T10:00:02.000Z",
+                    r#"{"id":"msg-burst","threadId":"thread-1","type":"reasoning","status":"running"}"#
+                ],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, event_type, occurred_at, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "evt-complete",
+                "thread",
+                "thread-1",
+                "run.updated",
+                "2026-11-25T10:00:03.000Z",
+                r#"{"id":"run-0","threadId":"thread-1","status":"completed"}"#
+            ],
+        )
+        .unwrap();
+
+        let polled = poll_at(&tmp.path, &mut seen, now + 2_000);
+        assert!(polled.iter().any(|e| matches!(
+            &e.event,
+            ParsedEvent::TrackedToolStarted { call_id, .. } if call_id == "call-early"
+        )));
+        assert!(matches!(
+            polled.last().map(|e| &e.event),
+            Some(ParsedEvent::Completed)
+        ));
+        assert!(poll_at(&tmp.path, &mut seen, now + 4_000).is_empty());
+    }
+
+    #[test]
+    fn thread_context_reemits_when_model_or_project_returns_to_earlier_value() {
+        let tmp = TempDb::new("context-return");
+        let conn = tmp.conn();
+        let now = parse_timestamp_str("2026-11-25T10:00:10.000Z").unwrap();
+
+        let rows = [
+            (
+                "evt-a1",
+                r#"{"id":"run-1","threadId":"thread-1","status":"starting","worktreePath":"C:\\repo\\alpha","modelSelection":{"model":"model-a"}}"#,
+            ),
+            (
+                "evt-a2",
+                r#"{"id":"run-1","threadId":"thread-1","status":"running","worktreePath":"C:\\repo\\alpha","modelSelection":{"model":"model-a"}}"#,
+            ),
+            (
+                "evt-b",
+                r#"{"id":"run-2","threadId":"thread-1","status":"starting","worktreePath":"C:\\repo\\beta","modelSelection":{"model":"model-b"}}"#,
+            ),
+            (
+                "evt-a3",
+                r#"{"id":"run-3","threadId":"thread-1","status":"starting","worktreePath":"C:\\repo\\alpha","modelSelection":{"model":"model-a"}}"#,
+            ),
+        ];
+        for (id, payload) in rows {
+            conn.execute(
+                "INSERT INTO orchestration_events (event_id, aggregate_kind, stream_id, event_type, occurred_at, payload_json) VALUES (?1, 'thread', 'thread-1', 'run.created', '2026-11-25T10:00:01.000Z', ?2)",
+                rusqlite::params![id, payload],
+            )
+            .unwrap();
+        }
+
+        let mut seen = HashSet::new();
+        let polled = poll_at(&tmp.path, &mut seen, now);
+        let agents: Vec<&str> = polled
+            .iter()
+            .filter_map(|e| match &e.event {
+                ParsedEvent::AgentDetected { agent } => Some(agent.as_str()),
+                _ => None,
+            })
+            .collect();
+        let projects: Vec<&str> = polled
+            .iter()
+            .filter_map(|e| match &e.event {
+                ParsedEvent::SessionMetadata { project, .. } => Some(project.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(agents, vec!["model-a", "model-b", "model-a"]);
+        assert_eq!(projects, vec!["alpha", "beta", "alpha"]);
     }
 }

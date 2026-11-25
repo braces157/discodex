@@ -3494,7 +3494,14 @@ fn add_usage(
         );
         let hour = dt.hour() as u8;
         let (hour_key, hour_start) = if totals.rolling_hourly {
-            match current_hour_start_ms(record.time) {
+            let aligned_start = totals
+                .since
+                .map(|window_start| {
+                    let slot = (record.time - window_start).div_euclid(HOUR_MS);
+                    window_start + slot * HOUR_MS
+                })
+                .or_else(|| current_hour_start_ms(record.time));
+            match aligned_start {
                 Some(start_ms) => (start_ms, Some(start_ms)),
                 None => (i64::from(hour), None),
             }

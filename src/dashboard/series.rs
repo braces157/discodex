@@ -194,6 +194,33 @@ pub fn build_chart_series(
     (points, truncated, false)
 }
 
+fn merge_usage_hour(slot: &mut Option<UsageHour>, next: &UsageHour) {
+    let Some(acc) = slot.as_mut() else {
+        *slot = Some(next.clone());
+        return;
+    };
+    acc.input_tokens = match (acc.input_tokens, next.input_tokens) {
+        (Some(a), Some(b)) => Some(a.saturating_add(b)),
+        _ => None,
+    };
+    acc.cached_input_tokens = match (acc.cached_input_tokens, next.cached_input_tokens) {
+        (Some(a), Some(b)) => Some(a.saturating_add(b)),
+        _ => None,
+    };
+    acc.output_tokens = match (acc.output_tokens, next.output_tokens) {
+        (Some(a), Some(b)) => Some(a.saturating_add(b)),
+        _ => None,
+    };
+    acc.estimated_cost_usd = match (acc.estimated_cost_usd, next.estimated_cost_usd) {
+        (Some(a), Some(b)) => {
+            let sum = a + b;
+            sum.is_finite().then_some(sum)
+        }
+        _ => None,
+    };
+    acc.requests = acc.requests.saturating_add(next.requests);
+}
+
 fn build_hourly_series(
     snapshot: &UsageSnapshot,
     provider_filter: Option<&str>,
@@ -210,32 +237,6 @@ fn build_hourly_series(
     if active_hours.is_empty() {
         return (Vec::new(), false, true);
     }
-    let mut by_start: BTreeMap<i64, &UsageHour> = BTreeMap::new();
-    let mut by_hour: BTreeMap<u8, &UsageHour> = BTreeMap::new();
-    for h in active_hours {
-        if let Some(start_ms) = h.start_ms {
-            by_start.insert(start_ms, h);
-        } else {
-            by_hour.insert(h.hour, h);
-        }
-    }
-    let mut prov_start_tok: BTreeMap<(&str, i64), u64> = BTreeMap::new();
-    let mut prov_hour_tok: BTreeMap<(&str, u8), u64> = BTreeMap::new();
-    for slug in provider_order {
-        if let Some(list) = snapshot.hourly_by_provider.get(slug) {
-            for item in list {
-                let tok = item
-                    .input_tokens
-                    .unwrap_or_default()
-                    .saturating_add(item.output_tokens.unwrap_or_default());
-                if let Some(start_ms) = item.start_ms {
-                    prov_start_tok.insert((slug.as_str(), start_ms), tok);
-                } else {
-                    prov_hour_tok.insert((slug.as_str(), item.hour), tok);
-                }
-            }
-        }
-    }
     let window_start = (snapshot.refreshed_at_ms > 0)
         .then(|| UsagePeriod::Last24h.since_ms(snapshot.refreshed_at_ms))
         .flatten();
@@ -247,9 +248,50 @@ fn build_hourly_series(
                 .map(|dt| dt.date_naive())
         })
         .flatten();
+    let mut by_slot: Vec<Option<UsageHour>> = vec![None; ROLLING_HOURS as usize];
+    let mut by_hour: BTreeMap<u8, UsageHour> = BTreeMap::new();
+    for h in active_hours {
+        if let (Some(win_start), Some(start_ms)) = (window_start, h.start_ms) {
+            let slot = (start_ms - win_start).div_euclid(HOUR_MS);
+            if (0..ROLLING_HOURS).contains(&slot) {
+                merge_usage_hour(&mut by_slot[slot as usize], h);
+            }
+        } else {
+            let mut slot = by_hour.remove(&h.hour);
+            merge_usage_hour(&mut slot, h);
+            if let Some(merged) = slot {
+                by_hour.insert(h.hour, merged);
+            }
+        }
+    }
+    let mut prov_slot_tok: BTreeMap<(&str, usize), u64> = BTreeMap::new();
+    let mut prov_hour_tok: BTreeMap<(&str, u8), u64> = BTreeMap::new();
+    for slug in provider_order {
+        if let Some(list) = snapshot.hourly_by_provider.get(slug) {
+            for item in list {
+                let tok = item
+                    .input_tokens
+                    .unwrap_or_default()
+                    .saturating_add(item.output_tokens.unwrap_or_default());
+                if let (Some(win_start), Some(start_ms)) = (window_start, item.start_ms) {
+                    let slot = (start_ms - win_start).div_euclid(HOUR_MS);
+                    if (0..ROLLING_HOURS).contains(&slot) {
+                        let entry = prov_slot_tok
+                            .entry((slug.as_str(), slot as usize))
+                            .or_default();
+                        *entry = entry.saturating_add(tok);
+                    }
+                } else {
+                    let entry = prov_hour_tok.entry((slug.as_str(), item.hour)).or_default();
+                    *entry = entry.saturating_add(tok);
+                }
+            }
+        }
+    }
     let points = (0..ROLLING_HOURS)
         .map(|slot| {
-            let (hour, slot_start_ms, label, hover_title) = if let Some(win_start) = window_start
+            let slot_idx = slot as usize;
+            let (hour, label, hover_title) = if let Some(win_start) = window_start
                 && let Some(start_dt) = Local
                     .timestamp_millis_opt(win_start + slot * HOUR_MS)
                     .single()
@@ -268,7 +310,6 @@ fn build_hourly_series(
                 };
                 (
                     h,
-                    Some(win_start + slot * HOUR_MS),
                     format!("{h:02}:00"),
                     format!("{day_prefix} · {h:02}:00–{end_h:02}:00"),
                 )
@@ -276,14 +317,11 @@ fn build_hourly_series(
                 let h = slot as u8;
                 (
                     h,
-                    None,
                     format!("{h:02}:00"),
                     format!("Last 24h · {h:02}:00–{:02}:00", (h + 1) % 24),
                 )
             };
-            let entry = slot_start_ms
-                .and_then(|ms| by_start.get(&ms).copied())
-                .or_else(|| by_hour.get(&hour).copied());
+            let entry = by_slot[slot_idx].as_ref().or_else(|| by_hour.get(&hour));
             let Some(entry) = entry else {
                 return ChartPoint {
                     label,
@@ -306,8 +344,9 @@ fn build_hourly_series(
             let by_provider = provider_order
                 .iter()
                 .map(|slug| {
-                    let tok = slot_start_ms
-                        .and_then(|ms| prov_start_tok.get(&(slug.as_str(), ms)).copied())
+                    let tok = prov_slot_tok
+                        .get(&(slug.as_str(), slot_idx))
+                        .copied()
                         .or_else(|| prov_hour_tok.get(&(slug.as_str(), hour)).copied())
                         .unwrap_or_default();
                     (slug.clone(), tok)
@@ -692,5 +731,63 @@ mod tests {
         assert_eq!(cost_24h[11], Some(0.05));
         assert_eq!(cost_24h[22], Some(0.12));
         assert_eq!(day_value(&all_daily[0], Metric::Tokens), Some(1_200.0));
+    }
+
+    #[test]
+    fn hourly_series_maps_off_grid_half_hour_buckets_to_containing_slot() {
+        let at = Local
+            .with_ymd_and_hms(2026, 11, 21, 10, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let win_start = UsagePeriod::Last24h.since_ms(at).unwrap();
+        let half_hour_ms = 30 * 60_000;
+        let shifted = UsageHour {
+            hour: 13,
+            start_ms: Some(win_start + 2 * HOUR_MS + half_hour_ms),
+            input_tokens: Some(400),
+            cached_input_tokens: Some(100),
+            output_tokens: Some(50),
+            estimated_cost_usd: Some(0.08),
+            requests: 2,
+        };
+        let aligned = UsageHour {
+            hour: 13,
+            start_ms: Some(win_start + 2 * HOUR_MS),
+            input_tokens: Some(200),
+            cached_input_tokens: Some(50),
+            output_tokens: Some(25),
+            estimated_cost_usd: Some(0.04),
+            requests: 1,
+        };
+        let mut hourly_by_provider = BTreeMap::new();
+        hourly_by_provider.insert("codex".to_string(), vec![shifted.clone(), aligned.clone()]);
+        let snap = UsageSnapshot {
+            hourly: vec![shifted, aligned],
+            hourly_by_provider,
+            refreshed_at_ms: at,
+            ..Default::default()
+        };
+
+        let providers = vec!["codex".to_string()];
+        let (pts, truncated, is_hourly) =
+            build_chart_series(&snap, UsagePeriod::Last24h, None, &providers);
+        assert!(!truncated);
+        assert!(is_hourly);
+        assert_eq!(pts[2].input, 600);
+        assert_eq!(pts[2].cached_read, 150);
+        assert_eq!(pts[2].fresh_input, 450);
+        assert_eq!(pts[2].output, 75);
+        assert_eq!(pts[2].requests, 3);
+        assert!((pts[2].cost.unwrap() - 0.12).abs() < 1e-9);
+        assert_eq!(pts[2].by_provider, vec![("codex".to_string(), 675)]);
+
+        let bundle = UsageBundle {
+            last_24h: snap,
+            ..Default::default()
+        };
+        let (tok, cost) = build_sparkline_series(Some(&bundle), &[], UsagePeriod::Last24h, None);
+        assert_eq!(tok[2], Some(675.0));
+        assert!((cost[2].unwrap() - 0.12).abs() < 1e-9);
     }
 }
